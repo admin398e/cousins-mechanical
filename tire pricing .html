@@ -1,0 +1,375 @@
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tire Subscription Business Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #f4f4f9;
+            --card-bg: #ffffff;
+            --primary: #2b2d42;
+            --secondary: #8d99ae;
+            --accent: #ef233c;
+            --text-dark: #1a1a24;
+            --text-light: #ffffff;
+            --success: #28a745;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-dark);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: var(--primary);
+            margin-bottom: 30px;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 3fr;
+            gap: 20px;
+        }
+        @media (max-width: 900px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--bg-color);
+            padding-bottom: 10px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+        .input-group input[type="number"], .input-group input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .input-group input[type="range"] {
+            padding: 0;
+        }
+        .slider-value {
+            float: right;
+            color: var(--accent);
+            font-weight: bold;
+        }
+        .toggle-container {
+            background-color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border-left: 4px solid var(--primary);
+        }
+        .toggle-container label {
+            display: flex;
+            align-items: center;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .toggle-container input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        .tier-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        .tier-card {
+            border: 2px solid var(--secondary);
+        }
+        .tier-header {
+            background-color: var(--primary);
+            color: var(--text-light);
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .results-box {
+            background-color: var(--bg-color);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        .results-box div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+        .results-box .highlight {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--primary);
+            border-top: 1px solid #ccc;
+            padding-top: 8px;
+            margin-top: 5px;
+        }
+        .grand-totals {
+            display: flex;
+            justify-content: space-around;
+            background-color: var(--primary);
+            color: var(--text-light);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .grand-totals div {
+            flex: 1;
+        }
+        .total-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .profit-value {
+            color: #4ade80;
+        }
+        .cost-value {
+            color: #f87171;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Tire Subscription Business Dashboard</h1>
+
+    <div class="dashboard-grid">
+        <!-- Global Settings Sidebar -->
+        <div class="card">
+            <div class="card-title">Global Settings</div>
+            
+            <div class="input-group">
+                <label>Churn Rate (Cancellations) <span class="slider-value" id="churn-val">5%</span></label>
+                <input type="range" id="global-churn" min="0" max="100" value="5" step="1">
+            </div>
+            
+            <div class="input-group">
+                <label>Claim Rate (Need Tires) <span class="slider-value" id="claim-val">50%</span></label>
+                <input type="range" id="global-claim" min="0" max="100" value="50" step="1">
+            </div>
+            
+            <!-- NEW TOGGLE BUTTON -->
+            <div class="toggle-container">
+                <label>
+                    <input type="checkbox" id="global-free-set" onchange="calculate()">
+                    Add Free Set Every 4 Years
+                </label>
+                <p style="font-size: 0.8rem; margin-top: 8px; margin-bottom: 0; color: #4a5568; font-weight: normal;">
+                    Automatically deducts the annualized cost (1 tire per year) for every active customer to fund their guaranteed replacement.
+                </p>
+            </div>
+            
+            <div style="font-size: 0.85rem; color: #666; margin-top: 20px;">
+                <p><strong>Churn Rate:</strong> % of starting customers who cancel their subscription.</p>
+                <p><strong>Claim Rate:</strong> % of active customers who hit the wear limit and claim a full set of 4 tires.</p>
+            </div>
+        </div>
+
+        <!-- Tiers Area -->
+        <div>
+            <div class="tier-grid">
+                
+                <!-- Budget Tier -->
+                <div class="card tier-card">
+                    <div class="tier-header">Budget Tier</div>
+                    <div class="input-group">
+                        <label>Tire Cost (£)</label>
+                        <input type="number" id="budget-cost" value="44.90" step="0.10">
+                    </div>
+                    <div class="input-group">
+                        <label>Markup (%)</label>
+                        <input type="number" id="budget-markup" value="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label>Starting Customers</label>
+                        <input type="number" id="budget-customers" value="20" step="1">
+                    </div>
+                    <div class="results-box">
+                        <div><span>Monthly Price:</span> <strong id="budget-monthly">£0.00</strong></div>
+                        <div><span>Active Cust.:</span> <strong id="budget-active">0</strong></div>
+                        <div class="highlight"><span>Tier Revenue:</span> <span id="budget-rev">£0.00</span></div>
+                        <div class="highlight" style="color: #28a745;"><span>Tier Profit:</span> <span id="budget-profit">£0.00</span></div>
+                    </div>
+                </div>
+
+                <!-- Medium Tier -->
+                <div class="card tier-card">
+                    <div class="tier-header" style="background-color: #4a4e69;">Medium Tier</div>
+                    <div class="input-group">
+                        <label>Tire Cost (£)</label>
+                        <input type="number" id="medium-cost" value="75.00" step="0.10">
+                    </div>
+                    <div class="input-group">
+                        <label>Markup (%)</label>
+                        <input type="number" id="medium-markup" value="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label>Starting Customers</label>
+                        <input type="number" id="medium-customers" value="10" step="1">
+                    </div>
+                    <div class="results-box">
+                        <div><span>Monthly Price:</span> <strong id="medium-monthly">£0.00</strong></div>
+                        <div><span>Active Cust.:</span> <strong id="medium-active">0</strong></div>
+                        <div class="highlight"><span>Tier Revenue:</span> <span id="medium-rev">£0.00</span></div>
+                        <div class="highlight" style="color: #28a745;"><span>Tier Profit:</span> <span id="medium-profit">£0.00</span></div>
+                    </div>
+                </div>
+
+                <!-- Premium Tier -->
+                <div class="card tier-card">
+                    <div class="tier-header" style="background-color: #22223b;">Premium Tier</div>
+                    <div class="input-group">
+                        <label>Tire Cost (£)</label>
+                        <input type="number" id="premium-cost" value="120.00" step="0.10">
+                    </div>
+                    <div class="input-group">
+                        <label>Markup (%)</label>
+                        <input type="number" id="premium-markup" value="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label>Starting Customers</label>
+                        <input type="number" id="premium-customers" value="5" step="1">
+                    </div>
+                    <div class="results-box">
+                        <div><span>Monthly Price:</span> <strong id="premium-monthly">£0.00</strong></div>
+                        <div><span>Active Cust.:</span> <strong id="premium-active">0</strong></div>
+                        <div class="highlight"><span>Tier Revenue:</span> <span id="premium-rev">£0.00</span></div>
+                        <div class="highlight" style="color: #28a745;"><span>Tier Profit:</span> <span id="premium-profit">£0.00</span></div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Grand Totals -->
+    <div class="grand-totals">
+        <div>
+            <div style="font-size: 1.2rem; text-transform: uppercase;">Total Annual Revenue</div>
+            <div class="total-value" id="grand-revenue">£0.00</div>
+        </div>
+        <div style="border-left: 2px solid #4a4e69; border-right: 2px solid #4a4e69;">
+            <div style="font-size: 1.2rem; text-transform: uppercase;">Total Costs (Claims + Refunds)</div>
+            <div class="total-value cost-value" id="grand-costs">£0.00</div>
+        </div>
+        <div>
+            <div style="font-size: 1.2rem; text-transform: uppercase;">Net Annual Profit</div>
+            <div class="total-value profit-value" id="grand-profit">£0.00</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Helper to format currency
+    const formatCurrency = (num) => '£' + num.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    function calculate() {
+        // Get Global Values
+        const churnRate = parseFloat(document.getElementById('global-churn').value) / 100;
+        const claimRate = parseFloat(document.getElementById('global-claim').value) / 100;
+        const offerFreeSet = document.getElementById('global-free-set').checked;
+        
+        // Update slider text
+        document.getElementById('churn-val').innerText = (churnRate * 100).toFixed(0) + '%';
+        document.getElementById('claim-val').innerText = (claimRate * 100).toFixed(0) + '%';
+
+        const tiers = ['budget', 'medium', 'premium'];
+        let grandRevenue = 0;
+        let grandCosts = 0;
+        let grandProfit = 0;
+
+        tiers.forEach(tier => {
+            // Get Tier Inputs
+            const cost = parseFloat(document.getElementById(`${tier}-cost`).value) || 0;
+            const markup = parseFloat(document.getElementById(`${tier}-markup`).value) / 100 || 0;
+            const startCustomers = parseFloat(document.getElementById(`${tier}-customers`).value) || 0;
+
+            // Math Logic
+            const setCost = cost * 4;
+            const yearlyPrice = setCost * (1 + markup);
+            const refundAmount = yearlyPrice * 0.25;
+            
+            const activeCustomers = startCustomers * (1 - churnRate);
+            const revenue = activeCustomers * yearlyPrice;
+            
+            // Standard Costs
+            const claimCosts = (activeCustomers * claimRate) * setCost;
+            const refundCosts = (activeCustomers * (1 - claimRate)) * refundAmount;
+            
+            // 4-Year Free Set Cost (Cost of 1 tire per year per active customer)
+            let loyaltyCost = 0;
+            if (offerFreeSet) {
+                loyaltyCost = activeCustomers * cost; 
+            }
+
+            const totalTierCosts = claimCosts + refundCosts + loyaltyCost;
+            const profit = revenue - totalTierCosts;
+
+            // Add to Grand Totals
+            grandRevenue += revenue;
+            grandCosts += totalTierCosts;
+            grandProfit += profit;
+
+            // Update Tier UI
+            document.getElementById(`${tier}-monthly`).innerText = formatCurrency(yearlyPrice / 12);
+            document.getElementById(`${tier}-active`).innerText = activeCustomers.toFixed(1);
+            document.getElementById(`${tier}-rev`).innerText = formatCurrency(revenue);
+            document.getElementById(`${tier}-profit`).innerText = formatCurrency(profit);
+        });
+
+        // Update Grand Totals UI
+        document.getElementById('grand-revenue').innerText = formatCurrency(grandRevenue);
+        document.getElementById('grand-costs').innerText = formatCurrency(grandCosts);
+        document.getElementById('grand-profit').innerText = formatCurrency(grandProfit);
+    }
+
+    // Add event listeners to all inputs to trigger calculation instantly
+    document.querySelectorAll('input').forEach(input => {
+        input.addEventListener('input', calculate);
+    });
+
+    // Run once on load
+    calculate();
+</script>
+
+</body>
+</html>
+
+```

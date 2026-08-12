@@ -1,0 +1,31 @@
+# Secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+firebase-applet-config.json
+firebase-service-account*.json
+gcal-service-account*.json
+
+# Dependencies & build state
+node_modules/
+.wrangler/
+dist/
+
+# Local scratch
+screenshots/
+uploads/
+*.log
+
+# OS noise
+.DS_Store
+._*
+Thumbs.db
+
+# Finder duplicates — these caused ~40 MB of junk in the old repo
+* 2.*
+* 3.*
+*\ copy.*
+
+# Large regenerable scrape artefacts (rebuild with ctyres_scraper.py)
+ctyres_catalogue.zip

@@ -1,0 +1,29 @@
+{
+  "name": "cousins-mechanical",
+  "version": "1.0.0",
+  "description": "Cousins Mechanical Services — mobile mechanic & tyre fitting site, admin portal, driver app and Cloudflare Worker backend.",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "worker.js",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server.js",
+    "start": "node --env-file-if-exists=.env server.js",
+    "build": "node build.js",
+    "check": "node --check server.js && node --check tyre-data.js && node --check tyre-db.js && node --check build.js && node --check worker.js",
+    "test": "node --env-file-if-exists=.env test/smoke.test.js",
+    "verify": "npm run check && npm run build && npm test",
+    "predeploy": "npm run verify",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "firebase-admin": "^14.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

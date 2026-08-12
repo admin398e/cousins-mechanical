@@ -1,0 +1,28 @@
+# Cousins Mechanical Services
+User-agent: *
+Allow: /
+
+# Staff-only areas — never index these
+Disallow: /admin
+Disallow: /admin.html
+Disallow: /driver
+Disallow: /driver.html
+
+# API responses are not pages
+Disallow: /api/
+Disallow: /ukvd
+Disallow: /v1/
+
+# Internal pricing worksheets
+Disallow: /pricingworkout.html
+Disallow: /tyre_finder.html
+Disallow: /ctyres_catalogue.html
+
+# Block the AI scrapers that ignore commercial value but keep Google/Bing
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+Sitemap: https://cousinsmechanicalservices.co.uk/sitemap.xml

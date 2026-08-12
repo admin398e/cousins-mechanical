@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Profit & Time Analyzer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #2980b9;
+            color: white;
+            font-size: 14px;
+        }
+        input[type="text"], input[type="number"] {
+            width: 90%;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .calculated {
+            background-color: #e8f6f3;
+            font-weight: bold;
+            color: #16a085;
+        }
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #2ecc71;
+        }
+        .summary-box {
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .summary-item {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Profit & Time Analyzer ("The Beach Vision")</h1>
+    <p>Enter the job details below. The direct costs, net profit, margin, and hourly profit rate will calculate automatically.</p>
+
+    <table id="jobTable">
+        <thead>
+            <tr>
+                <th>Job / Service Category</th>
+                <th>Revenue Charged (£)</th>
+                <th>Parts Cost (£)</th>
+                <th>Fuel/Travel (£)</th>
+                <th>Misc/Overhead (£)</th>
+                <th>Total Time (Hours)</th>
+                <th>Total Direct Cost (£)</th>
+                <th>Net Profit (£)</th>
+                <th>Profit Margin (%)</th>
+                <th>Profit Per Hour (£/hr)</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+            <!-- Initial Row -->
+            <tr>
+                <td><input type="text" class="category" value="Mobile Tyre" placeholder="e.g., Mobile Tyre"></td>
+                <td><input type="number" class="revenue" value="0" min="0" step="0.01"></td>
+                <td><input type="number" class="parts" value="0" min="0" step="0.01"></td>
+                <td><input type="number" class="fuel" value="0" min="0" step="0.01"></td>
+                <td><input type="number" class="misc" value="0" min="0" step="0.01"></td>
+                <td><input type="number" class="time" value="0" min="0" step="0.1"></td>
+                <td class="calculated totalCost">£0.00</td>
+                <td class="calculated netProfit">£0.00</td>
+                <td class="calculated margin">0.00%</td>
+                <td class="calculated profitPerHour">£0.00</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <button onclick="addRow()">+ Add Another Job</button>
+
+    <div class="summary-box" id="summaryBox">
+        <h2>Performance Summary</h2>
+        <div id="summaryContent">
+            <em>Enter data above to see averages and totals by category here.</em>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Listen for any input changes in the table to recalculate
+    document.getElementById('tableBody').addEventListener('input', calculateMath);
+
+    function addRow() {
+        const tbody = document.getElementById('tableBody');
+        const newRow = document.createElement('tr');
+        newRow.innerHTML = `
+            <td><input type="text" class="category" value="" placeholder="e.g., Mechanic Job"></td>
+            <td><input type="number" class="revenue" value="0" min="0" step="0.01"></td>
+            <td><input type="number" class="parts" value="0" min="0" step="0.01"></td>
+            <td><input type="number" class="fuel" value="0" min="0" step="0.01"></td>
+            <td><input type="number" class="misc" value="0" min="0" step="0.01"></td>
+            <td><input type="number" class="time" value="0" min="0" step="0.1"></td>
+            <td class="calculated totalCost">£0.00</td>
+            <td class="calculated netProfit">£0.00</td>
+            <td class="calculated margin">0.00%</td>
+            <td class="calculated profitPerHour">£0.00</td>
+        `;
+        tbody.appendChild(newRow);
+    }
+
+    function calculateMath() {
+        const rows = document.querySelectorAll('#tableBody tr');
+        let categoryData = {};
+
+        rows.forEach(row => {
+            // Get input values
+            let category = row.querySelector('.category').value.trim() || 'Uncategorized';
+            let rev = parseFloat(row.querySelector('.revenue').value) || 0;
+            let parts = parseFloat(row.querySelector('.parts').value) || 0;
+            let fuel = parseFloat(row.querySelector('.fuel').value) || 0;
+            let misc = parseFloat(row.querySelector('.misc').value) || 0;
+            let time = parseFloat(row.querySelector('.time').value) || 0;
+
+            // Math calculations
+            let totalCost = parts + fuel + misc;
+            let netProfit = rev - totalCost;
+            let margin = rev > 0 ? (netProfit / rev) * 100 : 0;
+            let profitPerHour = time > 0 ? (netProfit / time) : 0;
+
+            // Update the row HTML
+            row.querySelector('.totalCost').innerText = '£' + totalCost.toFixed(2);
+            row.querySelector('.netProfit').innerText = '£' + netProfit.toFixed(2);
+            row.querySelector('.margin').innerText = margin.toFixed(2) + '%';
+            row.querySelector('.profitPerHour').innerText = '£' + profitPerHour.toFixed(2);
+
+            // Group data for the summary section
+            if (!categoryData[category]) {
+                categoryData[category] = { totalProfit: 0, totalHours: 0, totalRevenue: 0 };
+            }
+            categoryData[category].totalProfit += netProfit;
+            categoryData[category].totalHours += time;
+            categoryData[category].totalRevenue += rev;
+        });
+
+        updateSummary(categoryData);
+    }
+
+    function updateSummary(data) {
+        const summaryContent = document.getElementById('summaryContent');
+        summaryContent.innerHTML = ''; // clear old summary
+
+        if (Object.keys(data).length === 0) {
+            summaryContent.innerHTML = '<em>Enter data above to see averages and totals by category here.</em>';
+            return;
+        }
+
+        for (const [category, stats] of Object.entries(data)) {
+            let avgProfitPerHour = stats.totalHours > 0 ? (stats.totalProfit / stats.totalHours) : 0;
+            let avgMargin = stats.totalRevenue > 0 ? (stats.totalProfit / stats.totalRevenue) * 100 : 0;
+
+            const div = document.createElement('div');
+            div.className = 'summary-item';
+            div.innerHTML = `
+                <strong>${category}</strong><br>
+                Total Net Profit: £${stats.totalProfit.toFixed(2)} | 
+                Average Margin: ${avgMargin.toFixed(2)}% | 
+                <span style="color:#d35400; font-weight:bold;">Average Profit Per Hour: £${avgProfitPerHour.toFixed(2)}/hr</span>
+                <hr style="border: 0; border-top: 1px solid #ccc; margin: 10px 0;">
+            `;
+            summaryContent.appendChild(div);
+        }
+    }
+</script>
+
+</body>
+</html>

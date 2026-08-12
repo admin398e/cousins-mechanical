@@ -1,0 +1,91 @@
+# Cousins Mechanical — Cloudflare Worker config
+#
+# Deploy with:  npm run deploy      (runs the checks + build first)
+# Tail logs:    npx wrangler tail
+
+name = "cousins-mechanical"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Node built-ins the Worker may reach for. Safe to keep on.
+compatibility_flags = ["nodejs_compat"]
+
+# Fail the deploy rather than shipping a Worker that silently exceeds limits.
+[limits]
+cpu_ms = 50
+
+# ---------------------------------------------------------------------------
+# Static site
+#
+# Serves ./public — the built HTML pages, images, support.js and the tyre
+# catalogue JSON. The Worker also reads the catalogue back through this binding
+# (see tyreData() in worker.js), so `npm run build` must run before deploy or
+# live tyre pricing will fall back to placeholders.
+# ---------------------------------------------------------------------------
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# ---------------------------------------------------------------------------
+# Custom domain — the Worker serves the site and the API on the real domain.
+# The zone must already be on Cloudflare.
+# ---------------------------------------------------------------------------
+[[routes]]
+pattern = "cousinsmechanicalservices.co.uk"
+custom_domain = true
+
+[[routes]]
+pattern = "www.cousinsmechanicalservices.co.uk"
+custom_domain = true
+
+# ---------------------------------------------------------------------------
+# KV — customer accounts, sessions, bookings, drivers, inventory, live driver
+# GPS, rate-limit counters and the GDPR audit log all live here.
+#
+# Create with:  npx wrangler kv namespace create CMS_KV
+# then paste the returned id below. The id is not a secret.
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "CMS_KV"
+id = "cdd61c6aa2564cfea5af8afc48f7e947"
+
+# GDPR storage limitation — purges finished jobs daily at 03:00 UTC.
+[triggers]
+crons = ["0 3 * * *"]
+
+# ---------------------------------------------------------------------------
+# SECRETS — set each with `npx wrangler secret put NAME`. Never commit values.
+# See .env.example for what each one is and where to get it.
+#
+#   Required to run:
+#     SESSION_PEPPER      password-hash pepper       (openssl rand -hex 32)
+#     ADMIN_TOKEN         admin dashboard password   (openssl rand -hex 32)
+#     OVERRIDE_TOKEN      owner master key / 2FA reset (openssl rand -hex 32)
+#     SITE_URL            https://cousinsmechanicalservices.co.uk
+#
+#   Required to confirm a booking to a customer:
+#     RESEND_API_KEY      resend.com — free 3,000 emails/month
+#     MAIL_FROM           address on a domain verified in Resend
+#     GCAL_CLIENT_EMAIL   Google service-account email
+#     GCAL_PRIVATE_KEY    service-account private key (PEM, keep the \n)
+#     GCAL_CALENDAR_ID    calendar shared with that service account
+#
+#   Customer texts — pick ONE pair:
+#     WHATSAPP_TOKEN + WHATSAPP_PHONE_ID     (cheaper)
+#     TWILIO_SID + TWILIO_TOKEN + TWILIO_FROM
+#     OWNER_PHONE         owner's mobile, E.164 — alerts on new messages
+#
+#   Number-plate lookup (site works without it, using a default tyre size):
+#     UKVD_API_KEY        UK Vehicle Data Global
+#     UKVD_BASE           only for a sandbox key
+#     TIRE_API_KEY        tire.vdim.app fitment
+#
+#   Google sign-in (optional):
+#     FIREBASE_WEB_CONFIG public Firebase web config, one line of JSON
+#     ADMIN_EMAILS        comma-separated admin Google accounts — REQUIRED if
+#                         Google sign-in is on, or any customer who signs in
+#                         could claim an admin session
+#
+#   Optional:
+#     EXTRA_ORIGINS       extra browser origins allowed to call the API
+# ---------------------------------------------------------------------------

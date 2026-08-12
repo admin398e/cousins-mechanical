@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Page Not Found</title>
+<meta name="description" content="Buy car, van and 4x4 tyres online select from budget, branded and premium tyres we have tyres for all budgets."  />
+<meta name="keywords" content="car tyres, tyres online, tyres, tyres delivered, tyres fitted"  />
+<!-- BootStrap File -->
+
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/bootstrap.css">
+<!-- Awesome font -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/font-awesome.min.css">
+<!-- carousel slider -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/owl.carousel.css">
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/owl.theme.css">
+<!-- Animate -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/animate.css">
+<!-- Popup Newsletter -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/magnific-popup.css">
+<!-- Main File Style -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/style.css">
+<!-- Menu -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/responsive-menu.css">
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/responsive.css">
+<!-- CSS for Fraction Slider on Violet Store -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/bjqs.css">
+<!-- Custom Color -->
+<!-- <link rel="stylesheet" href="css/green.css"> -->
+<!-- <link rel="stylesheet" href="css/red.css"> -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/violet.css">
+<!--import source-sans-pro for pre-fetching in mobile clients and Older browsers -->
+<link href='https://www.ctyres.co.uk/css/GoogleSourceSansPro.css' rel='stylesheet' type='text/css'>
+<!--Price Rang -->
+<link rel="stylesheet" href="https://www.ctyres.co.uk/css/price_range_jquery-ui.css">
+<link type='text/css' rel="stylesheet" href="https://www.ctyres.co.uk/css/bootstrap.min.css" />
+<link type='text/css' rel="stylesheet" href="https://www.ctyres.co.uk/css/bootstrap-reset.css" />
+<!-- Validation form -->
+<link type='text/css' rel="stylesheet" href="https://www.ctyres.co.uk/css/bootstrapValidator.min.css" />
+<!-- Validation form -->
+<!--Datepicker -->
+
+<!-- Fix ie9  -->
+<!--[if IE 9]>
+		<link rel="stylesheet" type="text/css" href="css/ie9.css">
+		<![endif]-->
+		
+<script src="https://www.ctyres.co.uk/js/jquery.min.js"></script>	
+		
+</head>
+<body class="" style="height:auto;">
+<section class="header-wrap">
+  <div class="header">
+    <div class="outer">
+      <div class="row">
+        <div class="col-md-3 col-md-3 col-md-3" style="padding-left:0 !important;" >
+          <div class="logo marginB10"> <a href="https://www.ctyres.co.uk/" title="Page Not Found"><img class="logo-violet" src="https://www.ctyres.co.uk/images/new_logo.png" style="padding-left: 3px;" alt="CTyres.co.uk"></a> </div>
+        </div>
+        <div class="col-md-9">
+          <div class="hotline-yourcart" >
+            <div class="hot-line" style="color: #00224e; font-size: 18px;">
+              
+            </div>
+                 
+            <div id="" class="hot-line" style="color: #00224e; font-size: 18px;">
+              <p style="font-size: 11px;"> </p>
+            </div>
+            <div class="top-cart-wrapper1">
+              <div class="top-cart-title clearfix">
+                <div class="title-cart">
+                  <div class="hot-line" style="float:left; color: #254060; font-size: 12px; padding-left:20px;"><img src="https://www.ctyres.co.uk/images/basket.png" alt="basket icon" />&nbsp; Basket <span id="head_basket">(0)&nbsp;&#163;0.00</span></div>
+                  <!-- Amount Product -->
+                </div>
+              </div>
+              <div class="top-cart-content" id="top_basket_html"> 					<!--<p class="no-products">You have no items in your basket.</p>-->               </div>
+            </div>
+			
+						
+			
+          </div>
+        </div>
+      </div>
+      <!-- /row -->
+    </div>
+    <!-- /container -->
+  </div>
+  <!-- /header -->
+  <div class="menu_out">
+  <div class="main-nav" style="line-height: 0.42; padding-left:0; ">
+    <div class="outer">
+      <!--  Navbar menu -->
+   
+      <ul class="mega-nav clearfix level0" >
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/">Home</a> </li>
+      
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/tyre-reviews">Tyre Reviews</a> </li>
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/tyre-info">Tyre Info</a> </li>
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/contact-us">Contact us</a> </li>
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/about-us">About Us</a> </li>
+        <li class="mega level0 "> <a href="https://www.ctyres.co.uk/faqs">FAQs</a> </li>
+      </ul>
+      <!-- Navbar Form -->
+      <!--<ul class="nav navbar-nav navbar-right">
+									<li>
+										<form class="navbar-form" role="search">
+											<div class="form-group">
+												<input type="text" class="form-control" placeholder="Enter your keyword">
+											</div>
+											<button type="submit" class="btn-search"><i class="fa fa-search"></i></button>
+										</form>
+									</li>
+								</ul>-->
+      <!-- Icon Responsvie Menu -->
+    </div>
+    <!-- /container -->
+  </div>
+  <!-- /main-nav -->
+  </div>
+
+</section>
+<!-- /header-wrap -->
+<div class="top-link" style="border-top-style:none; border-top-width:0px; background: #fff;">
+	<div class="container">
+		<div class="row">
+			<div class="" style="width:100%;margin: 30px 0px;">
+               <section class="error-wrapper">
+				  <i class="icon-404"></i>
+				  <h1>404</h1>
+				  <h2>page not found</h2>
+				  <p class="page-404">Something went wrong or that page doesn’t exist yet. <a href="https://www.ctyres.co.uk/ "><strong>Return Home</strong></a></p>
+			  </section>
+			</div>
+		</div>
+	</div>
+</div><!--<section class="copyright" style="padding-left: 50px; width: 100% !important; padding-bottom: 0px;">-->
+
+<section>
+  <div class="border_bottom">
+  <div class="outer">
+    <div class="social footer_soc_icon" style="margin-top:20px; width:26%;">
+      <ul class="link">
+        <li><a href="#"><i id="face" style="border-radius: 40px;" class="fa fa-facebook"></i></a></li>
+        <li><a href="#"><i id="twi" style="border-radius: 40px;" class="fa fa-twitter"></i></a></li>
+        <li><a href="#"><i id="goog" style="border-radius: 40px;" class="fa fa-google"></i></a></li>
+      </ul>
+    </div>
+    <ul class="pay-method pull-left footer_soc_icon2">
+      <li><a href="#"><img src="https://www.ctyres.co.uk/images/sagepay.png" alt=""></a></li>
+      <li><a href="#"><img src="https://www.ctyres.co.uk/images/visa.png" alt=""></a></li>
+      <li><a href="#"><img src="https://www.ctyres.co.uk/images/master.png" alt=""></a></li>
+      <li><a href="#"><img src="https://www.ctyres.co.uk/images/Paypal.png" alt=""></a></li>
+    </ul>
+    <div class="copytusi footer_soc_icon" style="float:right;">
+      <p style=" float:right;">copyright ctyres.co.uk </p>
+    </div>
+  </div>
+
+  </div>
+</section>
+<!-- /copyright -->
+<div class="outer">
+<hr/>
+</div>
+
+<footer class="footer">
+  <div class="container">
+      <!-- Links Here (Footer)- Temp A2-->
+	  <div class="outer">
+      <div class="footer_menu">
+        <p style="font-weight: 700; font-size:16px;color:#000; font-family: Segoe UI;">Address</p>
+        <div id="infomation2"  style="align:center;">
+          <p style="margin-bottom: 0px; color: #1a1a1a;">CTyres.co.uk (online) LTD.</p>
+          <p style="margin-bottom: 0px; color: #000;">97-99 Carlisle Road,</p>
+          <p style="margin-bottom: 0px; color: #000;">Bradford,  BD88BY.</p>
+          <br />
+          <p style="margin-bottom: 0px; color: #000; "></p>
+          <p style="margin-bottom: 0px; color: #000;">Email: help@ctyres.co.uk</p>
+        </div>
+      </div>
+      <div class="footer_menu">
+        <p style="font-weight: 700; font-size:16px;color:#000; font-family: Segoe UI;">Our Brands</p>
+        <div id="contact-us2" >
+          <ul id="bt_tusi" class="info-list" style="list-style: none; margin-left:0;">
+		  
+		              <li><a href="https://www.ctyres.co.uk/Goodyear"  style="margin-bottom: 0px; color: #1a1a1a;">Goodyear Tyres</a></li>
+            <li><a href="https://www.ctyres.co.uk/Dunlop"  style="margin-bottom: 0px; color: #1a1a1a;">Dunlop</a></li>
+            <li><a href="https://www.ctyres.co.uk/Continental"  style="margin-bottom: 0px; color: #1a1a1a;">Continental</a></li>
+            <li><a href="https://www.ctyres.co.uk/Three-A"  style="margin-bottom: 0px; color: #1a1a1a;">Three-A Tyres</a></li>
+            <li><a href="https://www.ctyres.co.uk/Toyo"  style="margin-bottom: 0px; color: #1a1a1a;">Toyo Tyres</a></li>
+            <li><a href="https://www.ctyres.co.uk/Michelin"  style="margin-bottom: 0px; color: #1a1a1a;">Michelin</a></li>
+            <li><a href="https://www.ctyres.co.uk/Bridgestone"  style="margin-bottom: 0px; color: #1a1a1a;">Bridgestone</a></li>
+            <li><a href="https://www.ctyres.co.uk/Nexen"  style="margin-bottom: 0px; color: #1a1a1a;">Nexen Tyres</a></li>
+			<li><a href="https://www.ctyres.co.uk/Aoteli"  style="margin-bottom: 0px; color: #1a1a1a;">Aoteli Tyres</a></li>
+			<li><a href="https://www.ctyres.co.uk/Roadstone"  style="margin-bottom: 0px; color: #1a1a1a;">Roadstone Tyres</a></li>
+			<li><a href="https://www.ctyres.co.uk/Riken"  style="margin-bottom: 0px; color: #1a1a1a;">Riken Tyres</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer_menu">
+        <div style="padding-left:5px;">
+          <p style="font-weight: 700; font-size:15px; color:#000; font-family: Segoe UI;">Popular Tyre searches </p>
+          <div id="twitter" >
+            <ul class="info-list" style="list-style: none;">
+                               <li> <a title="225/45/17" href="https://www.ctyres.co.uk/tyre-search/225-45-17" style="margin-bottom: 0px; color: #1a1a1a;">225/45/17</a></li> 
+							<li><a title="235/40/18" href="https://www.ctyres.co.uk/tyre-search/235-40-18" style="margin-bottom: 0px; color: #1a1a1a;">235/40/18</a></li> 
+							<li><a title="235/55/17" href="https://www.ctyres.co.uk/tyre-search/225-40-18" style="margin-bottom: 0px; color: #1a1a1a;">225/40/18</a></li> 
+							<li><a title="205/55/16" href="https://www.ctyres.co.uk/tyre-search/205-55-16" style="margin-bottom: 0px; color: #1a1a1a;">205/55/16</a></li> 
+							<li><a title="195/50/15" href="https://www.ctyres.co.uk/tyre-search/195-50-15" style="margin-bottom: 0px; color: #1a1a1a;">195/50/15</a></li> 
+							<li><a title="235/35/19" href="https://www.ctyres.co.uk/tyre-search/235-35-19" style="margin-bottom: 0px; color: #1a1a1a;">235/35/19</a></li> 
+							<li><a title="215/50/17" href="https://www.ctyres.co.uk/tyre-search/215-50-17" style="margin-bottom: 0px; color: #1a1a1a;">215/50/17</a></li> 
+							<li><a title="205/45/17" href="https://www.ctyres.co.uk/tyre-search/205-45-17" style="margin-bottom: 0px; color: #1a1a1a;">205/45/17</a></li> 
+							<li><a title="215/55R16" href="https://www.ctyres.co.uk/tyre-search/215-55-16" style="margin-bottom: 0px; color: #1a1a1a;">215/55/16</a></li> 
+							<li><a title="245/45R18" href="https://www.ctyres.co.uk/tyre-search/245-45-18" style="margin-bottom: 0px; color: #1a1a1a;">245/45/18</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="footer_menu">
+        <p style="font-weight: 700; font-size:16px;color:#000; font-family: Segoe UI;">Help & Information</p>
+        <div id="info2" >
+          <ul class="info-list" style="list-style: none; ">
+            
+            <li><a href="https://www.ctyres.co.uk/about-us"  style="margin-bottom: 0px; color: #1a1a1a;">About Us</a></li>
+            <li><a href="https://www.ctyres.co.uk/tyre-info"  style="margin-bottom: 0px; color: #1a1a1a;">Tyre Information</a></li>
+            <li><a href="https://www.ctyres.co.uk/contact-us"  style="margin-bottom: 0px; color: #1a1a1a;">Contact us</a></li>
+            <li><a href="https://www.ctyres.co.uk/faqs"  style="margin-bottom: 0px; color: #1a1a1a;">FAQs</a></li>
+            <li><a href="https://www.ctyres.co.uk/blogs"  style="margin-bottom: 0px; color: #1a1a1a;">Blogs</a></li>
+            <li><a href="https://www.ctyres.co.uk/tyre-size"  style="margin-bottom: 0px; color: #1a1a1a;">Tyre Size</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer_menu">
+        <div style="padding-left:15px;">
+          <p style="font-weight: 700; font-size:16px;color:#000; font-family: Segoe UI;">Terms</p>
+          <div id="infomation">
+            <ul class="info-list" style="list-style:none;">
+              <li><a href="https://www.ctyres.co.uk/terms-condition" style="margin-bottom: 0px; color: #1a1a1a;">Terms & Conditions</a></li>
+              <li><a href="https://www.ctyres.co.uk/privacy-policy"  style="margin-bottom: 0px; color: #1a1a1a;">Privacy Policy</a></li>
+              <li><a href="#"  style="margin-bottom: 0px; color: #1a1a1a;">Cookie Policy</a></li>
+              <li><a href="https://www.ctyres.co.uk/price-comparison" style="margin-bottom: 0px; color: #1a1a1a;">Price Comparison</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+	  </div>
+    </div>
+    <!-- /row -->
+  </div>
+  <!-- /container -->
+</footer>
+
+<!-- /footer -->
+<div class="outer">
+  <hr />
+</div>
+
+<script src="https://www.ctyres.co.uk/js/jquery-ui-1.10.3.js"></script>
+<!-- carousel slider -->
+<script src="https://www.ctyres.co.uk/js/owl.carousel.js"></script>
+<!-- isotope filter -->
+<script src="https://www.ctyres.co.uk/js/jquery.isotope.min.js"></script>
+<script src="https://www.ctyres.co.uk/js/jquery.wow.min.js"></script>
+<!-- nouislider slider -->
+<script src="https://www.ctyres.co.uk/js/jquery.nouislider.min.js"></script>
+<!-- pop-up Newsletter -->
+<script src="https://www.ctyres.co.uk/js/jquery.magnific-popup.min.js"></script>
+<!-- To Top -->
+<script src="https://www.ctyres.co.uk/js/jquery.ui.totop.js"></script>
+<!-- main js custom file -->
+<script src="https://www.ctyres.co.uk/js/jquery.custom.js"></script>
+<!-- js for navigation when responsive -->
+<script type="text/javascript" src="https://www.ctyres.co.uk/js/classie.js"></script>
+<script type="text/javascript" src="https://www.ctyres.co.uk/js/mlpushmenu.js"></script>
+<!-- Slideshow default file -->
+<script src="https://www.ctyres.co.uk/js/slideshow/jquery.easing.min.js"></script>
+<script src="https://www.ctyres.co.uk/js/slideshow/modernizr.js"></script>
+<!-- Sequence Slideshow on Violet Store -->
+<script src="https://www.ctyres.co.uk/js/bjqs-1.3.min.js"></script>
+<script src="https://www.ctyres.co.uk/js/incrementing.js"></script>
+<!-- Validation form js --->
+<script src="https://www.ctyres.co.uk/js/bootstrapValidator.min.js"></script>
+
+<script type="text/javascript" src="https://www.ctyres.co.uk/js/bootstrap.min.js"></script>
+
+<!-- Validation form js --->
+<!-- bootstrap-datepicker js custom file -->
+<script type="text/javascript">
+
+  		/* delete item in cart */
+    function checkDelete(contentId){  
+      if(confirm('Please confirm that you want to delete products from the basket?')) {
+				window.location.href = 'https://www.ctyres.co.uk/index.php?action=basket&del=' + contentId;
+			}
+		}
+		/* delete item in cart */
+
+		jQuery(document).ready(function($) {
+			$('#banner-fade').bjqs({
+				'height' : 346,
+				'width' : 960,
+				'showmarkers' : false,
+				'showcontrols' : false,
+				'nexttext' : '', 
+				'prevtext': '', 
+				'responsive' : true
+			});
+		}); 
+
+  </script>
+
+    <script type="text/javascript"> 
+		/* <![CDATA[ */
+			(function(){try{var s,a,i,j,r,c,l=document.getElementsByTagName("a"),t=document.createElement("textarea");for(i=0;l.length-i;i++){try{a=l[i].getAttribute("href");if(a&&a.indexOf("/cdn-cgi/l/email-protection") > -1  && (a.length > 28)){s='';j=27+ 1 + a.indexOf("/cdn-cgi/l/email-protection");if (a.length > j) {r=parseInt(a.substr(j,2),16);for(j+=2;a.length>j&&a.substr(j,1)!='X';j+=2){c=parseInt(a.substr(j,2),16)^r;s+=String.fromCharCode(c);}j+=1;s+=a.substr(j,a.length-j);}t.innerHTML=s.replace(/</g,"&lt;").replace(/>/g,"&gt;");l[i].setAttribute("href","mailto:"+t.value);}}catch(e){}}}catch(e){}})();
+		/* ]]> */
+    </script>
+
+		 
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-QTPNSKE97E"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-QTPNSKE97E');
+	  </script>
+	  <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-1100686-1"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-1100686-1');
+    </script> 
+ 
+
+</body>
+</html>	
+	

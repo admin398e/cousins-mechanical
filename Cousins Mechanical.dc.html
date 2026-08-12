@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cousins Mechanical Services | Mobile Mechanic &amp; Tyre Fitting, Bridport &amp; West Dorset</title>
+<meta name="description" content="Cousins Mechanical Services — mobile mechanic, mobile tyre fitting and 24hr breakdown &amp; recovery in Bridport, Dorchester and across West Dorset. We come to your home, work or roadside. Book online or call 07925 340977.">
+<meta name="keywords" content="mobile mechanic Bridport, mobile tyre fitting Dorset, mobile tyre fitter West Dorset, car breakdown recovery Bridport, mobile car servicing Dorchester, tyre replacement at home, roadside tyre repair, mobile brake repair, mobile diagnostics Dorset, emergency mechanic Bridport">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="author" content="Cousins Mechanical Services Ltd">
+<meta name="theme-color" content="#14100e">
+<link rel="canonical" href="https://cousinsmechanicalservices.co.uk/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Cousins Mechanical Services">
+<meta property="og:title" content="Mobile Mechanic &amp; Tyre Fitting — Bridport &amp; West Dorset | Cousins Mechanical Services">
+<meta property="og:description" content="Flat tyre, breakdown or a service due? We come to you — home, work or roadside — across Bridport &amp; West Dorset, 24 hours a day.">
+<meta property="og:url" content="https://cousinsmechanicalservices.co.uk/">
+<meta property="og:image" content="https://cousinsmechanicalservices.co.uk/images/tyre-van.jpg">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mobile Mechanic &amp; Tyre Fitting — Bridport &amp; West Dorset">
+<meta name="twitter:description" content="We come to you — home, work or roadside — across Bridport &amp; West Dorset, 24 hours a day. Book online or call 07925 340977.">
+<meta name="twitter:image" content="https://cousinsmechanicalservices.co.uk/images/tyre-van.jpg">
+<link rel="icon" type="image/png" href="images/logo.png">
+<link rel="apple-touch-icon" href="images/logo.png">
+<script src="vehicle-data.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.4/dist/dotlottie-wc.js" type="module"></script>
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:#14100e;font-family:'Barlow',system-ui,sans-serif;color:#1c1817;-webkit-font-smoothing:antialiased}
+  a{color:#e8791a;text-decoration:none}
+  a:hover{color:#c25e0c}
+  ::selection{background:#e8791a;color:#fff}
+  input,select,textarea,button{font-family:inherit}
+  @keyframes riseUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spinSlow{to{transform:rotate(360deg)}}
+  @keyframes pulseDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+  @keyframes bgpan{from{transform:scale(1.08) translateY(0)}to{transform:scale(1.16) translateY(-14px)}}
+  @keyframes sheetUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes vanBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  @keyframes dash{to{stroke-dashoffset:0}}
+  .cms-map{z-index:0}
+  .cms-map .leaflet-pane,.cms-map .leaflet-top,.cms-map .leaflet-bottom{z-index:1!important}
+  .cms-map .leaflet-control-attribution{font-size:9px;opacity:.6}
+  .cms-vanmk{animation:vanBob 1.6s ease-in-out infinite}
+  .cms-ov{position:fixed;inset:0;z-index:2147483000;background:rgba(12,9,8,.72);backdrop-filter:blur(4px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s ease}
+  .cms-sheet{width:100%;max-width:560px;max-height:94vh;overflow-y:auto;background:#fff;border-radius:22px 22px 0 0;animation:sheetUp .34s cubic-bezier(.2,.8,.2,1)}
+  @media(min-width:640px){.cms-ov{align-items:center}.cms-sheet{border-radius:20px;max-height:90vh}}
+  @media(max-width:860px){.cms-nav-links{display:none!important}.cms-quick{grid-template-columns:1fr 1fr!important}.cms-hide-sm{display:none!important}.cms-acct-label{display:none!important}.cms-book-label{display:none!important}}
+  @media(max-width:560px){.cms-quick{grid-template-columns:1fr!important}.cms-grid2{grid-template-columns:1fr!important}.cms-grid3{grid-template-columns:1fr!important}}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:#e8791a!important;box-shadow:0 0 0 3px rgba(232,121,26,.18)}
+</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "AutoRepair",
+  "name": "Cousins Mechanical Services Ltd",
+  "image": "https://cousinsmechanicalservices.co.uk/images/tyre-van.jpg",
+  "url": "https://cousinsmechanicalservices.co.uk/",
+  "telephone": "+447925340977",
+  "priceRange": "££",
+  "description": "Mobile mechanic, mobile tyre fitting and 24hr breakdown & recovery covering Bridport, Dorchester and West Dorset. We come to your home, work or the roadside.",
+  "@id": "https://cousinsmechanicalservices.co.uk/#business",
+  "areaServed": [
+    { "@type": "City", "name": "Bridport" },
+    { "@type": "City", "name": "Dorchester" },
+    { "@type": "City", "name": "Lyme Regis" },
+    { "@type": "City", "name": "Beaminster" },
+    { "@type": "City", "name": "Weymouth" },
+    { "@type": "AdministrativeArea", "name": "West Dorset" }
+  ],
+  "serviceArea": {
+    "@type": "GeoCircle",
+    "geoMidpoint": { "@type": "GeoCoordinates", "latitude": 50.7333, "longitude": -2.7581 },
+    "geoRadius": "40000"
+  },
+  "address": { "@type": "PostalAddress", "addressLocality": "Bridport", "addressRegion": "Dorset", "addressCountry": "GB" },
+  "geo": { "@type": "GeoCoordinates", "latitude": 50.7333, "longitude": -2.7581 },
+  "currenciesAccepted": "GBP",
+  "paymentAccepted": "Cash, Credit Card, Debit Card, Bank Transfer",
+  "openingHoursSpecification": [
+    { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"], "opens": "07:00", "closes": "19:00" },
+    { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], "opens": "00:00", "closes": "23:59", "description": "24hr breakdown & recovery callout" }
+  ],
+  "hasOfferCatalog": {
+    "@type": "OfferCatalog",
+    "name": "Mobile mechanic services",
+    "itemListElement": [
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Mobile tyre fitting", "description": "New tyres supplied and fitted at your home, work or the roadside across West Dorset.", "areaServed": "West Dorset" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "24hr breakdown & recovery", "description": "Round-the-clock roadside assistance and vehicle recovery in Bridport and West Dorset.", "areaServed": "West Dorset" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Mobile car servicing", "description": "Interim and full servicing carried out at your address.", "areaServed": "West Dorset" } },
+      { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Brakes, clutches & diagnostics", "description": "Brake and clutch replacement plus fault-code diagnostics on your driveway.", "areaServed": "West Dorset" } }
+    ]
+  },
+  "sameAs": []
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "https://cousinsmechanicalservices.co.uk/#website",
+  "url": "https://cousinsmechanicalservices.co.uk/",
+  "name": "Cousins Mechanical Services",
+  "inLanguage": "en-GB",
+  "publisher": { "@id": "https://cousinsmechanicalservices.co.uk/#business" }
+}
+</script>
+<link rel="manifest" href="/site.webmanifest">
+</helmet>
+<div style="background:#f4f2ef;overflow-x:hidden">
+
+<!-- ===== TOP BAR ===== -->
+<div style="background:#0f0c0b;color:#e9e4df;font-size:13px;letter-spacing:.02em;padding:7px 20px;display:flex;justify-content:center">
+  <div style="width:100%;max-width:1200px;display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:#f4a04a"><span style="width:8px;height:8px;border-radius:50%;background:#39d353;box-shadow:0 0 0 3px rgba(57,211,83,.2);animation:pulseDot 1.8s infinite"></span>24hr Breakdown &amp; Recovery — Bridport &amp; West Dorset</div>
+    <div style="display:flex;gap:20px;align-items:center;color:#cfc7c1" class="cms-hide-sm">
+      <a href="tel:01308538046" style="color:#cfc7c1">01308 538046</a>
+      <a href="tel:07925340977" style="color:#f4a04a;font-weight:700">07925 340977</a>
+    </div>
+  </div>
+</div>
+
+<!-- ===== HEADER ===== -->
+<header style="position:sticky;top:0;z-index:60;background:rgba(20,16,14,.94);backdrop-filter:blur(8px);border-bottom:1px solid #2a2320">
+  <div style="max-width:1200px;margin:0 auto;padding:11px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
+    <a href="#top" style="display:flex;align-items:center;gap:12px;color:#fff">
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:38px;width:auto;display:block"/></span>
+    </a>
+    <nav style="display:flex;align-items:center;gap:22px" class="cms-nav-links">
+      <a href="#services" style="color:#d9d2cc;font-weight:600;font-size:14.5px">Services</a>
+      <a href="#reg" style="color:#d9d2cc;font-weight:600;font-size:14.5px">Tyres &amp; Parts</a>
+      <a href="#work" style="color:#d9d2cc;font-weight:600;font-size:14.5px">Recent Work</a>
+      <a href="#track" style="color:#d9d2cc;font-weight:600;font-size:14.5px">Track Job</a>
+      <a href="admin.html" style="color:#9a918a;font-weight:600;font-size:14.5px" style-hover="color:#f4a04a">Staff</a>
+    </nav>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button onClick="{{ openPortal }}" title="My account" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid #2a2320;cursor:pointer;color:#e9e4df;font-weight:600;font-size:14.5px;padding:9px 14px;border-radius:8px" style-hover="border-color:#e8791a;color:#f4a04a">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        <span class="cms-acct-label">{{ acctBtnLabel }}</span>
+      </button>
+      <button onClick="{{ openBook }}" style="display:inline-flex;align-items:center;gap:8px;background:#e8791a;color:#14100e;font-weight:700;padding:10px 18px;border:0;border-radius:8px;font-size:14.5px;cursor:pointer" style-hover="background:#f78c30">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#14100e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <span class="cms-book-label">Book online</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===== HERO ===== -->
+<section id="top" style="position:relative;min-height:640px;display:flex;align-items:center;overflow:hidden;background:#14100e">
+  <div style="position:absolute;inset:0;background-image:url('images/tyre-van.jpg');background-size:cover;background-position:center 40%;animation:bgpan 18s ease-in-out infinite alternate"></div>
+  <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(15,12,11,.95) 0%,rgba(15,12,11,.82) 45%,rgba(15,12,11,.4) 100%)"></div>
+  <div style="position:absolute;left:0;right:0;bottom:0;height:14px;background:repeating-conic-gradient(#14100e 0 25%,#e8791a 0 50%) 0 0/26px 26px;opacity:.95"></div>
+  <div style="position:relative;max-width:1200px;margin:0 auto;padding:60px 20px 78px;width:100%">
+    <div style="max-width:680px;animation:riseUp .7s ease both">
+      <div style="display:inline-flex;align-items:center;gap:9px;background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.5);color:#f4a04a;font-weight:700;font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;padding:7px 14px;border-radius:100px;margin-bottom:22px">Mobile Mechanic • Tyre Fitting • Recovery</div>
+      <h1 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(42px,6.4vw,74px);line-height:.95;color:#fff;margin:0 0 18px;letter-spacing:.01em;text-wrap:balance">WE COME TO YOU.<br><span style="color:#e8791a">ROADSIDE OR DRIVEWAY.</span></h1>
+      <p style="font-size:19px;line-height:1.5;color:#d9d0c9;margin:0 0 30px;max-width:560px;text-wrap:pretty">Flat tyre, breakdown, or due a service? Cousins Mechanical Services fit tyres, run diagnostics and carry out repairs at your home, work or the roadside across Bridport &amp; West Dorset — 24 hours a day.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        <button onClick="{{ openBook }}" style="display:inline-flex;align-items:center;gap:10px;background:#e8791a;color:#14100e;font-weight:700;font-size:17px;padding:15px 26px;border:0;border-radius:10px;cursor:pointer;box-shadow:0 10px 26px rgba(232,121,26,.4)" style-hover="background:#f78c30">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#14100e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          Book a job online
+        </button>
+        <a href="tel:07925340977" style="display:inline-flex;align-items:center;gap:10px;background:#1c1817;color:#fff;font-weight:700;font-size:17px;padding:15px 26px;border-radius:10px" style-hover="background:#332b26">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z"/></svg>
+          Call the mobile
+        </a>
+        <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20I%20need%20some%20help%20with%20my%20vehicle." target="_blank" style="display:inline-flex;align-items:center;gap:10px;background:#25d366;color:#0a2c17;font-weight:700;font-size:17px;padding:15px 26px;border-radius:10px" style-hover="background:#31e574">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>
+          WhatsApp us
+        </a>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:34px;color:#b3aaa3;font-weight:600;font-size:14px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="color:#e8791a">★★★★★</span>Trusted locally</div>
+        <div>Fully mobile — no garage trip</div>
+        <div>Card payments taken on site</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== QUICK STRIP ===== -->
+<div style="background:#1c1714">
+  <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)" class="cms-quick">
+    <sc-for list="{{ quickItems }}" as="q" hint-placeholder-count="0">
+      <div style="padding:22px 20px;border-right:1px solid #2c2521;display:flex;align-items:center;gap:15px">
+        <div style="width:60px;height:60px;flex:none;border-radius:50%;overflow:hidden;background:#0f0c0b;box-shadow:0 0 0 2px rgba(232,121,26,.55),0 6px 16px rgba(0,0,0,.4)">{{ q.iconEl }}</div>
+        <div style="line-height:1.15"><div style="color:#fff;font-weight:700;font-size:16px">{{ q.title }}</div><div style="color:#9a918a;font-size:13px">{{ q.sub }}</div></div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+
+<!-- ===== REG LOOKUP ===== -->
+<section id="reg" style="padding:82px 20px;background:linear-gradient(180deg,#f4f2ef,#eae5df)">
+  <div style="max-width:1000px;margin:0 auto;text-align:center">
+    <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#c25e0c;font-size:14px;text-transform:uppercase;margin-bottom:12px">Tyres &amp; Parts by Reg</div>
+    <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#1c1817;margin:0 0 14px">ENTER YOUR NUMBER PLATE</h2>
+    <p style="font-size:18px;color:#5c534d;max-width:620px;margin:0 auto 40px;line-height:1.5">Pop in your reg and we will pull your exact vehicle, match the right tyres or parts, then you can book it in. No account, no faff.</p>
+  </div>
+
+  <div style="max-width:780px;margin:0 auto;background:#fff;border:1px solid #e2dbd3;border-radius:18px;box-shadow:0 24px 60px -30px rgba(28,24,23,.4);overflow:hidden">
+    <div style="display:grid;grid-template-columns:1fr 1fr;background:#f0ebe5">
+      <button onClick="{{ selectTyres }}" style="{{ tyreTabStyle }}">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg>Tyre Fitting</button>
+      <button onClick="{{ selectParts }}" style="{{ partsTabStyle }}">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.3l-6 6a1.5 1.5 0 0 0 2.1 2.1l6-6a4 4 0 0 0 5.3-5.4l-2.4 2.4-2-2 2.4-2.4Z"/></svg>Parts &amp; Repairs</button>
+    </div>
+
+    <div style="padding:32px 28px 34px">
+      <!-- input row -->
+      <div style="display:flex;flex-wrap:wrap;gap:12px;max-width:520px;margin:0 auto;align-items:stretch;justify-content:center">
+        <div style="display:flex;flex:1;min-width:240px;border-radius:11px;overflow:hidden;box-shadow:0 6px 18px -8px rgba(0,0,0,.35);border:2px solid #1c1817">
+          <div style="background:#0d5bd4;color:#fff;font-family:'Barlow Condensed';font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;letter-spacing:.05em">
+            <svg width="18" height="12" viewBox="0 0 20 14" style="margin-bottom:3px"><circle cx="10" cy="4" r="1.3" fill="#ffd400"/><circle cx="7" cy="4" r="1.3" fill="#ffd400"/><circle cx="13" cy="4" r="1.3" fill="#ffd400"/><circle cx="8.5" cy="7" r="1.3" fill="#ffd400"/><circle cx="11.5" cy="7" r="1.3" fill="#ffd400"/><circle cx="10" cy="10" r="1.3" fill="#ffd400"/></svg>GB</div>
+          <input value="{{ regInput }}" onInput="{{ onRegInput }}" onKeyDown="{{ onRegKey }}" placeholder="AB12 CDE" maxlength="9" style="flex:1;border:0;background:#ffdd00;color:#1a1a1a;font-family:'Barlow Condensed';font-weight:800;font-size:30px;letter-spacing:.08em;text-align:center;text-transform:uppercase;padding:10px 8px;width:100%"/>
+        </div>
+        <button onClick="{{ lookupReg }}" style="background:#e8791a;color:#14100e;font-weight:700;font-size:17px;border:0;border-radius:11px;padding:0 26px;cursor:pointer;white-space:nowrap" style-hover="background:#f78c30">Find →</button>
+      </div>
+      <div style="text-align:center;color:#8a817b;font-size:13px;margin-top:12px">Enter your registration to find the exact tyres for your vehicle.</div>
+
+      <!-- live vehicle picker -->
+      <sc-if value="{{ showPicker }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:560px;margin:22px auto 0;border-top:1px dashed #e2dbd3;padding-top:20px">
+          <div style="text-align:center;font-weight:700;color:#1c1817;font-size:15px;margin-bottom:3px">Find your exact tyres by vehicle <span style="display:inline-block;background:#39a854;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.08em;border-radius:5px;padding:2px 7px;vertical-align:middle">LIVE</span></div>
+          <div style="text-align:center;color:#8a817b;font-size:12.5px;margin-bottom:14px">Real tyre sizes from the fitment database — year, make, model &amp; trim.</div>
+          <sc-if value="{{ hasProxy }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <select value="{{ pk.year }}" onChange="{{ pickYear }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
+                  <option value="">Year</option>
+                  <sc-for list="{{ opt.years }}" as="y" hint-placeholder-count="0"><option value="{{ y }}">{{ y }}</option></sc-for>
+                </select>
+                <select value="{{ pk.make }}" onChange="{{ pickMake }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
+                  <option value="">Make</option>
+                  <sc-for list="{{ opt.makes }}" as="m" hint-placeholder-count="0"><option value="{{ m }}">{{ m }}</option></sc-for>
+                </select>
+                <select value="{{ pk.model }}" onChange="{{ pickModel }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
+                  <option value="">Model</option>
+                  <sc-for list="{{ opt.models }}" as="m" hint-placeholder-count="0"><option value="{{ m }}">{{ m }}</option></sc-for>
+                </select>
+                <select value="{{ pk.trim }}" onChange="{{ pickTrim }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
+                  <option value="">Trim</option>
+                  <sc-for list="{{ opt.trims }}" as="t" hint-placeholder-count="0"><option value="{{ t }}">{{ t }}</option></sc-for>
+                </select>
+              </div>
+              <sc-if value="{{ pkErr }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:10px;text-align:center;color:#a5401a;font-size:12.5px;font-weight:600">{{ pkErr }}</div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- loading -->
+      <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;align-items:center;padding:14px 0 4px;animation:fadeIn .3s ease">
+          <dotlottie-wc src="https://lottie.host/f543018a-a76b-4db1-b72f-b9862629861a/w9AH7f1DHX.json" style="width:200px;height:200px" autoplay loop></dotlottie-wc>
+          <div style="font-family:'Barlow Condensed';font-weight:700;font-size:19px;color:#1c1817;letter-spacing:.04em;margin-top:-12px">READING YOUR PLATE…</div>
+          <div style="color:#8a817b;font-size:13.5px">Matching your vehicle to the DVLA database</div>
+        </div>
+      </sc-if>
+
+      <!-- error -->
+      <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:18px;background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:11px;padding:14px 16px;text-align:center;font-weight:600">{{ regError }}</div>
+      </sc-if>
+
+      <!-- confirm: is this your car? -->
+      <sc-if value="{{ isConfirm }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:22px;animation:riseUp .4s ease both">
+          <div style="text-align:center;color:#5c534d;font-size:14px;margin-bottom:12px">We found this vehicle for <strong style="color:#1c1817">{{ confirmReg }}</strong> — is this your car?</div>
+          <div style="max-width:460px;margin:0 auto;background:#14100e;border-radius:14px;padding:20px 22px;color:#fff;display:flex;align-items:center;gap:16px">
+            <div style="width:52px;height:52px;flex:none;border-radius:10px;background:rgba(232,121,26,.16);display:flex;align-items:center;justify-content:center">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6.5 17l-1.2-5.2A2 2 0 0 1 7.2 9.4l.6-2.6A2 2 0 0 1 9.8 5.3h4.4a2 2 0 0 1 2 1.5l.6 2.6a2 2 0 0 1 1.9 2.4L17.5 17"/><circle cx="8" cy="17.5" r="1.6"/><circle cx="16" cy="17.5" r="1.6"/></svg>
+            </div>
+            <div style="line-height:1.2">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px">{{ confirmVehicle.title }}</div>
+              <div style="color:#b3aaa3;font-size:14px;font-weight:600">{{ confirmVehicle.line2 }}</div>
+            </div>
+          </div>
+          <div style="max-width:460px;margin:14px auto 0;display:flex;gap:10px">
+            <button onClick="{{ confirmYes }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px" style-hover="background:#f78c30">Yes, that's my car →</button>
+            <button onClick="{{ notMyCar }}" style="background:#f0ebe5;color:#1c1817;font-weight:700;border:0;border-radius:10px;padding:14px 18px;cursor:pointer;font-size:14.5px">Not my car</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- not my car -->
+      <sc-if value="{{ notMyCarOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:20px;max-width:460px;margin-left:auto;margin-right:auto;background:#fff6ec;border:1px solid #f2d9bd;border-radius:12px;padding:18px 20px;text-align:center;animation:fadeIn .3s ease">
+          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#1c1817;margin-bottom:6px">No problem — let's get it right</div>
+          <div style="color:#5c534d;font-size:14px;line-height:1.5;margin-bottom:14px">Give us a quick call and we'll match your exact vehicle and tyres by hand.</div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <a href="tel:07925340977" style="display:inline-flex;align-items:center;gap:8px;background:#e8791a;color:#14100e;font-weight:700;border-radius:10px;padding:12px 20px;font-size:15px">📞 Call 07925 340977</a>
+            <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20I%20need%20help%20matching%20my%20vehicle%20for%20tyres." target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:12px 20px;font-size:15px">WhatsApp us</a>
+          </div>
+          <button onClick="{{ tryAgain }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px;margin-top:12px">Try another registration</button>
+        </div>
+      </sc-if>
+
+      <!-- result -->
+      <sc-if value="{{ hasResult }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:24px;animation:riseUp .5s ease both">
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:#14100e;border-radius:14px;padding:18px 20px;color:#fff">
+            <div style="display:flex;align-items:center;gap:16px">
+              <div style="width:52px;height:52px;flex:none;border-radius:10px;background:rgba(232,121,26,.16);display:flex;align-items:center;justify-content:center">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6.5 17l-1.2-5.2A2 2 0 0 1 7.2 9.4l.6-2.6A2 2 0 0 1 9.8 5.3h4.4a2 2 0 0 1 2 1.5l.6 2.6a2 2 0 0 1 1.9 2.4L17.5 17"/><circle cx="8" cy="17.5" r="1.6"/><circle cx="16" cy="17.5" r="1.6"/></svg>
+              </div>
+              <div style="line-height:1.2">
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:24px">{{ vehicle.title }}</div>
+                <div style="color:#b3aaa3;font-size:14px;font-weight:600">{{ vehicle.line2 }}</div>
+              </div>
+            </div>
+            <div style="{{ verifyStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>{{ verifyLabel }}</div>
+          </div>
+
+          <!-- tyre results -->
+          <sc-if value="{{ showTyres }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <sc-if value="{{ vehicle.tyre }}" hint-placeholder-val="{{ true }}"><div style="display:flex;align-items:center;gap:8px;margin:22px 2px 12px;color:#5c534d;font-weight:600;font-size:14px">Recommended tyre size <span style="background:#1c1817;color:#fff;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.05em;border-radius:6px;padding:3px 10px;font-size:15px">{{ vehicle.tyre }}</span></div></sc-if>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" class="cms-grid3">
+                <sc-for list="{{ tyreOptions }}" as="t" hint-placeholder-count="3">
+                  <div style="{{ t.cardStyle }}">
+                    <div style="{{ t.badgeStyle }}">{{ t.tier }}</div>
+                    <div style="font-weight:700;font-size:15px;color:#1c1817;margin-top:8px">{{ t.brand }}</div>
+                    <div style="color:#8a817b;font-size:12.5px;margin-bottom:12px">{{ t.note }}</div>
+                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:30px;color:#1c1817;line-height:1">{{ t.priceEach }}<span style="font-size:13px;color:#8a817b;font-weight:600"> /tyre fitted</span></div>
+                    <button onClick="{{ t.book }}" style="margin-top:14px;width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:14.5px" style-hover="background:#f78c30">Book fitting</button>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="text-align:center;color:#8a817b;font-size:13px;margin-top:12px">Prices include mobile fitting, valve, balance &amp; old tyre disposal. Need a different budget or brand? <button onClick="{{ openBook }}" style="background:none;border:0;color:#c25e0c;font-weight:700;text-decoration:underline;cursor:pointer;font-size:13px">Ask us</button></div>
+            </div>
+          </sc-if>
+
+          <!-- parts results -->
+          <sc-if value="{{ showParts }}" hint-placeholder-val="{{ false }}">
+            <div>
+              <div style="margin:22px 2px 12px;color:#5c534d;font-weight:600;font-size:14px">Common jobs &amp; repairs for your {{ vehicle.make }} — mobile, at your location</div>
+              <div style="display:grid;gap:10px">
+                <sc-for list="{{ partOptions }}" as="p" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:14px;background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px 16px">
+                    <div style="width:40px;height:40px;flex:none;border-radius:9px;background:rgba(232,121,26,.12);color:#c25e0c;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:18px">{{ p.icon }}</div>
+                    <div style="flex:1;line-height:1.25"><div style="font-weight:700;color:#1c1817;font-size:15.5px">{{ p.name }}</div><div style="color:#8a817b;font-size:13px">{{ p.note }}</div></div>
+                    <div style="text-align:right"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#1c1817">{{ p.price }}</div><div style="color:#8a817b;font-size:11px">from</div></div>
+                    <button onClick="{{ p.book }}" style="background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:14px;white-space:nowrap" style-hover="background:#332b26">Book</button>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SERVICES ===== -->
+<section id="services" style="padding:84px 20px;background:#14100e">
+  <div style="max-width:1200px;margin:0 auto">
+    <div style="max-width:640px;margin-bottom:42px">
+      <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#f4a04a;font-size:14px;text-transform:uppercase;margin-bottom:12px">What we do</div>
+      <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#fff;margin:0">FULLY MOBILE. FULLY EQUIPPED.</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px" class="cms-grid3">
+      <sc-for list="{{ services }}" as="s" hint-placeholder-count="0">
+        <div style="position:relative;border-radius:16px;overflow:hidden;min-height:300px;display:flex;flex-direction:column;justify-content:flex-end;border:1px solid #2a2320">
+          <sc-if value="{{ s.img }}" hint-placeholder-val="{{ false }}">{{ s.imgEl }}</sc-if>
+          <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,12,11,.15) 0%,rgba(15,12,11,.55) 55%,rgba(15,12,11,.95) 100%)"></div>
+          <div style="position:relative;padding:22px">
+            <h3 style="font-family:'Barlow Condensed';font-weight:800;font-size:24px;color:#fff;margin:0 0 6px;letter-spacing:.01em">{{ s.title }}</h3>
+            <p style="color:#cabfb7;font-size:14px;line-height:1.45;margin:0 0 14px">{{ s.body }}</p>
+            <button onClick="{{ s.book }}" style="display:inline-flex;align-items:center;gap:7px;background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.5);color:#f4a04a;font-weight:700;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:14px" style-hover="background:#e8791a;color:#14100e">Book {{ s.title }} →</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- ===== RECENT WORK ===== -->
+<section id="work" style="padding:82px 20px;background:#f4f2ef">
+  <div style="max-width:1200px;margin:0 auto">
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:34px">
+      <div style="max-width:640px">
+        <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#c25e0c;font-size:14px;text-transform:uppercase;margin-bottom:12px">Recent work</div>
+        <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#1c1817;margin:0">REAL JOBS, DONE ON THE DRIVE.</h2>
+      </div>
+      <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20can%20you%20quote%20a%20job%3F" target="_blank" style="display:inline-flex;align-items:center;gap:8px;color:#1c1817;font-weight:700;background:#fff;border:1px solid #e2dbd3;border-radius:9px;padding:11px 18px" style-hover="background:#faf7f3">Send us your job on WhatsApp →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px" class="cms-grid3">
+      <sc-for list="{{ gallery }}" as="g" hint-placeholder-count="0">
+        <button onClick="{{ g.open }}" style="{{ g.cellStyle }}">
+          <sc-if value="{{ g.img }}" hint-placeholder-val="{{ false }}">{{ g.imgEl }}</sc-if>
+        </button>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- ===== TRACK JOB ===== -->
+<section id="track" style="padding:84px 20px;background:linear-gradient(180deg,#1c1714,#14100e)">
+  <div style="max-width:1200px;margin:0 auto">
+    <div style="max-width:660px;margin-bottom:36px">
+      <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#f4a04a;font-size:14px;text-transform:uppercase;margin-bottom:12px">Live tracking</div>
+      <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#fff;margin:0 0 12px">SEE US ON THE WAY.</h2>
+      <p style="font-size:18px;color:#c3b9b1;line-height:1.5;margin:0">When you are booked in you get a live map, a moving ETA and SMS-style status updates — so if you are stranded you know exactly how far away help is.</p>
+    </div>
+
+    <!-- Locked: no booked job yet -->
+    <sc-if value="{{ noTrack }}" hint-placeholder-val="{{ true }}">
+      <div style="border:1px solid #2a2320;border-radius:18px;background:rgba(255,255,255,.03);padding:52px 24px;text-align:center">
+        <div style="width:64px;height:64px;margin:0 auto 18px;border-radius:16px;background:rgba(232,121,26,.14);display:flex;align-items:center;justify-content:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin-bottom:8px">LIVE TRACKING UNLOCKS ONCE YOU'RE BOOKED IN</div>
+        <p style="color:#c3b9b1;font-size:16px;line-height:1.5;max-width:520px;margin:0 auto 22px">Book a job and you'll get a live map of the van heading to you, a moving ETA and real-time status updates by text.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+          <button onClick="{{ openBook }}" style="background:#e8791a;color:#14100e;font-weight:700;font-size:16px;border:0;border-radius:10px;padding:14px 24px;cursor:pointer">Book a job</button>
+          <button onClick="{{ openPortal }}" style="background:#1c1817;color:#fff;font-weight:700;font-size:16px;border:1px solid #2a2320;border-radius:10px;padding:14px 24px;cursor:pointer">Log in to my account</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Live: booked job present -->
+    <sc-if value="{{ hasTrack }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px;align-items:stretch" class="cms-grid2">
+      <!-- map -->
+      <div style="position:relative;border-radius:18px;overflow:hidden;border:1px solid #2a2320;min-height:420px;background:#0f0c0b">
+        <div ref="{{ setMapEl }}" class="cms-map" style="position:absolute;inset:0"></div>
+        <div style="position:absolute;left:14px;top:14px;z-index:500;background:rgba(15,12,11,.86);backdrop-filter:blur(6px);border:1px solid #2a2320;border-radius:12px;padding:12px 16px;color:#fff;display:flex;align-items:center;gap:12px">
+          <span style="width:10px;height:10px;border-radius:50%;background:#39d353;box-shadow:0 0 0 4px rgba(57,211,83,.2);animation:pulseDot 1.6s infinite"></span>
+          <div style="line-height:1.15"><div style="font-weight:700;font-size:14px">{{ trackHeadline }}</div><div style="color:#b3aaa3;font-size:12.5px">{{ trackSub }}</div></div>
+        </div>
+        <div style="position:absolute;right:14px;bottom:14px;z-index:500;background:#e8791a;color:#14100e;border-radius:12px;padding:10px 16px;font-family:'Barlow Condensed';font-weight:800;text-align:center;line-height:1">
+          <div style="font-size:11px;letter-spacing:.1em;opacity:.75">ETA</div>
+          <div style="font-size:26px">{{ etaText }}</div>
+        </div>
+      </div>
+
+      <!-- status feed -->
+      <div style="background:#fff;border-radius:18px;padding:22px;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#1c1817">JOB STATUS</div>
+          <span style="{{ trackBadgeStyle }}">{{ trackBadge }}</span>
+        </div>
+        <div style="color:#8a817b;font-size:13.5px;margin-bottom:16px">{{ trackRefLabel }}</div>
+
+        <div style="flex:1">
+          <div style="display:flex;flex-direction:column;gap:0">
+            <sc-for list="{{ trackFeed }}" as="u" hint-placeholder-count="3">
+              <div style="display:flex;gap:14px">
+                <div style="display:flex;flex-direction:column;align-items:center">
+                  <div style="{{ u.dotStyle }}"></div>
+                  <div style="{{ u.lineStyle }}"></div>
+                </div>
+                <div style="padding-bottom:18px">
+                  <div style="font-weight:700;color:#1c1817;font-size:15px">{{ u.s }}</div>
+                  <div style="color:#8a817b;font-size:13px;line-height:1.4">{{ u.d }}</div>
+                  <div style="color:#b3aaa3;font-size:11.5px;margin-top:3px">{{ u.time }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:8px;border-top:1px solid #eee3d8;padding-top:16px">
+          <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20about%20my%20booking" target="_blank" style="flex:1;text-align:center;background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:11px;font-size:14px">Message driver</a>
+          <button onClick="{{ openPortal }}" style="flex:1;background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:14px">Manage booking</button>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer style="background:#0f0c0b;color:#cfc7c1;padding:60px 20px 28px">
+  <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:36px" class="cms-grid3">
+    <div>
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.3)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:56px;width:auto;display:block"/></span>
+      <p style="color:#9a918a;font-size:14.5px;line-height:1.6;max-width:340px">Mobile mechanic, tyre fitting and 24hr breakdown &amp; recovery covering Bridport, Dorchester &amp; West Dorset. We come to your home, work or the roadside.</p>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <a href="https://wa.me/447925340977" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:10px 16px;font-size:14px">WhatsApp</a>
+        <a href="https://maps.google.com/?q=Bridport,+Dorset" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#1c1817;color:#fff;font-weight:700;border-radius:9px;padding:10px 16px;font-size:14px">Our area</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:16px;letter-spacing:.08em;margin-bottom:14px">CONTACT</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14.5px">
+        <a href="tel:07925340977" style="color:#f4a04a;font-weight:700">07925 340977</a>
+        <a href="tel:01308538046" style="color:#cfc7c1">01308 538046</a>
+        <a href="https://wa.me/447925340977" target="_blank" style="color:#cfc7c1">WhatsApp us</a>
+        <span style="color:#9a918a">Bridport, West Dorset</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:16px;letter-spacing:.08em;margin-bottom:14px">HOURS</div>
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:14.5px;color:#9a918a">
+        <div style="display:flex;justify-content:space-between;gap:16px"><span>Mon–Sat</span><span style="color:#cfc7c1">7am – 7pm</span></div>
+        <div style="display:flex;justify-content:space-between;gap:16px"><span>Sunday</span><span style="color:#cfc7c1">By arrangement</span></div>
+        <div style="display:flex;justify-content:space-between;gap:16px"><span>Breakdown</span><span style="color:#4fe06a;font-weight:700">24 hours</span></div>
+      </div>
+      <button onClick="{{ openBook }}" style="margin-top:18px;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;width:100%">Book online</button>
+    </div>
+  </div>
+  <div style="max-width:1200px;margin:34px auto 0;border-top:1px solid #241e1b;padding-top:20px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;color:#6f6862;font-size:13px">
+    <span>© Cousins Mechanical Services Ltd</span>
+    <a href="admin.html" style="color:#6f6862;font-weight:600" style-hover="color:#f4a04a">Staff login</a>
+    <span>Mobile Tyre Fitting • Servicing • Welding • Diagnostics • Recovery</span>
+  </div>
+  <div id="privacy" style="max-width:1200px;margin:22px auto 0;border-top:1px solid #241e1b;padding-top:20px;color:#8a817b;font-size:12.5px;line-height:1.65">
+    <div style="font-family:'Barlow Condensed';font-weight:700;color:#cfc7c1;font-size:15px;letter-spacing:.06em;margin-bottom:8px">PRIVACY NOTICE (UK GDPR)</div>
+    <p style="margin:0 0 8px;max-width:900px;text-wrap:pretty">Cousins Mechanical Services Ltd is the data controller for the details you give us. We use your name, contact details, vehicle registration and location <strong>only</strong> to arrange, carry out and support the jobs you book — our lawful bases are performance of a contract and, for optional marketing, your consent. Service texts about a job you booked are sent under legitimate interest; marketing texts and emails only ever with your explicit opt-in, which you can withdraw any time in your account.</p>
+    <p style="margin:0 0 8px;max-width:900px;text-wrap:pretty">We share data only with the processors that make the service work — Twilio (SMS), Google Calendar (scheduling), our email provider, and UK Vehicle Data (registration lookups) — never sold to anyone. Completed and cancelled jobs are automatically erased after 12 months. You have the right to access, correct, export or erase your data: use <em>Download my data</em> and <em>Delete my account</em> in your account, or contact us.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:6px">
+      <a href="tel:01308538046" style="color:#f4a04a">01308 538046</a>
+      <a href="https://wa.me/447925340977" target="_blank" style="color:#f4a04a">WhatsApp</a>
+      <span>Complaints: the ICO — ico.org.uk</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ===== STICKY MOBILE CTA ===== -->
+<div style="position:fixed;left:0;right:0;bottom:0;z-index:80;background:rgba(15,12,11,.96);backdrop-filter:blur(8px);border-top:1px solid #2a2320;padding:9px 12px;display:none" class="cms-mobcta">
+  <div style="display:flex;gap:8px;max-width:560px;margin:0 auto">
+    <a href="tel:07925340977" style="flex:1;text-align:center;background:#1c1817;color:#fff;font-weight:700;border-radius:9px;padding:12px;font-size:14.5px">Call</a>
+    <a href="https://wa.me/447925340977" target="_blank" style="flex:1;text-align:center;background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:12px;font-size:14.5px">WhatsApp</a>
+    <button onClick="{{ openBook }}" style="flex:1.3;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px;cursor:pointer;font-size:14.5px">Book</button>
+  </div>
+</div>
+
+<!-- ===== BOOKING MODAL ===== -->
+<sc-if value="{{ bookOpen }}" hint-placeholder-val="{{ false }}">
+  <div class="cms-ov" onClick="{{ closeBook }}">
+    <div class="cms-sheet" onClick="{{ stop }}">
+      <!-- header -->
+      <div style="position:sticky;top:0;background:#14100e;color:#fff;padding:18px 22px;display:flex;align-items:center;justify-content:space-between;z-index:2">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px">{{ bookTitle }}</div>
+        </div>
+        <button onClick="{{ closeBook }}" style="background:rgba(255,255,255,.1);border:0;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:20px;line-height:1">✕</button>
+      </div>
+      <!-- progress -->
+      <sc-if value="{{ bookInProgress }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;gap:6px;padding:14px 22px 0">
+          <sc-for list="{{ stepBars }}" as="b" hint-placeholder-count="4">
+            <div style="{{ b.style }}"></div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <div style="padding:22px">
+        <!-- STEP 1: service -->
+        <sc-if value="{{ step1 }}" hint-placeholder-val="{{ true }}">
+          <div style="animation:fadeIn .25s ease">
+            <div style="font-weight:700;color:#1c1817;font-size:16px;margin-bottom:4px">What do you need?</div>
+            <div style="color:#8a817b;font-size:13.5px;margin-bottom:16px">Pick the closest — you can add detail in a moment.</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <sc-for list="{{ serviceChoices }}" as="c" hint-placeholder-count="6">
+                <button onClick="{{ c.pick }}" style="{{ c.style }}">
+                  <div style="font-size:22px">{{ c.icon }}</div>
+                  <div style="font-weight:700;font-size:14.5px;text-align:left;line-height:1.2">{{ c.label }}</div>
+                </button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- STEP 2: vehicle + where -->
+        <sc-if value="{{ step2 }}" hint-placeholder-val="{{ false }}">
+          <div style="animation:fadeIn .25s ease;display:flex;flex-direction:column;gap:14px">
+            <div>
+              <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Vehicle registration</label>
+              <input value="{{ book.reg }}" onInput="{{ setBookReg }}" placeholder="AB12 CDE" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px;text-transform:uppercase;font-weight:700;letter-spacing:.05em"/>
+            </div>
+            <div>
+              <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Where are you? (postcode or what3words)</label>
+              <div style="display:flex;gap:8px">
+                <input value="{{ book.postcode }}" onInput="{{ setBookPostcode }}" placeholder="DT6 3..." style="flex:1;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+                <button onClick="{{ useMyLocation }}" style="background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:10px;padding:0 14px;cursor:pointer;font-size:13px;white-space:nowrap">📍 Use GPS</button>
+              </div>
+              <div style="color:#8a817b;font-size:12.5px;margin-top:6px">{{ locHint }}</div>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Date</label>
+                <input type="date" value="{{ book.date }}" onInput="{{ setBookDate }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px"/></div>
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Preferred time</label>
+                <select value="{{ book.time }}" onChange="{{ setBookTime }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px;background:#fff">
+                  <option value="">Choose…</option><option>Morning (8–12)</option><option>Afternoon (12–5)</option><option>Evening (5–7)</option><option>ASAP / Emergency</option>
+                </select></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- STEP 3: details -->
+        <sc-if value="{{ step3 }}" hint-placeholder-val="{{ false }}">
+          <div style="animation:fadeIn .25s ease;display:flex;flex-direction:column;gap:14px">
+            <div><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Your name</label>
+              <input value="{{ book.name }}" onInput="{{ setBookName }}" placeholder="Full name" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/></div>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Mobile</label>
+                <input value="{{ book.phone }}" onInput="{{ setBookPhone }}" placeholder="07…" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/></div>
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Email</label>
+                <input value="{{ book.email }}" onInput="{{ setBookEmail }}" placeholder="you@email.com" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/></div>
+            </div>
+            <div><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Anything we should know?</label>
+              <textarea value="{{ book.notes }}" onInput="{{ setBookNotes }}" placeholder="e.g. front nearside tyre flat, car won't start, knocking noise…" rows="3" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px;resize:vertical"></textarea></div>
+            <label style="display:flex;align-items:flex-start;gap:10px;background:#faf7f3;border:1px solid #eee3d8;border-radius:10px;padding:12px;cursor:pointer">
+              <input type="checkbox" checked="{{ book.calendar }}" onChange="{{ toggleCalendar }}" style="margin-top:3px;width:18px;height:18px;accent-color:#e8791a"/>
+              <span style="font-size:13.5px;color:#5c534d;line-height:1.4">Email me a confirmation &amp; a calendar invite, and text me live updates on the day.</span>
+            </label>
+          </div>
+        </sc-if>
+
+        <!-- STEP 4: confirmation / success -->
+        <sc-if value="{{ bookDone }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;animation:fadeIn .3s ease">
+            <dotlottie-wc src="https://lottie.host/f543018a-a76b-4db1-b72f-b9862629861a/w9AH7f1DHX.json" style="width:170px;height:170px;margin:-6px auto -10px" autoplay loop></dotlottie-wc>
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:28px;color:#1c1817">YOU'RE BOOKED IN!</div>
+            <div style="color:#5c534d;font-size:15px;margin:6px 0 4px">Booking reference</div>
+            <div style="display:inline-block;background:#14100e;color:#f4a04a;font-family:'Barlow Condensed';font-weight:800;font-size:22px;letter-spacing:.08em;border-radius:10px;padding:8px 18px">{{ lastRef }}</div>
+            <div style="background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:16px;margin:20px 0;text-align:left;font-size:14px;color:#5c534d;line-height:1.6">
+              {{ confirmSummary }}<br/>
+              <span style="color:#39a854;font-weight:700">✓ Tap below to confirm with us on WhatsApp</span><br/>
+              <span style="color:#39a854;font-weight:700">✓ You'll get live updates on the day</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <a href="{{ waConfirm }}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:9px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:14px;font-size:15px;text-decoration:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>Confirm on WhatsApp</a>
+              <button onClick="{{ downloadIcs }}" style="background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15px">📅 Add to my calendar (.ics)</button>
+              <button onClick="{{ goTrack }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15px">Track my job live →</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <!-- footer nav -->
+      <sc-if value="{{ bookInProgress }}" hint-placeholder-val="{{ true }}">
+        <div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #eee3d8;padding:14px 22px;display:flex;gap:10px">
+          <sc-if value="{{ canBack }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ bookBack }}" style="background:#f0ebe5;color:#1c1817;font-weight:700;border:0;border-radius:10px;padding:13px 20px;cursor:pointer">Back</button>
+          </sc-if>
+          <button onClick="{{ bookNext }}" style="{{ nextBtnStyle }}">{{ nextLabel }}</button>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</sc-if>
+
+<!-- ===== PORTAL MODAL ===== -->
+<sc-if value="{{ portalOpen }}" hint-placeholder-val="{{ false }}">
+  <div class="cms-ov" onClick="{{ closePortal }}">
+    <div class="cms-sheet" onClick="{{ stop }}">
+      <div style="position:sticky;top:0;background:#14100e;color:#fff;padding:18px 22px 0;z-index:2">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:40px;height:40px;border-radius:50%;background:#e8791a;color:#14100e;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:19px">{{ acctInitials }}</div>
+            <div style="line-height:1.15"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:21px">{{ acctName }}</div><div style="color:#9a918a;font-size:12.5px">{{ acctSub }}</div></div>
+          </div>
+          <button onClick="{{ closePortal }}" style="background:rgba(255,255,255,.1);border:0;color:#fff;width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:20px;line-height:1">✕</button>
+        </div>
+        <sc-if value="{{ isAuthed }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:4px;margin-top:16px">
+          <button onClick="{{ tabBookings }}" style="{{ tabBookingsStyle }}">Bookings <span style="{{ countPillStyle }}">{{ activeCount }}</span></button>
+          <button onClick="{{ tabOffers }}" style="{{ tabOffersStyle }}">Offers</button>
+          <button onClick="{{ tabMessages }}" style="{{ tabMessagesStyle }}">Messages</button>
+          <button onClick="{{ tabAccount }}" style="{{ tabAccountStyle }}">Account</button>
+        </div>
+        </sc-if>
+      </div>
+
+      <!-- AUTH GATE -->
+      <sc-if value="{{ needsAuth }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ isReset }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:24px 22px 26px;animation:fadeIn .25s ease;display:flex;flex-direction:column;gap:12px">
+            <div style="font-weight:700;color:#1c1817;font-size:16px">Choose a new password</div>
+            <input value="{{ resetPass }}" onInput="{{ setResetPass }}" type="password" placeholder="New password (min 6 characters)" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+            <sc-if value="{{ hasResetMsg }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ resetMsg }}</div></sc-if>
+            <button onClick="{{ submitReset }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">Save new password</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ notReset }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:24px 22px 26px;animation:fadeIn .25s ease">
+          <div style="display:flex;background:#f0ebe5;border-radius:11px;padding:4px;margin-bottom:20px">
+            <button onClick="{{ gotoLogin }}" style="{{ loginSegStyle }}">Log in</button>
+            <button onClick="{{ gotoSignup }}" style="{{ signupSegStyle }}">Create account</button>
+          </div>
+
+          <sc-if value="{{ onSignupView }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .2s ease">
+              <div style="font-weight:700;color:#1c1817;font-size:16px">Create your account</div>
+              <input value="{{ authName }}" onInput="{{ setAuthName }}" onKeyDown="{{ authOnKey }}" placeholder="Full name" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <input value="{{ authEmail }}" onInput="{{ setAuthEmail }}" onKeyDown="{{ authOnKey }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <input value="{{ authPhone }}" onInput="{{ setAuthPhone }}" onKeyDown="{{ authOnKey }}" placeholder="Mobile (for job updates)" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <input value="{{ authPass }}" onInput="{{ setAuthPass }}" onKeyDown="{{ authOnKey }}" type="password" placeholder="Password (min 6 characters)" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <input value="{{ authPass2 }}" onInput="{{ setAuthPass2 }}" onKeyDown="{{ authOnKey }}" type="password" placeholder="Confirm password" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <label style="display:flex;align-items:flex-start;gap:10px;background:#faf7f3;border:1px solid #eee3d8;border-radius:10px;padding:12px;cursor:pointer">
+                <input type="checkbox" checked="{{ authConsent }}" onChange="{{ toggleConsent }}" style="margin-top:2px;width:18px;height:18px;accent-color:#e8791a;flex:none"/>
+                <span style="font-size:12.5px;color:#5c534d;line-height:1.45">I agree to Cousins Mechanical storing my details to manage my bookings, as described in the <a href="#privacy" style="color:#c25e0c;font-weight:700">privacy notice</a>. <span style="color:#a5401a">(required)</span></span>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:2px 4px;cursor:pointer">
+                <input type="checkbox" checked="{{ authSms }}" onChange="{{ toggleAuthSms }}" style="margin-top:2px;width:18px;height:18px;accent-color:#e8791a;flex:none"/>
+                <span style="font-size:12.5px;color:#5c534d;line-height:1.45">Text me live updates about jobs I book (recommended).</span>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:2px 4px;cursor:pointer">
+                <input type="checkbox" checked="{{ authMarketing }}" onChange="{{ toggleAuthMarketing }}" style="margin-top:2px;width:18px;height:18px;accent-color:#e8791a;flex:none"/>
+                <span style="font-size:12.5px;color:#5c534d;line-height:1.45">Send me occasional offers &amp; service reminders (optional).</span>
+              </label>
+              <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
+              <button onClick="{{ doSignup }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ signupBtnLabel }}</button>
+              <div style="text-align:center;color:#8a817b;font-size:12.5px">Already have an account? <button onClick="{{ gotoLogin }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:12.5px">Log in</button></div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ onLoginView }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .2s ease">
+              <div style="font-weight:700;color:#1c1817;font-size:16px">Welcome back</div>
+              <div style="color:#8a817b;font-size:13.5px;margin-top:-6px">Log in to view, track, amend or cancel your bookings and see your offers.</div>
+              <input value="{{ authEmail }}" onInput="{{ setAuthEmail }}" onKeyDown="{{ authOnKey }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <input value="{{ authPass }}" onInput="{{ setAuthPass }}" onKeyDown="{{ authOnKey }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
+              <sc-if value="{{ hasForgotMsg }}" hint-placeholder-val="{{ false }}"><div style="background:#eef7ef;border:1px solid #b9dcc0;color:#2f7a45;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ forgotMsg }}</div></sc-if>
+              <button onClick="{{ doLogin }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px;margin-bottom:12px">{{ loginBtnLabel }}</button>
+              <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
+                <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+                Sign in with Google
+              </button>
+              <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+                <button onClick="{{ gotoSignup }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:0">Create an account</button>
+                <button onClick="{{ forgotPassword }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:0">Forgot password?</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ isAuthed }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:20px">
+        <!-- BOOKINGS TAB -->
+        <sc-if value="{{ onBookings }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ noOrders }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align:center;padding:34px 10px;color:#8a817b">
+            <div style="width:60px;height:60px;margin:0 auto 14px;border-radius:15px;background:#f4f2ef;display:flex;align-items:center;justify-content:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#c25e0c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+            <div style="font-weight:700;color:#1c1817;font-size:17px;margin-bottom:4px">No bookings yet</div>
+            <div style="font-size:14px;margin-bottom:18px">Your jobs will show here so you can track, amend or cancel them.</div>
+            <button onClick="{{ portalToBook }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:12px 22px;cursor:pointer">Book your first job</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasOrders }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ orderCards }}" as="o" hint-placeholder-count="2">
+              <div style="border:1px solid #eee3d8;border-radius:14px;overflow:hidden">
+                <div style="padding:16px;background:#faf7f3;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <div style="line-height:1.3">
+                    <div style="font-weight:700;color:#1c1817;font-size:16px">{{ o.svcLabel }}</div>
+                    <div style="color:#8a817b;font-size:13px">{{ o.sub }}</div>
+                  </div>
+                  <span style="{{ o.badgeStyle }}">{{ o.statusLabel }}</span>
+                </div>
+                <div style="padding:14px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;color:#5c534d">
+                  <div style="display:flex;justify-content:space-between"><span style="color:#8a817b">Reference</span><span style="font-weight:700;color:#1c1817">{{ o.ref }}</span></div>
+                  <div style="display:flex;justify-content:space-between"><span style="color:#8a817b">Vehicle</span><span>{{ o.reg }}</span></div>
+                  <div style="display:flex;justify-content:space-between"><span style="color:#8a817b">Where</span><span>{{ o.postcode }}</span></div>
+                </div>
+
+                <!-- edit panel -->
+                <sc-if value="{{ o.isEditing }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px;animation:fadeIn .2s ease">
+                    <div style="display:flex;gap:10px">
+                      <div style="flex:1"><label style="font-size:12px;font-weight:700;color:#8a817b">Date</label><input type="date" value="{{ editDate }}" onInput="{{ setEditDate }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:9px;padding:10px;font-size:14px"/></div>
+                      <div style="flex:1"><label style="font-size:12px;font-weight:700;color:#8a817b">Time</label>
+                        <select value="{{ editTime }}" onChange="{{ setEditTime }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:9px;padding:10px;font-size:14px;background:#fff"><option>Morning (8–12)</option><option>Afternoon (12–5)</option><option>Evening (5–7)</option><option>ASAP / Emergency</option></select></div>
+                    </div>
+                    <textarea value="{{ editNotes }}" onInput="{{ setEditNotes }}" rows="2" placeholder="Update notes…" style="width:100%;border:1.5px solid #ddd4cb;border-radius:9px;padding:10px;font-size:14px;resize:vertical"></textarea>
+                    <div style="display:flex;gap:8px"><button onClick="{{ o.saveEdit }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer">Save changes</button><button onClick="{{ o.cancelEdit }}" style="background:#f0ebe5;color:#1c1817;font-weight:700;border:0;border-radius:9px;padding:11px 16px;cursor:pointer">Cancel</button></div>
+                  </div>
+                </sc-if>
+
+                <!-- actions -->
+                <sc-if value="{{ o.showActions }}" hint-placeholder-val="{{ true }}">
+                  <div style="padding:0 16px 16px;display:flex;gap:8px;flex-wrap:wrap">
+                    <button onClick="{{ o.track }}" style="flex:1;min-width:110px;background:#14100e;color:#fff;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Track live</button>
+                    <button onClick="{{ o.edit }}" style="flex:1;min-width:100px;background:#fff;border:1.5px solid #ddd4cb;color:#1c1817;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Amend</button>
+                    <button onClick="{{ o.cancel }}" style="flex:1;min-width:100px;background:#fdeee7;border:1.5px solid #f3c6ae;color:#a5401a;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Cancel job</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ o.isCancelled }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:0 16px 16px"><button onClick="{{ o.rebook }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Re-book this job</button></div>
+                </sc-if>
+              </div>
+            </sc-for>
+            <button onClick="{{ portalToBook }}" style="background:#f0ebe5;color:#1c1817;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;margin-top:2px">+ New booking</button>
+          </div>
+        </sc-if>
+        </sc-if>
+
+        <!-- OFFERS TAB -->
+        <sc-if value="{{ onOffers }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .25s ease">
+            <sc-for list="{{ offers }}" as="of" hint-placeholder-count="3">
+              <div style="border:1.5px solid {{ of.border }};border-radius:14px;overflow:hidden;background:{{ of.bg }}">
+                <div style="padding:16px 18px;display:flex;gap:14px;align-items:center">
+                  <div style="width:52px;height:52px;flex:none;border-radius:12px;background:{{ of.iconBg }};display:flex;align-items:center;justify-content:center;font-size:26px">{{ of.icon }}</div>
+                  <div style="flex:1;line-height:1.3">
+                    <div style="font-weight:800;color:#1c1817;font-size:16.5px">{{ of.title }}</div>
+                    <div style="color:#5c534d;font-size:13.5px">{{ of.body }}</div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 18px 16px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-family:'Barlow Condensed';font-weight:800;letter-spacing:.08em;font-size:15px;color:#14100e;background:#fff;border:1.5px dashed {{ of.border }};border-radius:7px;padding:5px 12px">{{ of.code }}</span>
+                    <span style="color:#8a817b;font-size:12px">{{ of.expiry }}</span>
+                  </div>
+                  <button onClick="{{ of.use }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">Use offer</button>
+                </div>
+              </div>
+            </sc-for>
+            <div style="text-align:center;color:#8a817b;font-size:12.5px;margin-top:2px">Offers applied when we confirm your quote. One offer per job.</div>
+          </div>
+        </sc-if>
+
+        <!-- MESSAGES TAB -->
+        <sc-if value="{{ onMessages }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;height:min(52vh,440px);animation:fadeIn .25s ease">
+            <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:4px 2px 12px">
+              <sc-if value="{{ noMessages }}" hint-placeholder-val="{{ true }}">
+                <div style="text-align:center;color:#8a817b;padding:30px 12px">
+                  <div style="width:52px;height:52px;margin:0 auto 12px;border-radius:13px;background:#f4f2ef;display:flex;align-items:center;justify-content:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#c25e0c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></div>
+                  <div style="font-weight:700;color:#1c1817;font-size:15px;margin-bottom:3px">Message Cousins directly</div>
+                  <div style="font-size:13.5px;line-height:1.5;max-width:280px;margin:0 auto">Ask a question about your booking, parts or a quote. We'll reply here and by text.</div>
+                </div>
+              </sc-if>
+              <sc-for list="{{ msgRows }}" as="m" hint-placeholder-count="0">
+                <div style="{{ m.rowStyle }}">
+                  <div style="{{ m.bubbleStyle }}">{{ m.text }}</div>
+                  <div style="font-size:10.5px;color:#b3aaa3;margin-top:3px;{{ m.metaAlign }}">{{ m.who }} · {{ m.time }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:8px;border-top:1px solid #eee3d8;padding-top:12px">
+              <input value="{{ msgInput }}" onInput="{{ setMsgInput }}" onKeyDown="{{ msgKey }}" placeholder="Type a message…" style="flex:1;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px"/>
+              <button onClick="{{ sendMessage }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:0 20px;cursor:pointer">Send</button>
+            </div>
+            <a href="https://wa.me/447925340977" target="_blank" style="text-align:center;color:#25a35a;font-weight:700;font-size:13px;margin-top:10px">Prefer WhatsApp? Message us there →</a>
+          </div>
+        </sc-if>
+
+        <!-- ACCOUNT TAB -->
+        <sc-if value="{{ onAccount }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:14px;animation:fadeIn .25s ease">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#e8791a;line-height:1">{{ statTotal }}</div><div style="color:#8a817b;font-size:12.5px;font-weight:600">Total bookings</div></div>
+              <div style="background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#39a854;line-height:1">{{ statActive }}</div><div style="color:#8a817b;font-size:12.5px;font-weight:600">Active jobs</div></div>
+            </div>
+            <div>
+              <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Name</label>
+              <input value="{{ profile.name }}" onInput="{{ setProfName }}" placeholder="Your name" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+            </div>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Mobile</label>
+                <input value="{{ profile.phone }}" onInput="{{ setProfPhone }}" placeholder="07…" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/></div>
+              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Email</label>
+                <input value="{{ profile.email }}" onInput="{{ setProfEmail }}" placeholder="you@email.com" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/></div>
+            </div>
+            <label style="display:flex;align-items:flex-start;gap:10px;background:#faf7f3;border:1px solid #eee3d8;border-radius:10px;padding:12px;cursor:pointer">
+              <input type="checkbox" checked="{{ smsUpdatesOn }}" onChange="{{ toggleSmsUpdates }}" style="margin-top:3px;width:18px;height:18px;accent-color:#e8791a"/>
+              <span style="font-size:13.5px;color:#5c534d;line-height:1.4">Text me live status updates on jobs I book.</span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;background:#faf7f3;border:1px solid #eee3d8;border-radius:10px;padding:12px;cursor:pointer">
+              <input type="checkbox" checked="{{ profile.marketing }}" onChange="{{ toggleMarketing }}" style="margin-top:3px;width:18px;height:18px;accent-color:#e8791a"/>
+              <span style="font-size:13.5px;color:#5c534d;line-height:1.4">Email &amp; text me offers and service reminders. You can withdraw consent any time.</span>
+            </label>
+            <button onClick="{{ saveProfile }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15px">{{ saveProfileLabel }}</button>
+            <div style="display:flex;gap:10px">
+              <a href="https://wa.me/447925340977" target="_blank" style="flex:1;text-align:center;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:12px;font-size:14px">WhatsApp us</a>
+              <a href="tel:07925340977" style="flex:1;text-align:center;background:#1c1817;color:#fff;font-weight:700;border-radius:10px;padding:12px;font-size:14px">Call us</a>
+            </div>
+            <div style="border:1px solid #eee3d8;border-radius:12px;padding:14px;margin-top:4px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#1c1817;letter-spacing:.03em;margin-bottom:3px">YOUR DATA &amp; PRIVACY</div>
+              <div style="color:#8a817b;font-size:12.5px;line-height:1.5;margin-bottom:12px">Under UK GDPR you can download everything we hold about you, or erase your account entirely. Finished jobs are auto-deleted after 12 months.</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button onClick="{{ exportData }}" style="flex:1;min-width:130px;background:#fff;border:1.5px solid #ddd4cb;color:#1c1817;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Download my data</button>
+                <button onClick="{{ deleteAccount }}" style="flex:1;min-width:130px;background:#fdeee7;border:1.5px solid #f3c6ae;color:#a5401a;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Delete my account</button>
+              </div>
+            </div>
+            <button onClick="{{ logout }}" style="background:none;border:1.5px solid #e2dbd3;color:#8a817b;font-weight:700;border-radius:10px;padding:12px;cursor:pointer;font-size:14px;margin-top:2px" style-hover="border-color:#f3c6ae;color:#a5401a">Log out</button>
+          </div>
+        </sc-if>
+      </div>
+      </sc-if>
+    </div>
+  </div>
+</sc-if>
+
+<!-- ===== LIGHTBOX ===== -->
+<sc-if value="{{ lightbox }}" hint-placeholder-val="{{ false }}">
+  <div class="cms-ov" style="align-items:center;background:rgba(8,6,5,.92)" onClick="{{ closeLightbox }}">
+    {{ lightboxEl }}
+  </div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = {
+    regTab: 'tyres', regInput: '', regStatus: 'idle', vehicle: null, regError: '',
+    tyreOptions: [], partOptions: [],
+    bookOpen: false, bookStep: 1, bookDone: false, lastRef: '',
+    book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true },
+    locHint: 'We use this to route the van straight to you.',
+    portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
+    messages: [], msgInput:'', msgBusy:false,
+    profile: { name:'', phone:'', email:'', marketing:true }, profileSaved:false,
+    auth: null, authView:'login', authName:'', authEmail:'', authPhone:'', authPass:'', authPass2:'', authErr:'', authBusy:false,
+    authConsent:false, authSms:true, authMarketing:false,
+    resetToken:'', resetPass:'', resetMsg:'', forgotMsg:'',
+    trackRef: '', eta: 0, distance: 0, feed: [], lightbox: '', now: Date.now(), estimate:true,
+    liveTrack:false, custPos:null, mechPos:null, geoErr:'', driverMode:false, driverRef:'', driverOn:false, driverErr:'', driverAcc:0,
+    isSample: true, cfgOpen: false, cfgEndpoint: '', cfgKey: '', cfgProvider: 'vdim',
+    confirmVehicle: null, confirmReg: '', notMyCarOpen: false,
+    pk: { year:'', make:'', model:'', trim:'' },
+    opt: { years:[], makes:[], models:[], trims:[] }, pkErr: ''
+  };
+
+  componentDidMount(){
+    window.CMS_CONFIG = window.CMS_CONFIG || {};
+    this.loadConfig();
+    this.loadSession();
+    try{ const m=(location.hash||'').match(/reset=([\w-]+)/); if(m){ this.setState({resetToken:m[1], portalOpen:true}); } }catch(e){}
+    this.loadOrders();
+    setTimeout(()=>this.loadYears(), 60);
+    this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
+    setTimeout(()=>this.showMobCta(), 60);
+  }
+  componentWillUnmount(){ clearInterval(this._tick); if(this._trackTimer) clearInterval(this._trackTimer); if(this._liveTimer) clearInterval(this._liveTimer); if(this._geoWatch!=null && navigator.geolocation) navigator.geolocation.clearWatch(this._geoWatch); }
+  showMobCta(){ try{ const el=document.querySelector('.cms-mobcta'); if(el&&window.innerWidth<=860) el.style.display='block'; }catch(e){} }
+
+  delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+  // ---------- LIVE DATA CONFIG (tyre proxy) ----------
+  loadConfig(){
+    try{
+      const c = JSON.parse(localStorage.getItem('cms_config')||'null');
+      if(c){ window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
+        this.setState({ cfgEndpoint:c.tireProxy||'' });
+        if(c.tireProxy) setTimeout(()=>this.loadYears(), 50);
+      }
+    }catch(e){}
+  }
+  openCfg = () => this.setState({cfgOpen:true});
+  closeCfg = () => this.setState({cfgOpen:false});
+  setCfgEndpoint = e => this.setState({cfgEndpoint:e.target.value});
+  setCfgKey = e => this.setState({cfgKey:e.target.value});
+  setCfgProvider = e => this.setState({cfgProvider:e.target.value});
+  saveConfig = () => {
+    const base = this.state.cfgEndpoint.trim().replace(/\/+$/,'');
+    const c = { tireProxy: base };
+    try{ localStorage.setItem('cms_config', JSON.stringify(c)); }catch(e){}
+    window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
+    this.setState({cfgOpen:false, pkErr:''});
+    if(base) this.loadYears();
+  };
+  clearConfig = () => {
+    try{ localStorage.removeItem('cms_config'); }catch(e){}
+    window.CMS_CONFIG = {};
+    this.setState({cfgOpen:false, cfgEndpoint:'', isSample:true, opt:{years:[],makes:[],models:[],trims:[]}, pk:{year:'',make:'',model:'',trim:''}});
+  };
+
+  // ---------- BACKEND (Cloudflare Worker) ----------
+  apiBase(){ const c=window.CMS_CONFIG||{}; const b=(c.apiBase||c.tireProxy); if(b) return b.replace(/\/+$/,''); return this.sameOrigin()?'':null; }
+  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
+  hasServer(){ return this.apiBase()!==null; }
+  authToken(){ try{ return localStorage.getItem('cms_token')||''; }catch(e){ return ''; } }
+  async apiFetch(path, opts){
+    opts = opts||{};
+    const h = Object.assign({}, opts.headers||{});
+    if(opts.body && !h['content-type']) h['content-type']='application/json';
+    const t=this.authToken(); if(t) h['authorization']='Bearer '+t;
+    const r = await fetch(this.apiBase()+'/api'+path, { ...opts, headers:h });
+    return r;
+  }
+
+  // ---------- LIVE TYRE LOOKUP (tire.vdim.app via proxy) ----------
+  tireBase(){ return this.apiBase(); }
+  hasProxy(){ return this.apiBase()!==null; }
+  async tapi(path){ const b=this.tireBase(); if(b===null) throw new Error('noproxy'); const r=await fetch(b+'/api/v1'+path); if(!r.ok) throw new Error('api '+r.status); return r.json(); }
+  toList(d){
+    let arr = Array.isArray(d) ? d : null;
+    if(!arr && d && typeof d==='object'){ arr = d.data||d.results||d.items||d.makes||d.models||d.trims||d.years||d.values||d.list; if(!Array.isArray(arr)){ for(const k in d){ if(Array.isArray(d[k])){ arr=d[k]; break; } } } }
+    if(!Array.isArray(arr)) return [];
+    return arr.map(x=> typeof x==='object' ? (x.name||x.make||x.model||x.trim||x.year||x.value||x.label||Object.values(x)[0]) : x).filter(v=>v!==undefined&&v!==null&&v!=='').map(String);
+  }
+  buildSize(t){
+    if(!t) return '';
+    const w=t.SectionWidthMm||t.sectionWidthMm||t.sectionWidth, a=t.AspectRatio||t.aspectRatio, r=t.RimDiameterInches||t.rimDiameterInches||t.rimDiameter;
+    return (w&&a&&r) ? (w+'/'+a+' R'+r) : '';
+  }
+  extractSize(d){
+    if(!d) return '';
+    if(typeof d==='string') return d.replace(/R?(\d{2})$/,' R$1').replace(/\s+R/,' R');
+    if(Array.isArray(d)) return this.extractSize(d[0]);
+    for(const k of ['tiresize','tireSize','tire_size','size','Front','front','standard','Standard','oe']){
+      if(d[k]){ const v=d[k]; const s=this.extractSize(v); if(s) return s; }
+    }
+    const w=d.width||d.Width||d.section_width||d.sectionWidth;
+    const a=d.aspectRatio||d.aspect_ratio||d.AspectRatio||d.ratio||d.aspect;
+    const r=d.diameter||d.Diameter||d.rim||d.rimDiameter||d.wheel||d.rim_diameter;
+    if(w&&a&&r) return w+'/'+a+' R'+r;
+    return '';
+  }
+  loadYears = async () => {
+    // Always seed a sensible year range so the picker is usable immediately
+    const nowY=new Date().getFullYear(); const range=[]; for(let y=nowY+1;y>=1995;y--) range.push(String(y));
+    this.setState(s=>({opt:{...s.opt,years:range}, pkErr:''}));
+    if(!this.hasProxy()) return;
+    try{ const d=await this.tapi('/search_allyear'); const years=this.toList(d).sort((a,b)=>String(b).localeCompare(String(a),undefined,{numeric:true})); if(years.length) this.setState(s=>({opt:{...s.opt,years}})); }catch(e){}
+  };
+  carMakes(){ return (typeof window!=='undefined' && window.CAR_MAKES) ? window.CAR_MAKES : []; }
+  carModels(make){ return (typeof window!=='undefined' && window.CAR_DATA && window.CAR_DATA[make]) ? window.CAR_DATA[make] : []; }
+  pickYear = async (e) => {
+    const year=e.target.value;
+    this.setState(s=>({pk:{year,make:'',model:'',trim:''}, opt:{...s.opt,makes:this.carMakes(),models:[],trims:[]}, pkErr:''}));
+    if(!year || !this.hasProxy()) return;
+    try{ const d=await this.tapi('/by_vehicle/make?year='+encodeURIComponent(year)); const makes=this.toList(d); if(makes.length) this.setState(s=>({opt:{...s.opt,makes}})); }catch(e){}
+  };
+  pickMake = async (e) => {
+    const make=e.target.value; const {year}=this.state.pk;
+    this.setState(s=>({pk:{...s.pk,make,model:'',trim:''}, opt:{...s.opt,models:this.carModels(make),trims:[]}, pkErr:''}));
+    if(!make || !this.hasProxy()) return;
+    try{ const d=await this.tapi('/by_vehicle/model?year='+encodeURIComponent(year)+'&make='+encodeURIComponent(make)); const models=this.toList(d); if(models.length) this.setState(s=>({opt:{...s.opt,models}})); }catch(e){}
+  };
+  pickModel = async (e) => {
+    const model=e.target.value; const {year,make}=this.state.pk;
+    this.setState(s=>({pk:{...s.pk,model,trim:''}, opt:{...s.opt,trims:[]}, pkErr:''}));
+    if(!model) return;
+    try{ const d=await this.tapi('/by_vehicle/trim?year='+encodeURIComponent(year)+'&make='+encodeURIComponent(make)+'&model='+encodeURIComponent(model)); this.setState(s=>({opt:{...s.opt,trims:this.toList(d)}})); }catch(e){ this.pkFail(); }
+  };
+  pickTrim = async (e) => {
+    const trim=e.target.value; this.setState(s=>({pk:{...s.pk,trim}}));
+    if(!trim) return; this.fetchLiveDims(trim);
+  };
+  pkFail(){ this.setState({pkErr:'That step failed — the live service may not list this vehicle. Try another.'}); }
+  async fetchLiveDims(trim){
+    const {year,make,model}=this.state.pk;
+    this.setState({regStatus:'loading', regError:''});
+    try{
+      const params=new URLSearchParams({year,make,model,trim});
+      const d=await this.tapi('/tire_dimensions?'+params.toString());
+      const dims=d.dimensions||d.data||d;
+      const size=this.extractSize(dims);
+      const v={ reg:'', make, model, year, title:(make+' '+model).trim(), line2:[trim,year].filter(Boolean).join(' · '), tyre:size };
+      this.setState({regStatus:'result', regTab:'tyres', vehicle:v});
+      this.buildOptions(v,'tyres');
+    }catch(e){ this.setState({regStatus:'error', regError:'We couldn\u2019t load tyre details for that vehicle just now \u2014 please try again, or call us on 07925 340977.'}); }
+  }
+  loadOrders(){ try{ const o=JSON.parse(localStorage.getItem('cms_orders')||'[]'); this.setState({orders:o}); const act=o.find(x=>x.status!=='cancelled'&&x.status!=='complete'); if(act){ this.startTracking(act.ref); } }catch(e){} }
+  saveOrders(o){ try{ localStorage.setItem('cms_orders', JSON.stringify(o)); }catch(e){} this.setState({orders:o}); }
+
+  // ---------- REG LOOKUP ----------
+  selectTyres = () => { this.setState({regTab:'tyres'}); if(this.state.vehicle) this.buildOptions(this.state.vehicle,'tyres'); };
+  selectParts = () => { this.setState({regTab:'parts'}); if(this.state.vehicle) this.buildOptions(this.state.vehicle,'parts'); };
+  onRegInput = (e) => this.setState({regInput: e.target.value.toUpperCase()});
+  onRegKey = (e) => { if(e.key==='Enter') this.lookupReg(); };
+  tryDemo = () => { this.setState({regInput:'AB12CDE'}, ()=>this.lookupReg()); };
+
+  lookupReg = async () => {
+    const reg = (this.state.regInput||'').toUpperCase().replace(/\s+/g,'').trim();
+    if(reg.length < 2){ this.setState({regStatus:'error', regError:'Please enter a valid number plate.'}); return; }
+    this.setState({regStatus:'loading', regError:'', notMyCarOpen:false});
+    try {
+      const cv = await this.confirmLookup(reg);           // step 1: confirm make & model
+      this.setState({regStatus:'confirm', confirmReg:reg, confirmVehicle:cv});
+    } catch(err){
+      this.setState({regStatus:'error', regError:'We couldn\u2019t find that registration. Please double-check it, or call us on 07925 340977 and we\u2019ll sort it.'});
+    }
+  };
+  confirmYes = async () => {                              // step 2: pull tyre info
+    const reg = this.state.confirmReg;
+    this.setState({regStatus:'loading', regError:''});
+    try {
+      const t = await this.fetchVehicle(reg);             // TyreDetails -> size
+      const v = { ...this.state.confirmVehicle, reg, tyre: t.tyre || this.state.confirmVehicle.tyre || '' };
+      this.setState({regStatus:'result', regTab:'tyres', vehicle:v});
+      this.buildOptions(v, 'tyres');
+    } catch(err){
+      this.setState({regStatus:'error', regError:'We couldn\u2019t load tyre details for that vehicle just now \u2014 please try again, or call us on 07925 340977.'});
+    }
+  };
+  notMyCar = () => this.setState({regStatus:'idle', notMyCarOpen:true});
+  tryAgain = () => this.setState({regStatus:'idle', notMyCarOpen:false, regInput:'', vehicle:null});
+
+  // Step 1 — confirm the vehicle via VehicleDetails; fall back to TyreDetails' model name.
+  async confirmLookup(reg){
+    if(this.hasProxy()){
+      try{
+        const r = await fetch(this.tireBase()+'/api/ukvd?package=VehicleDetails&vrm='+encodeURIComponent(reg));
+        if(r.ok){ const d = await r.json(); const v = this.normaliseVD(reg, d); if(v && (v.make||v.model)){ return v; } }
+      }catch(e){}
+      // fallback: TyreDetails carries a model name even without VehicleDetails enabled
+      try{
+        const r2 = await fetch(this.tireBase()+'/api/ukvd?vrm='+encodeURIComponent(reg));
+        if(r2.ok){ const d2 = await r2.json(); const v2 = this.normalise(reg, d2, 'ukvd'); if(v2 && (v2.model||v2.tyre)){ v2.make = v2.make==='Vehicle' ? '' : v2.make; return v2; } }
+      }catch(e){}
+    }
+    throw new Error('noconfirm');
+  }
+  // Tolerant VehicleDetails parse (PascalCase VDG shape) + recursive key search fallback.
+  normaliseVD(reg, d){
+    const res = d.Results || d.results || d;
+    const vd = res.VehicleDetails || res.vehicleDetails || res;
+    const vi = vd.VehicleIdentification || vd.vehicleIdentification || vd;
+    const pick = (o,keys)=>{ for(const k of keys){ if(o && o[k]!=null && o[k]!=='' ) return o[k]; } return ''; };
+    let make = pick(vi,['DvlaMake','Make','Marque','make']) || this.deepFind(res,/make|marque/i);
+    let model = pick(vi,['DvlaModel','Model','Range','model']) || this.deepFind(res,/^model$|modelname|range/i);
+    if(typeof window!=='undefined' && window.canonMake && make) make = window.canonMake(make);
+    const year = pick(vi,['YearOfManufacture','ManufacturedYear','year']) || this.deepFind(res,/year/i);
+    const colour = pick(vi,['DvlaColour','Colour','Color']) || this.deepFind(res,/colou?r/i);
+    const fuel = pick(vi,['DvlaFuelType','FuelType','Fuel']) || this.deepFind(res,/fuel/i);
+    return this.pack(reg, String(make||'').trim()||'Vehicle', String(model||'').trim(), year||'', colour||'', fuel||'', '', '');
+  }
+  deepFind(obj, rx, depth){
+    depth = depth||0; if(!obj || typeof obj!=='object' || depth>4) return '';
+    for(const k in obj){ const val=obj[k];
+      if((typeof val==='string'||typeof val==='number') && rx.test(k) && String(val).trim()!=='') return val;
+    }
+    for(const k in obj){ if(obj[k] && typeof obj[k]==='object'){ const r=this.deepFind(obj[k],rx,depth+1); if(r) return r; } }
+    return '';
+  }
+
+  // LIVE lookup. window.CMS_CONFIG.vehicleEndpoint = your proxy/API URL. The reg is appended
+  // (or use {REG}/{KEY} placeholders). provider tells us how to read the response:
+  //   'ukvd'  -> ukvehicledata.co.uk datapackage (make, model + real tyre size)
+  //   'dvla'  -> DVLA VES (make, colour, fuel, year, cc — no model/tyre)
+  //   'custom'-> your proxy already returns {make,model,year,colour,fuel,tyreSize,engineCapacity}
+  async fetchVehicle(reg){
+    // 1) Live: UK Vehicle Data (plate -> vehicle + tyre) through your proxy
+    if(this.hasProxy()){
+      try{
+        const r = await fetch(this.tireBase()+'/api/ukvd?vrm='+encodeURIComponent(reg));
+        if(r.ok){
+          const d = await r.json();
+          const v = this.normalise(reg, d, 'ukvd');
+          if(v.tyre){ this._live = true; return v; }
+        }
+      }catch(e){}
+    }
+    // No live match — surface an error rather than any placeholder data
+    this._live = false;
+    throw new Error('nolookup');
+  }
+  normalise(reg, d, provider){
+    if(provider==='ukvd'){
+      // Vehicle Data Global r2 (keys are PascalCase): Results.TyreDetails.TyreDetailsList[]
+      const res = d.Results || d.results || d;
+      const td = res.TyreDetails || res.tyreDetails || {};
+      const list = td.TyreDetailsList || td.tyreDetailsList || [];
+      const item = list.find(x=>x && (x.IsStandardFitmentForVehicle||x.isStandardFitmentForVehicle)) || list[0] || {};
+      const veh = item.Vehicle || item.vehicle || {};
+      const front = item.Front || item.front || {};
+      const ftyre = front.Tyre || front.tyre || {};
+      const size = ftyre.SizeDescription || ftyre.sizeDescription || this.buildSize(ftyre) || '';
+      const model = veh.ModelName || veh.modelName || '';
+      const yr = veh.Year || veh.year || {};
+      const year = yr.Uk || yr.uk || yr.Euro || yr.euro || '';
+      return this.pack(reg, 'Vehicle', String(model).trim(), year, '', '', size, '');
+    }
+    // custom / already-normalised
+    return this.pack(reg, d.make||'Vehicle', d.model||'', d.year||d.yearOfManufacture||'', d.colour||d.color||'', d.fuelType||d.fuel||'', d.tyreSize||d.tyre||'', d.engineCapacity||d.engine||'');
+  }
+  pack(reg, make, model, year, colour, fuel, tyre, engine){    return {
+      reg, make, model, year, colour, fuel, tyre, engine,
+      title: (make + ' ' + model).trim(),
+      line2: [colour, fuel, year, engine?engine+'cc':''].filter(Boolean).join(' · ')
+    };
+  }
+  demoVehicle(reg){
+    const db = {
+      'AB12CDE': ['Ford','Focus Zetec',2016,'Blue','Petrol','205/55 R16',1596],
+      'BD64XYZ': ['Volkswagen','Golf Match TDI',2015,'Grey','Diesel','225/45 R17',1968],
+      'LT19KRM': ['BMW','320d M Sport',2019,'Black','Diesel','225/45 R18',1995],
+      'WV68PLT': ['Vauxhall','Corsa SRi',2018,'White','Petrol','195/55 R16',1398]
+    };
+    if(db[reg]){ const r=db[reg]; return this.pack(reg, r[0],r[1],r[2],r[3],r[4],r[5],r[6]); }
+    // deterministic fallback so any plate returns a plausible vehicle
+    const makes=[['Ford','Fiesta','175/65 R14'],['Vauxhall','Astra','205/55 R16'],['Volkswagen','Polo','185/60 R15'],['Nissan','Qashqai','215/60 R17'],['Toyota','Yaris','185/60 R15'],['Audi','A3','225/45 R17'],['Mercedes-Benz','A-Class','205/55 R16'],['Kia','Sportage','225/60 R17']];
+    const cols=['Silver','Black','Blue','Grey','Red','White'];
+    const fuels=['Petrol','Diesel','Hybrid'];
+    let h=0; for(let i=0;i<reg.length;i++) h=(h*31+reg.charCodeAt(i))>>>0;
+    const mk=makes[h%makes.length];
+    const yr=2012 + (h>>3)%12;
+    return this.pack(reg, mk[0], mk[1], yr, cols[(h>>5)%cols.length], fuels[(h>>7)%fuels.length], mk[2], 1200+((h>>2)%800));
+  }
+
+  async buildOptions(v, tab){
+    const sz = v.tyre || '205/55 R16';
+    let tyreList = [];
+    try {
+      const r = await fetch('/api/tyres/lookup?size=' + encodeURIComponent(sz));
+      if (r.ok) {
+        const d = await r.json();
+        if (d.tyres && d.tyres.length > 0) tyreList = d.tyres;
+      }
+    } catch(e){}
+
+    const base = 46 + (parseInt((sz.match(/R(\d+)/)||[])[1]||'16',10) - 14) * 9;
+    let tyres;
+    if (tyreList.length > 0) {
+      tyres = tyreList.slice(0, 6).map((t, i) => {
+        const isFeatured = i === 1 || t.brand === 'Falken' || t.brand === 'Avon';
+        const accent = isFeatured ? '#e8791a' : (i >= 3 ? '#0d5bd4' : '#6f6862');
+        return {
+          tier: t.brand.toUpperCase() + ' ' + (t.model || ''),
+          brand: t.brand + ' — ' + (t.model || t.label),
+          note: t.label + ' (SKU: ' + t.sku + ')',
+          priceEach: '£' + (t.price || base),
+          accent: accent,
+          featured: isFeatured,
+          img: t.image,
+          cardStyle: 'border:'+(isFeatured?'2px solid #e8791a':'1.5px solid #eee3d8')+';border-radius:13px;padding:16px 14px 16px;background:'+(isFeatured?'#fff7f0':'#fff')+';text-align:left;position:relative',
+          badgeStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.08em;color:#fff;background:'+accent+';border-radius:6px;padding:3px 9px',
+          book: ()=>this.bookFromReg('tyre', 'Tyre fitting — ' + t.brand + ' ' + t.model + ' (' + sz + ') £' + t.price)
+        };
+      });
+    } else {
+      tyres = [
+        { tier:'BUDGET', brand:'Quality budget brand', note:'Great value, fully warrantied', priceEach:'£'+base, accent:'#6f6862' },
+        { tier:'MID-RANGE', brand:'Avon / Falken', note:'Best all-round choice', priceEach:'£'+(base+28), accent:'#e8791a', featured:true },
+        { tier:'PREMIUM', brand:'Michelin / Continental', note:'Longest life, best grip', priceEach:'£'+(base+64), accent:'#0d5bd4' }
+      ].map((t,i)=>({
+        ...t,
+        cardStyle: 'border:'+(t.featured?'2px solid #e8791a':'1.5px solid #eee3d8')+';border-radius:13px;padding:16px 14px 16px;background:'+(t.featured?'#fff7f0':'#fff')+';text-align:left;position:relative',
+        badgeStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.08em;color:#fff;background:'+t.accent+';border-radius:6px;padding:3px 9px',
+        book: ()=>this.bookFromReg('tyre', 'Tyre fitting — '+t.tier.toLowerCase()+' ('+sz+')')
+      }));
+    }
+
+    const parts = [
+      { icon:'🛞', name:'Puncture repair', note:'Safe repair where possible', price:'£25' },
+      { icon:'🛑', name:'Brake pads & discs', note:'Front or rear, quality parts', price:'£120' },
+      { icon:'🔋', name:'Battery supply & fit', note:'Tested & fitted on site', price:'£85' },
+      { icon:'🔧', name:'Full service', note:'Oil, filters, full check', price:'£99' },
+      { icon:'⚙️', name:'Clutch replacement', note:'Mobile or recovery to base', price:'£380' },
+      { icon:'🩺', name:'Diagnostics', note:'Fault codes read & explained', price:'£40' }
+    ].map(p=>({ ...p, book: ()=>this.bookFromReg('part', p.name) }));
+    this.setState({ tyreOptions: tyres, partOptions: parts });
+  }
+
+  bookFromReg(kind, label){
+    const v = this.state.vehicle;
+    this.setState(s=>({ bookOpen:true, bookStep:2, bookDone:false,
+      book:{ ...s.book, reg: v?v.reg:s.book.reg, service:kind, svcLabel:label } }));
+  }
+
+  // ---------- BOOKING ----------
+  openBook = () => this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}}));
+  closeBook = () => this.setState({bookOpen:false});
+  stop = (e) => e.stopPropagation();
+  pickService(id, label, icon){ this.setState(s=>({ book:{...s.book, service:id, svcLabel:label}, bookStep:2 })); }
+  setBookReg = e => this.setState(s=>({book:{...s.book,reg:e.target.value.toUpperCase()}}));
+  setBookPostcode = e => this.setState(s=>({book:{...s.book,postcode:e.target.value}}));
+  setBookDate = e => this.setState(s=>({book:{...s.book,date:e.target.value}}));
+  setBookTime = e => this.setState(s=>({book:{...s.book,time:e.target.value}}));
+  setBookName = e => this.setState(s=>({book:{...s.book,name:e.target.value}}));
+  setBookPhone = e => this.setState(s=>({book:{...s.book,phone:e.target.value}}));
+  setBookEmail = e => this.setState(s=>({book:{...s.book,email:e.target.value}}));
+  setBookNotes = e => this.setState(s=>({book:{...s.book,notes:e.target.value}}));
+  toggleCalendar = e => this.setState(s=>({book:{...s.book,calendar:e.target.checked}}));
+
+  useMyLocation = () => {
+    this.setState({locHint:'Getting your location…'});
+    if(!navigator.geolocation){ this.setState({locHint:'Location not available — please type your postcode.'}); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos=>{ const la=pos.coords.latitude, lo=pos.coords.longitude;
+        this.setState(s=>({ book:{...s.book, postcode:'📍 '+la.toFixed(5)+', '+lo.toFixed(5), lat:la, lng:lo}, locHint:'Location captured — the van will be routed to you.' })); },
+      err=>{ const m = err.code===1 ? 'Location permission denied — allow location for this site in your browser, or type your postcode.' : err.code===2 ? 'Location unavailable right now — please type your postcode.' : 'Location timed out — please type your postcode.'; this.setState({locHint:m}); },
+      { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+    );
+  };
+
+  bookBack = () => this.setState(s=>({bookStep:Math.max(1,s.bookStep-1)}));
+  bookNext = () => {
+    const { bookStep, book } = this.state;
+    if(bookStep===1){ if(!book.service){ return; } this.setState({bookStep:2}); return; }
+    if(bookStep===2){ if(!book.reg||!book.date||!book.time){ alert('Please add your reg, date and time.'); return; } this.setState({bookStep:3}); return; }
+    if(bookStep===3){ if(!book.name||!book.phone){ alert('Please add your name and mobile number.'); return; } this.submitBooking(); return; }
+  };
+
+  submitBooking(){
+    if (window.googleAccessToken) {
+      try {
+        const order = this.state.book;
+        const calEvent = {
+          summary: "Cousins Mechanical Booking - " + (order.svcLabel || "Service"),
+          description: "Ref: " + (order.ref || "NEW") + "\n" + (order.notes || ""),
+          start: { date: order.date || new Date().toISOString().slice(0,10) },
+          end: { date: order.date || new Date().toISOString().slice(0,10) }
+        };
+        fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+          method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
+          body: JSON.stringify(calEvent)
+        });
+        const b64 = btoa("Content-Type: text/plain; charset=\"UTF-8\"\r\nMIME-Version: 1.0\r\nTo: " + (order.email || "info@cousinsmechanical.co.uk") + "\r\nSubject: Booking Confirmation: " + (order.ref || "NEW") + "\r\n\r\nYour booking is confirmed. We will see you then.").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+          method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
+          body: JSON.stringify({ raw: b64 })
+        });
+      } catch(e){}
+    }
+    const b = this.state.book;
+    const ref = 'CMS-' + Date.now().toString(36).toUpperCase().slice(-5);
+    const order = { ...b, ref, status:'confirmed', createdAt: Date.now(),
+      updates: [{ t: Date.now(), s:'Booking confirmed', d:'We have your job — you will get a text when the van is on the way.' }] };
+    const orders = [order, ...this.state.orders];
+    this.saveOrders(orders);
+    
+    // Submit service request to backend API to persist & trigger Google Calendar event creation
+    fetch('/api/service-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order)
+    }).then(r => r.json()).then(data => {
+      console.log('Service request submitted to backend & Google Calendar:', data);
+    }).catch(err => console.error('Error sending service request:', err));
+
+    if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings',{method:'POST',body:JSON.stringify(order)}).catch(()=>{}); }
+    this._lastIcs = this.buildICS(order);
+    this.sendAutomation(order);
+    this.setState({ bookDone:true, lastRef:ref, trackRef:ref });
+    this.startTracking(ref);
+  }
+
+  // Automation: emits a calendar invite + posts the booking to your webhook
+  // (Zapier/Make/n8n) which sends the client the email + calendar invite and
+  // wires SMS updates. Set window.CMS_CONFIG.bookingWebhook to enable the POST.
+  sendAutomation(o){
+    const cfg = window.CMS_CONFIG || {};
+    if(cfg.bookingWebhook){
+      try{ fetch(cfg.bookingWebhook,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}); }catch(e){}
+    }
+  }
+  buildICS(o){
+    const d = (o.date||'').replace(/-/g,'');
+    const dt = d ? d+'T090000' : new Date().toISOString().replace(/[-:]/g,'').slice(0,15);
+    return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Cousins Mechanical//EN','BEGIN:VEVENT',
+      'UID:'+o.ref+'@cousinsmechanical','DTSTAMP:'+new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z',
+      'DTSTART:'+dt, 'SUMMARY:Cousins Mechanical — '+(o.svcLabel||'Mobile job'),
+      'DESCRIPTION:Ref '+o.ref+'. '+(o.svcLabel||'')+' for '+(o.reg||'')+'. '+(o.notes||''),
+      'LOCATION:'+(o.postcode||'Your location'),'END:VEVENT','END:VCALENDAR'].join('\r\n');
+  }
+  downloadIcs = () => {
+    const ics = this._lastIcs || this.buildICS(this.state.orders[0]||{});
+    const blob = new Blob([ics], {type:'text/calendar'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (this.state.lastRef||'booking')+'.ics'; a.click();
+  };
+  goTrack = () => { this.setState({bookOpen:false}); setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); },80); };
+
+  // ---------- AUTH (client-side prototype) ----------
+  // Prototype auth: accounts + salted-hash passwords in localStorage, session token
+  // persisted. Swap loadUsers/saveUser/login/signup for real API calls to go server-side.
+  hash(str){ let h=5381; for(let i=0;i<str.length;i++){ h=((h<<5)+h)^str.charCodeAt(i); } return (h>>>0).toString(16); }
+  loadUsers(){ try{ return JSON.parse(localStorage.getItem('cms_users')||'{}'); }catch(e){ return {}; } }
+  saveUsers(u){ try{ localStorage.setItem('cms_users', JSON.stringify(u)); }catch(e){} }
+  loadSession(){
+    if(this.hasServer() && this.authToken()){
+      this.apiFetch('/auth/me').then(r=>r.ok?r.json():null).then(d=>{
+        if(d&&d.user){ this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}}); this.pullBookings(); }
+      }).catch(()=>{});
+    }
+    try{
+      const em = localStorage.getItem('cms_session');
+      if(em){ const u=this.loadUsers()[em.toLowerCase()]; if(u){ this.state.auth={email:u.email,name:u.name,phone:u.phone}; this.state.profile={name:u.name,phone:u.phone,email:u.email,marketing:u.marketing!==false}; } }
+    }catch(e){}
+  }
+  async pullBookings(){ try{ const r=await this.apiFetch('/bookings'); if(r.ok){ const d=await r.json(); if(d.bookings) this.setState({orders:d.bookings}); } }catch(e){} }
+  setAuthView = v => this.setState({authView:v, authErr:''});
+  setAuthName = e => this.setState({authName:e.target.value});
+  setAuthEmail = e => this.setState({authEmail:e.target.value});
+  setAuthPhone = e => this.setState({authPhone:e.target.value});
+  setAuthPass = e => this.setState({authPass:e.target.value});
+  setAuthPass2 = e => this.setState({authPass2:e.target.value});
+  toggleConsent = e => this.setState({authConsent:e.target.checked});
+  toggleAuthSms = e => this.setState({authSms:e.target.checked});
+  toggleAuthMarketing = e => this.setState({authMarketing:e.target.checked});
+  forgotPassword = () => {
+    const email=(this.state.authEmail||'').trim().toLowerCase();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return this.setState({authErr:'Enter your email above first, then tap reset.'});
+    if(this.hasServer()){ this.apiFetch('/auth/forgot',{method:'POST',body:JSON.stringify({email})}).catch(()=>{}); }
+    this.setState({authErr:'', forgotMsg:'If that email has an account, we\u2019ve sent a reset link. Check your inbox.'});
+  };
+  setResetPass = e => this.setState({resetPass:e.target.value});
+  submitReset = () => {
+    if(this.state.resetPass.length<6) return this.setState({resetMsg:'Password must be at least 6 characters.'});
+    if(this.hasServer()){
+      this.apiFetch('/auth/reset',{method:'POST',body:JSON.stringify({resetToken:this.state.resetToken,password:this.state.resetPass})})
+        .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Reset failed');
+          this.setState({resetToken:'', resetPass:'', resetMsg:'', authView:'login', portalOpen:true});
+          try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+        }).catch(e=>this.setState({resetMsg:e.message}));
+    } else { this.setState({resetToken:'', resetMsg:'', authView:'login'}); }
+  };
+  authOnKey = e => { if(e.key==='Enter'){ this.state.authView==='signup'?this.doSignup():this.doLogin(); } };
+  doSignup = () => {
+    const {authName,authEmail,authPhone,authPass,authPass2}=this.state;
+    const email=(authEmail||'').trim().toLowerCase();
+    if(!authName.trim()) return this.setState({authErr:'Please enter your name.'});
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return this.setState({authErr:'Please enter a valid email.'});
+    if(authPass.length<6) return this.setState({authErr:'Password must be at least 6 characters.'});
+    if(authPass!==authPass2) return this.setState({authErr:'Passwords do not match.'});
+    if(!this.state.authConsent) return this.setState({authErr:'Please accept the privacy notice to create your account.'});
+    this.setState({authBusy:true, authErr:''});
+    if(this.hasServer()){
+      this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms})})
+        .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Sign up failed');
+          try{ localStorage.setItem('cms_token', d.token); }catch(e){}
+          this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', authPass2:'', portalTab:'bookings'});
+          this.pullBookings();
+        }).catch(e=>this.setState({authBusy:false, authErr:e.message}));
+      return;
+    }
+    setTimeout(()=>{
+      const users=this.loadUsers();
+      if(users[email]){ this.setState({authBusy:false, authErr:'An account with that email already exists — try logging in.'}); return; }
+      const rec={ name:authName.trim(), email, phone:authPhone.trim(), pass:this.hash(authPass+email), marketing:this.state.authMarketing, smsUpdates:this.state.authSms, consentAt:Date.now(), createdAt:Date.now() };
+      users[email]=rec; this.saveUsers(users);
+      try{ localStorage.setItem('cms_session', email); }catch(e){}
+      this.setState({ auth:{email,name:rec.name,phone:rec.phone}, profile:{name:rec.name,phone:rec.phone,email,marketing:this.state.authMarketing,smsUpdates:this.state.authSms}, authBusy:false, authPass:'', authPass2:'', authErr:'', portalTab:'bookings' });
+    }, 500);
+  };
+  googleSignIn = async () => {
+    try {
+      this.setState({ authBusy: true, authErr: "" });
+      const cfgRes = await fetch("/api/firebase-config");
+      const firebaseConfig = await cfgRes.json();
+      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+      const app = window.firebaseApp || initializeApp(firebaseConfig);
+      window.firebaseApp = app;
+      const authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+      const auth = authMod.getAuth(app);
+      const provider = new authMod.GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/calendar");
+      provider.addScope("https://mail.google.com/");
+      const result = await authMod.signInWithPopup(auth, provider);
+      const credential = authMod.GoogleAuthProvider.credentialFromResult(result);
+      if (credential && credential.accessToken) {
+        window.googleAccessToken = credential.accessToken;
+        try { localStorage.setItem("cms_google_access_token", credential.accessToken); } catch(e) {}
+      }
+      const user = result.user;
+      const email = user.email;
+      const name = user.displayName || email.split("@")[0];
+      try { localStorage.setItem("cms_session", "demo-token"); localStorage.setItem("cms_profile", JSON.stringify({ name, email, phone: "" })); } catch(e){}
+      this.setState({ auth: { name, email, phone: "" }, authView: "login", authPass: "", authErr: "", portalOpen: false, authBusy: false });
+    } catch(err) {
+      this.setState({ authBusy: false, authErr: "Google Sign-In failed: " + err.message });
+    }
+  };
+
+  doLogin = () => {
+    const {authEmail,authPass}=this.state;
+    const email=(authEmail||'').trim().toLowerCase();
+    this.setState({authBusy:true, authErr:''});
+    if(this.hasServer()){
+      this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass})})
+        .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Login failed');
+          try{ localStorage.setItem('cms_token', d.token); }catch(e){}
+          this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', portalTab:'bookings'});
+          this.pullBookings();
+        }).catch(e=>this.setState({authBusy:false, authErr:e.message}));
+      return;
+    }
+    const users=this.loadUsers();
+    const u=users[email];
+    if(!u || u.pass!==this.hash(authPass+email)){ this.setState({authBusy:false, authErr:'Email or password not recognised.'}); return; }
+    setTimeout(()=>{
+      try{ localStorage.setItem('cms_session', email); }catch(e){}
+      this.setState({ auth:{email,name:u.name,phone:u.phone}, profile:{name:u.name,phone:u.phone,email,marketing:u.marketing!==false}, authBusy:false, authPass:'', authErr:'', portalTab:'bookings' });
+    }, 500);
+  };
+  logout = () => { if(this.hasServer()){ this.apiFetch('/auth/logout',{method:'POST'}).catch(()=>{}); } try{ localStorage.removeItem('cms_session'); localStorage.removeItem('cms_token'); }catch(e){} this.setState({auth:null, authView:'login', authPass:'', authPass2:'', portalOpen:false}); };
+
+  // ---------- PORTAL / ACCOUNT ----------
+  openPortal = () => { this.loadOrders(); this.loadProfile(); this.loadMessages(); this.setState({portalOpen:true, portalTab:'bookings', authErr:''}); };
+  closePortal = () => this.setState({portalOpen:false, editing:''});
+  portalToBook = () => this.setState({portalOpen:false, bookOpen:true, bookStep:1, bookDone:false});
+  tabBookings = () => this.setState({portalTab:'bookings'});
+  tabOffers = () => this.setState({portalTab:'offers'});
+  tabMessages = () => { this.setState({portalTab:'messages'}); this.loadMessages(); };
+  tabAccount = () => this.setState({portalTab:'account'});
+  setMsgInput = e => this.setState({msgInput:e.target.value});
+  loadMessages(){ if(!this.hasServer()||!this.state.auth) return; this.apiFetch('/messages').then(r=>r.json()).then(d=>{ if(d.messages) this.setState({messages:d.messages}); }).catch(()=>{}); }
+  sendMessage = () => {
+    const text=(this.state.msgInput||'').trim(); if(!text) return;
+    const optimistic={ t:Date.now(), from:'customer', text };
+    this.setState(s=>({messages:[...s.messages, optimistic], msgInput:'', msgBusy:true}));
+    if(this.hasServer()&&this.state.auth){
+      this.apiFetch('/messages',{method:'POST',body:JSON.stringify({text})}).then(r=>r.json()).then(d=>{ if(d.messages) this.setState({messages:d.messages, msgBusy:false}); else this.setState({msgBusy:false}); }).catch(()=>this.setState({msgBusy:false}));
+    } else this.setState({msgBusy:false});
+  };
+  loadProfile(){ try{ const p=JSON.parse(localStorage.getItem('cms_profile')||'null'); if(p) this.setState({profile:{marketing:true,...p}}); }catch(e){} }
+  setProfName = e => this.setState(s=>({profile:{...s.profile,name:e.target.value},profileSaved:false}));
+  setProfPhone = e => this.setState(s=>({profile:{...s.profile,phone:e.target.value},profileSaved:false}));
+  setProfEmail = e => this.setState(s=>({profile:{...s.profile,email:e.target.value},profileSaved:false}));
+  toggleMarketing = e => this.setState(s=>({profile:{...s.profile,marketing:e.target.checked},profileSaved:false}));
+  toggleSmsUpdates = e => this.setState(s=>({profile:{...s.profile,smsUpdates:e.target.checked},profileSaved:false}));
+  exportData = () => {
+    if(this.hasServer()){ window.open(this.apiBase()+'/api/gdpr/export'); return; }
+    const data={ account:this.state.profile, bookings:this.state.orders };
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cousins-my-data.json'; a.click();
+  };
+  deleteAccount = () => {
+    if(!confirm('Permanently delete your account and all your data? This cannot be undone.')) return;
+    const done=()=>{ try{ localStorage.removeItem('cms_session'); localStorage.removeItem('cms_token'); localStorage.removeItem('cms_profile'); }catch(e){} this.setState({auth:null,authView:'login',portalOpen:false,orders:[]}); alert('Your account and data have been erased.'); };
+    if(this.hasServer()){ this.apiFetch('/gdpr/delete',{method:'POST'}).then(done).catch(done); return; }
+    try{ const users=this.loadUsers(); const a=this.state.auth; if(a){ delete users[a.email]; this.saveUsers(users); } localStorage.removeItem('cms_orders'); }catch(e){}
+    done();
+  };
+  saveProfile = () => { try{ localStorage.setItem('cms_profile', JSON.stringify(this.state.profile)); const a=this.state.auth; if(a){ if(this.hasServer()){ this.apiFetch('/auth/profile',{method:'PATCH',body:JSON.stringify({name:this.state.profile.name,phone:this.state.profile.phone,marketing:this.state.profile.marketing,smsUpdates:this.state.profile.smsUpdates!==false})}).catch(()=>{}); } else { const users=this.loadUsers(); const u=users[a.email]; if(u){ u.name=this.state.profile.name; u.phone=this.state.profile.phone; u.marketing=this.state.profile.marketing; this.saveUsers(users); } } this.setState({auth:{...a,name:this.state.profile.name,phone:this.state.profile.phone}}); } }catch(e){} this.setState({profileSaved:true}); setTimeout(()=>this.setState({profileSaved:false}),1800); };
+  useOffer = (code) => { this.setState({portalOpen:false, bookOpen:true, bookStep:1, bookDone:false}); setTimeout(()=>{ try{ this.setState(s=>({book:{...s.book, notes:(s.book.notes?s.book.notes+' ':'')+'Offer code: '+code}})); }catch(e){} },50); };
+  startEdit(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return; this.setState({editing:ref, editDate:o.date||'', editTime:o.time||'', editNotes:o.notes||''}); }
+  setEditDate = e => this.setState({editDate:e.target.value});
+  setEditTime = e => this.setState({editTime:e.target.value});
+  setEditNotes = e => this.setState({editNotes:e.target.value});
+  saveEdit(ref){
+    const orders = this.state.orders.map(o=> o.ref===ref ? { ...o, date:this.state.editDate, time:this.state.editTime, notes:this.state.editNotes,
+      updates:[...(o.updates||[]), { t:Date.now(), s:'Booking amended', d:'Your date/time or notes were updated.' }] } : o);
+    this.saveOrders(orders); this.setState({editing:''});
+    if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings/'+ref,{method:'PATCH',body:JSON.stringify({date:this.state.editDate,time:this.state.editTime,notes:this.state.editNotes})}).catch(()=>{}); }
+    const o = orders.find(x=>x.ref===ref); if(o) this.sendAutomation(o);
+  }
+  cancelOrder(ref){
+    if(!confirm('Cancel this job? You can re-book any time.')) return;
+    const orders = this.state.orders.map(o=> o.ref===ref ? { ...o, status:'cancelled',
+      updates:[...(o.updates||[]), { t:Date.now(), s:'Booking cancelled', d:'This job was cancelled.' }] } : o);
+    this.saveOrders(orders);
+    if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings/'+ref,{method:'DELETE'}).catch(()=>{}); }
+    if(this.state.trackRef===ref){ if(this._trackTimer) clearInterval(this._trackTimer); this.setState({trackRef:''}); }
+  }
+  rebook(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return;
+    this.setState({portalOpen:false, bookOpen:true, bookStep:2, bookDone:false, book:{ ...o, calendar:true }}); }
+  trackOrder(ref){ this.setState({portalOpen:false, trackRef:ref}); this.startTracking(ref); setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); },100); }
+
+  // ---------- LIVE MAP / TRACKING ----------
+  setMapEl = (el) => { this._mapEl = el; if(el) this.initMap(); };
+  initMap(){
+    if(this._map || !window.L || !this._mapEl) { if(!window.L){ setTimeout(()=>this.initMap(),300); } return; }
+    const base = [50.7332, -2.7594];      // Bridport depot
+    const cust = [50.7106, -2.7380];      // customer (updated to real GPS below)
+    const map = L.map(this._mapEl, { zoomControl:false, attributionControl:true }).setView([50.722,-2.749], 14);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+    this._route = [base,[50.7285,-2.7520],[50.7228,-2.7455],[50.7168,-2.7410],cust];
+    this._cust = cust;
+    this._custMarker = L.circleMarker(cust, { radius:9, color:'#e8791a', weight:3, fillColor:'#fff', fillOpacity:1 }).addTo(map).bindTooltip('You');
+    this._trail = L.polyline([base], { color:'#e8791a', weight:4, opacity:.9, dashArray:'2 8' }).addTo(map);
+    const vanHtml = '<div class="cms-vanmk" style="width:38px;height:38px;border-radius:10px;background:#e8791a;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#14100e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h13v10H1z"/><path d="M14 7h4l3 3v3h-7z"/><circle cx="5.5" cy="16" r="1.6"/><circle cx="17.5" cy="16" r="1.6"/></svg></div>';
+    this._van = L.marker(base, { icon: L.divIcon({ html:vanHtml, className:'', iconSize:[38,38], iconAnchor:[19,19] }) }).addTo(map);
+    this._map = map;
+    setTimeout(()=>map.invalidateSize(), 200);
+    this.applyOrderLocation();
+    this.locateCustomer();
+    if(this.state.trackRef && !this.hasServer()) this.runVan();
+  }
+  // Use the location saved on the booking (GPS captured at booking time) as the destination
+  applyOrderLocation(){
+    const o = this.state.orders.find(x=>x.ref===this.state.trackRef);
+    if(!o) return;
+    let ll=null;
+    if(o.lat!=null && o.lng!=null) ll=[o.lat, o.lng];
+    else { const m=(o.postcode||'').match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/); if(m) ll=[parseFloat(m[1]), parseFloat(m[2])]; }
+    if(!ll) return;
+    this._cust=ll;
+    if(this._custMarker) this._custMarker.setLatLng(ll);
+    if(this._route) this._route[this._route.length-1]=ll;
+    if(this._map) this._map.setView(ll, 13);
+    this.updateEstimate();
+  }
+  // Live: pin the map to the customer's real device location and keep it updated
+  locateCustomer(){
+    if(!navigator.geolocation || this._geoWatch!=null) return;
+    const apply = (pos)=>{
+      const ll=[pos.coords.latitude, pos.coords.longitude];
+      this._cust = ll;
+      if(this._custMarker) this._custMarker.setLatLng(ll);
+      if(this._route){ this._route[this._route.length-1]=ll; }
+      if(this._map && !this._useLive) this._map.setView(ll, 14);
+      this.updateEstimate();
+    };
+    navigator.geolocation.getCurrentPosition(apply, ()=>{}, { enableHighAccuracy:true, timeout:12000 });
+    this._geoWatch = navigator.geolocation.watchPosition(apply, ()=>{}, { enableHighAccuracy:true, maximumAge:10000 });
+  }
+  // Rough distance-based ETA from the depot, used when there's no live driver GPS
+  haversine(a, b){ const R=3958.8, toR=x=>x*Math.PI/180; const dLat=toR(b[0]-a[0]), dLng=toR(b[1]-a[1]); const s=Math.sin(dLat/2)**2+Math.cos(toR(a[0]))*Math.cos(toR(b[0]))*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
+  updateEstimate(){
+    if(this._useLive || !this._cust) return;
+    const depot=[50.7332,-2.7594];
+    const miles=this.haversine(depot, this._cust);
+    // ~2.4 min/mile on local roads + 8 min prep/dispatch buffer
+    const est=Math.max(8, Math.round(miles*2.4 + 8));
+    this._estMin = est;
+    this.setState({ eta:est, distance:miles.toFixed(1), estimate:true });
+  }
+  startTracking(ref){
+    this.setState({trackRef:ref});
+    if(this._trackTimer) clearInterval(this._trackTimer);
+    this._prog = 0;
+    this.applyOrderLocation();
+    // On the live server show the distance-based estimate and wait for real driver GPS;
+    // only animate the simulated van in local/demo mode.
+    if(this.hasServer()){ this.updateEstimate(); this.startLivePoll(ref); }
+    else this.runVan();
+  }
+  startLivePoll(ref){
+    if(this._liveTimer) clearInterval(this._liveTimer);
+    const poll = async () => {
+      try{
+        const r = await this.apiFetch('/track/'+ref);
+        if(!r.ok) return;
+        const d = await r.json();
+        if(d.location && d.location.lat!=null){
+          // real driver GPS is live — stop the simulation and follow it
+          this._useLive = true; if(this._trackTimer) clearInterval(this._trackTimer);
+          const ll=[d.location.lat, d.location.lng];
+          if(this._van) this._van.setLatLng(ll);
+          if(this._trail) this._trail.addLatLng(ll);
+          if(this._map) this._map.panTo(ll);
+          if(d.location.eta!=null) this.setState({eta:d.location.eta, estimate:false});
+        }
+        if(d.updates){ this.setState(s=>({orders:s.orders.map(o=>o.ref===ref?{...o,status:d.status||o.status,updates:d.updates}:o)})); }
+      }catch(e){}
+    };
+    poll(); this._liveTimer = setInterval(poll, 8000);
+  }
+  runVan(){
+    if(!this._route){ setTimeout(()=>{ if(this.state.trackRef) this.runVan(); }, 400); return; }
+    if(this._trackTimer) clearInterval(this._trackTimer);
+    const totalMin = 22;
+    this._trackTimer = setInterval(()=>{
+      this._prog = Math.min(1, (this._prog||0) + 0.012);
+      const p = this._prog;
+      const pt = this.along(this._route, p);
+      if(this._van) this._van.setLatLng(pt);
+      if(this._trail) this._trail.addLatLng(pt);
+      const eta = Math.max(0, Math.round(totalMin*(1-p)));
+      const dist = (2.4*(1-p)).toFixed(1);
+      this.setState({eta, distance:dist});
+      this.pushMilestone(p);
+      if(p>=1){ clearInterval(this._trackTimer); this.completeJob(); }
+    }, 500);
+  }
+  along(route, t){
+    const segs = route.length-1; const f = t*segs; const i = Math.min(segs-1, Math.floor(f)); const r = f-i;
+    const a=route[i], b=route[i+1];
+    return [a[0]+(b[0]-a[0])*r, a[1]+(b[1]-a[1])*r];
+  }
+  pushMilestone(p){
+    const ref = this.state.trackRef; if(!ref) return;
+    const marks = [
+      [0.05,'Van dispatched','Your mechanic is loaded up and leaving the depot.'],
+      [0.45,'On the way','Halfway to you — follow the van on the map.'],
+      [0.8,'Nearly there','Two minutes away, please make sure the vehicle is accessible.']
+    ];
+    const orders = this.state.orders.map(o=>{
+      if(o.ref!==ref) return o;
+      let ups = o.updates||[];
+      marks.forEach(m=>{ if(p>=m[0] && !ups.some(u=>u.s===m[1])) ups=[...ups,{t:Date.now(),s:m[1],d:m[2]}]; });
+      return { ...o, status:'enroute', updates:ups };
+    });
+    if(JSON.stringify(orders)!==JSON.stringify(this.state.orders)) this.saveOrders(orders);
+  }
+  completeJob(){
+    const ref=this.state.trackRef;
+    const orders=this.state.orders.map(o=>{
+      if(o.ref!==ref) return o;
+      const ups=o.updates||[];
+      if(ups.length && ups[ups.length-1].s==='Arrived') return { ...o, status:'arrived' }; // no duplicate
+      return { ...o, status:'arrived', updates:[...ups, { t:Date.now(), s:'Arrived', d:'Your mechanic is with you. Thanks for choosing Cousins!' }] };
+    });
+    this.saveOrders(orders);
+  }
+
+  fmtTime(t){ const d=new Date(t); return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+  fmtDate(s){ if(!s) return 'TBC'; try{ return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return s; } }
+
+  renderVals(){
+    const s = this.state;
+    const portalTabStyle = (on)=> 'display:flex;align-items:center;gap:7px;border:0;cursor:pointer;background:'+(on?'#f4f2ef':'transparent')+';color:'+(on?'#1c1817':'#b3aaa3')+';font-weight:700;font-size:14px;padding:12px 16px;border-radius:10px 10px 0 0';
+    const initials = (n)=>{ if(!n) return '👤'; const p=n.trim().split(/\s+/); return ((p[0]||'')[0]||'').toUpperCase()+((p[1]||'')[0]||'').toUpperCase() || '👤'; };
+    const activeCount = s.orders.filter(o=>o.status!=='cancelled'&&o.status!=='complete'&&o.status!=='arrived').length;
+    const offers = [
+      { icon:'🛞', title:'£10 off mobile tyre fitting', body:'Any 2+ tyres fitted at your home or work.', code:'TYRE10', expiry:'Ends this month', border:'#e8791a', bg:'#fff7f0', iconBg:'rgba(232,121,26,.14)' },
+      { icon:'🔧', title:'Winter health check — free', body:'Free 20-point check with any service booked online.', code:'CHECK20', expiry:'Limited slots', border:'#0d5bd4', bg:'#f0f6ff', iconBg:'rgba(13,91,212,.12)' },
+      { icon:'🚨', title:'£20 off first breakdown call-out', body:'New customers — quote this when you call.', code:'RESCUE20', expiry:'New customers', border:'#39a854', bg:'#f1faf3', iconBg:'rgba(57,168,84,.12)' }
+    ].map(o=>({ ...o, use:()=>this.useOffer(o.code) }));
+    const tabBase = 'display:flex;align-items:center;justify-content:center;gap:9px;border:0;cursor:pointer;padding:16px;font-family:\'Barlow Condensed\';font-weight:700;font-size:18px;letter-spacing:.03em;transition:all .2s';
+    const active = tabBase+';background:#fff;color:#1c1817;box-shadow:inset 0 -3px 0 #e8791a';
+    const idle = tabBase+';background:#f0ebe5;color:#8a817b';
+
+    // tracking derived
+    const active_order = s.orders.find(o=>o.ref===s.trackRef);
+    const hasTrack = !!active_order && active_order.status!=='cancelled';
+    // collapse consecutive duplicate status entries so stale data never shows repeats
+    const rawUps = hasTrack ? (active_order.updates||[]).filter((u,i,arr)=> i===0 || u.s!==arr[i-1].s) : [];
+    const feed = [...rawUps].reverse();
+    const trackFeed = feed.map((u,i)=>({
+      s:u.s, d:u.d, time:this.fmtTime(u.t),
+      dotStyle:'width:13px;height:13px;border-radius:50%;background:'+(i===0?'#e8791a':'#c9beb4')+';flex:none;'+(i===0?'box-shadow:0 0 0 4px rgba(232,121,26,.18)':'')+';margin-top:3px',
+      lineStyle:'width:2px;flex:1;background:#eee3d8;min-height:'+(i===feed.length-1?'0':'14')+'px'
+    }));
+    const statusMap = { confirmed:['CONFIRMED','#e8791a'], enroute:['ON THE WAY','#0d5bd4'], arrived:['ARRIVED','#39a854'], cancelled:['CANCELLED','#a5401a'] };
+
+    // step bars
+    const bars = [1,2,3].map(n=>({ style:'flex:1;height:5px;border-radius:3px;background:'+((s.bookStep>=n||s.bookDone)?'#e8791a':'#e6ddd4') }));
+
+    const svc = [
+      ['tyre','Tyre fitting','🛞'],['breakdown','Breakdown / recovery','🚨'],['service','Service','🔧'],
+      ['brakes','Brakes','🛑'],['diagnostics','Diagnostics','🩺'],['other','Something else','🔩']
+    ];
+    const serviceChoices = svc.map(c=>({ icon:c[2], label:c[1],
+      style:'display:flex;flex-direction:column;gap:8px;align-items:flex-start;border:'+(s.book.service===c[0]?'2px solid #e8791a;background:#fff7f0':'1.5px solid #eee3d8;background:#fff')+';border-radius:12px;padding:14px;cursor:pointer',
+      pick:()=>this.pickService(c[0],c[1],c[2]) }));
+
+    const gServices = [
+      ['Mobile Tyre Fitting','New tyres supplied & fitted at your home, work or roadside. All sizes, budget to premium.','images/tyre-van.jpg','tyre','Mobile tyre fitting'],
+      ['Breakdown & Recovery','24hr roadside help and recovery across West Dorset if we cannot fix it on the spot.','images/van-recovery.jpg','breakdown','Breakdown / recovery'],
+      ['Servicing','Full & interim services, oil and filters — done on your drive, book slots to suit.','images/workshop-nissan.jpg','service','Service'],
+      ['Clutches & Timing Belts','Bigger jobs handled mobile or recovered to base. Quality parts, proper warranty.','images/clutch.jpg','other','Clutch / timing belt'],
+      ['Brakes','Pads, discs and diagnostics — safe stopping, sorted at your location.','images/brake-hub.jpg','brakes','Brakes'],
+      ['Diagnostics & Welding','Fault codes read and explained, plus mobile welding for MOT repairs.','images/engine-camshafts.jpg','diagnostics','Diagnostics']
+    ];
+    const R=React.createElement;
+    const services = gServices.map(x=>({ title:x[0], body:x[1], img:x[2],
+      imgEl: R('img',{src:x[2],alt:x[0],style:{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}),
+      book:()=>this.setState(st=>({bookOpen:true,bookStep:2,bookDone:false,book:{...st.book,service:x[3],svcLabel:x[4]}})) }));
+
+    const galImgs = ['job-01','job-04','job-06','job-07','job-08','job-09','job-10','job-11','job-12','job-13','job-14','job-15'];
+    const gallery = galImgs.map((g,i)=>({ img:'images/'+g+'.jpg',
+      imgEl: R('img',{src:'images/'+g+'.jpg',alt:'Mobile mechanic and tyre fitting job by Cousins Mechanical Services in West Dorset',loading:'lazy',style:{width:'100%',height:'100%',objectFit:'cover',display:'block'}}),
+      cellStyle:'border:0;padding:0;cursor:pointer;border-radius:12px;overflow:hidden;aspect-ratio:1;background:#ddd;display:block',
+      open:()=>this.setState({lightbox:'images/'+g+'.jpg'}) }));
+
+    const orderCards = s.orders.map(o=>{
+      const st = statusMap[o.status] || ['CONFIRMED','#e8791a'];
+      return { ...o, statusLabel:st[0],
+        badgeStyle:'font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.06em;color:#fff;background:'+st[1]+';border-radius:6px;padding:4px 10px',
+        sub: this.fmtDate(o.date)+' · '+(o.time||'time TBC'),
+        isEditing: s.editing===o.ref,
+        isCancelled: o.status==='cancelled',
+        showActions: s.editing!==o.ref && o.status!=='cancelled',
+        edit:()=>this.startEdit(o.ref), saveEdit:()=>this.saveEdit(o.ref), cancelEdit:()=>this.setState({editing:''}),
+        cancel:()=>this.cancelOrder(o.ref), track:()=>this.trackOrder(o.ref), rebook:()=>this.rebook(o.ref)
+      };
+    });
+
+    const nextLabel = s.bookStep===3 ? 'Confirm booking →' : 'Continue →';
+    const bookTitle = s.bookDone ? 'Booking confirmed' : (s.bookStep===1?'Book a job':(s.bookStep===2?'Your vehicle':'Your details'));
+    const confirmSummary = (s.book.svcLabel||'Mobile job')+' · '+(s.book.reg||'')+'<br/>'+this.fmtDate(s.book.date)+' · '+(s.book.time||'time TBC')+' · '+(s.book.postcode||'your location');
+
+    return {
+      quickItems:[ ['images/qs-tyre-round.png','Tyre Fitting','Any size, on your drive'],['images/qs-breakdown-round.png','Breakdown','24hr roadside help'],['images/qs-servicing-round.png','Servicing','Oil, filters, checks'],['images/qs-recovery-round.png','Recovery','We tow it in'] ].map(q=>({title:q[1],sub:q[2],iconEl:R('img',{src:q[0],alt:q[1],style:{width:'100%',height:'100%',objectFit:'cover',display:'block'}})})),
+      services, gallery,
+      lightboxEl: s.lightbox ? R('img',{src:s.lightbox,alt:'Job photo',style:{maxWidth:'94vw',maxHeight:'90vh',borderRadius:'12px',boxShadow:'0 30px 80px rgba(0,0,0,.6)'}}) : null,
+      // reg
+      regInput:s.regInput, regError:s.regError,
+      onRegInput:this.onRegInput, onRegKey:this.onRegKey, lookupReg:this.lookupReg, tryDemo:this.tryDemo,
+      selectTyres:this.selectTyres, selectParts:this.selectParts,
+      tyreTabStyle: s.regTab==='tyres'?active:idle, partsTabStyle: s.regTab==='parts'?active:idle,
+      isLoading: s.regStatus==='loading', isError: s.regStatus==='error', hasResult: s.regStatus==='result',
+      isConfirm: s.regStatus==='confirm', confirmVehicle: s.confirmVehicle || {title:'',line2:''}, confirmReg: s.confirmReg,
+      notMyCarOpen: s.notMyCarOpen, confirmYes:this.confirmYes, notMyCar:this.notMyCar, tryAgain:this.tryAgain,
+      vehicle: s.vehicle || {title:'',line2:'',tyre:'',make:''},
+      showTyres: s.regStatus==='result' && s.regTab==='tyres',
+      showParts: s.regStatus==='result' && s.regTab==='parts',
+      tyreOptions:s.tyreOptions, partOptions:s.partOptions,
+      // booking
+      bookOpen:s.bookOpen, closeBook:this.closeBook, openBook:this.openBook, stop:this.stop,
+      bookInProgress: !s.bookDone, bookDone:s.bookDone, bookTitle,
+      step1:s.bookStep===1&&!s.bookDone, step2:s.bookStep===2&&!s.bookDone, step3:s.bookStep===3&&!s.bookDone,
+      stepBars:bars, serviceChoices, book:s.book, locHint:s.locHint,
+      setBookReg:this.setBookReg, setBookPostcode:this.setBookPostcode, setBookDate:this.setBookDate, setBookTime:this.setBookTime,
+      setBookName:this.setBookName, setBookPhone:this.setBookPhone, setBookEmail:this.setBookEmail, setBookNotes:this.setBookNotes,
+      toggleCalendar:this.toggleCalendar, useMyLocation:this.useMyLocation,
+      bookBack:this.bookBack, bookNext:this.bookNext, canBack:s.bookStep>1, nextLabel,
+      nextBtnStyle:'flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15.5px',
+      lastRef:s.lastRef, confirmSummary, downloadIcs:this.downloadIcs, goTrack:this.goTrack,
+      waConfirm: 'https://wa.me/447925340977?text='+encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.'),
+      // portal / account
+      portalOpen:s.portalOpen, openPortal:this.openPortal, closePortal:this.closePortal, portalToBook:this.portalToBook,
+      acctBtnLabel: s.auth ? ((s.profile.name||s.auth.name||'Account').split(/\s+/)[0]) : 'Log in',
+      // auth
+      isAuthed: !!s.auth, needsAuth: !s.auth,
+      authView:s.authView, onLoginView:s.authView==='login', onSignupView:s.authView==='signup',
+      authName:s.authName, authEmail:s.authEmail, authPhone:s.authPhone, authPass:s.authPass, authPass2:s.authPass2,
+      authErr:s.authErr, hasAuthErr:!!s.authErr, authBusy:s.authBusy,
+      setAuthView:this.setAuthView, gotoLogin:()=>this.setAuthView('login'), gotoSignup:()=>this.setAuthView('signup'),
+      setAuthName:this.setAuthName, setAuthEmail:this.setAuthEmail, setAuthPhone:this.setAuthPhone, setAuthPass:this.setAuthPass, setAuthPass2:this.setAuthPass2,
+      authConsent:s.authConsent, authSms:s.authSms, authMarketing:s.authMarketing,
+      toggleConsent:this.toggleConsent, toggleAuthSms:this.toggleAuthSms, toggleAuthMarketing:this.toggleAuthMarketing,
+      exportData:this.exportData, deleteAccount:this.deleteAccount, toggleSmsUpdates:this.toggleSmsUpdates,
+      smsUpdatesOn: s.profile.smsUpdates!==false,
+      authOnKey:this.authOnKey, doLogin:this.doLogin, doSignup:this.doSignup, logout:this.logout,
+      forgotPassword:this.forgotPassword, forgotMsg:s.forgotMsg, hasForgotMsg:!!s.forgotMsg,
+      isReset:!!s.resetToken, notReset:!s.resetToken, resetPass:s.resetPass, setResetPass:this.setResetPass, submitReset:this.submitReset, resetMsg:s.resetMsg, hasResetMsg:!!s.resetMsg,
+      loginBtnLabel: s.authBusy?'Signing in…':'Log in', signupBtnLabel: s.authBusy?'Creating…':'Create account',
+      loginSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='login'?'background:#fff;color:#1c1817;box-shadow:0 1px 3px rgba(0,0,0,.12)':'background:transparent;color:#8a817b'),
+      signupSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='signup'?'background:#fff;color:#1c1817;box-shadow:0 1px 3px rgba(0,0,0,.12)':'background:transparent;color:#8a817b'),
+      onBookings: s.portalTab==='bookings', onOffers: s.portalTab==='offers', onAccount: s.portalTab==='account',
+      onMessages: s.portalTab==='messages',
+      tabMessages:this.tabMessages, tabMessagesStyle: portalTabStyle(s.portalTab==='messages'),
+      msgInput:s.msgInput, setMsgInput:this.setMsgInput, sendMessage:this.sendMessage,
+      msgKey:(e)=>{ if(e.key==='Enter') this.sendMessage(); },
+      noMessages: s.messages.length===0,
+      msgRows: s.messages.map(m=>{ const mine=m.from==='customer'; return { text:m.text, who: mine?'You':'Cousins', time: this.fmtTime(m.t),
+        rowStyle:'display:flex;flex-direction:column;'+(mine?'align-items:flex-end':'align-items:flex-start'),
+        bubbleStyle:'max-width:80%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4;'+(mine?'background:#e8791a;color:#14100e;border-bottom-right-radius:4px':'background:#f0ebe5;color:#1c1817;border-bottom-left-radius:4px'),
+        metaAlign: mine?'text-align:right':'text-align:left' }; }),
+      tabBookings:this.tabBookings, tabOffers:this.tabOffers, tabAccount:this.tabAccount,
+      tabBookingsStyle: portalTabStyle(s.portalTab==='bookings'), tabOffersStyle: portalTabStyle(s.portalTab==='offers'), tabAccountStyle: portalTabStyle(s.portalTab==='account'),
+      acctName: s.auth ? (s.profile.name||s.auth.name||'Your account') : 'My account',
+      acctInitials: initials(s.auth?(s.profile.name||s.auth.name):''),
+      acctSub: s.auth ? (s.orders.length+' booking'+(s.orders.length===1?'':'s')) : 'Log in or create an account',
+      activeCount, countPillStyle:'display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:11px;font-weight:800;'+(s.portalTab==='bookings'?'background:#e8791a;color:#14100e':'background:#e6ddd4;color:#8a817b'),
+      offers, statTotal:s.orders.length, statActive:activeCount,
+      profile:s.profile, setProfName:this.setProfName, setProfPhone:this.setProfPhone, setProfEmail:this.setProfEmail,
+      toggleMarketing:this.toggleMarketing, saveProfile:this.saveProfile, saveProfileLabel: s.profileSaved?'✓ Saved':'Save details',
+      noOrders:s.orders.length===0, hasOrders:s.orders.length>0, orderCards,
+      editDate:s.editDate, editTime:s.editTime, editNotes:s.editNotes,
+      setEditDate:this.setEditDate, setEditTime:this.setEditTime, setEditNotes:this.setEditNotes,
+      // tracking
+      setMapEl:this.setMapEl, hasTrack, noTrack:!hasTrack, trackFeed,
+      trackHeadline: hasTrack? (active_order.status==='arrived'?'Your mechanic has arrived':(s.estimate?'Estimated arrival':'Cousins van en route')) : 'No active job',
+      trackSub: hasTrack? (s.estimate? ('Ref '+active_order.ref+' · about '+s.distance+' miles from us') : ('Ref '+active_order.ref+' · '+s.distance+' miles away · live')) : 'Book a job to track live',
+      etaText: hasTrack ? (active_order.status==='arrived'?'Here':((s.estimate?'~':'')+s.eta+' min')) : '—',
+      trackBadge: hasTrack ? (statusMap[active_order.status]||['LIVE','#e8791a'])[0] : 'IDLE',
+      trackBadgeStyle: 'font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.06em;color:#fff;border-radius:6px;padding:4px 10px;background:'+(hasTrack?(statusMap[active_order.status]||['','#e8791a'])[1]:'#b3aaa3'),
+      trackRefLabel: hasTrack ? ('Reference '+active_order.ref+' · '+(active_order.svcLabel||'Mobile job')) : 'Live map, ETA and SMS-style updates',
+      // lightbox
+      lightbox:s.lightbox, closeLightbox:()=>this.setState({lightbox:''}),
+      // verified badge (always live)
+      verifyLabel: 'DVLA verified',
+      verifyStyle: 'display:flex;align-items:center;gap:7px;border-radius:100px;padding:6px 12px;font-size:12.5px;font-weight:700;background:rgba(57,211,83,.14);border:1px solid rgba(57,211,83,.4);color:#4fe06a',
+      // live vehicle picker
+      showPicker: s.regTab==='tyres', hasProxy: true,
+      opt: s.opt, pk: s.pk, pkErr: s.pkErr,
+      pickYear:this.pickYear, pickMake:this.pickMake, pickModel:this.pickModel, pickTrim:this.pickTrim
+    };
+  }
+}
+</script>
+</body>
+</html>

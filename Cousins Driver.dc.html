@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Driver | Cousins Mechanical Services</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="images/logo.png">
+<link rel="apple-touch-icon" href="images/logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#14100e;font-family:'Barlow',system-ui,sans-serif;color:#e9e4df;-webkit-font-smoothing:antialiased}
+  input,select,button{font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:#e8791a!important}
+  @keyframes pulseDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+<div style="min-height:100vh;max-width:520px;margin:0 auto;padding:20px 18px 40px">
+  <div style="display:flex;align-items:center;gap:12px;padding:6px 0 20px">
+    <img src="images/logo.png" alt="Cousins Mechanical" style="height:42px;width:auto"/>
+    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;letter-spacing:.02em;color:#fff">DRIVER</div>
+    <span style="margin-left:auto;font-size:12px;color:#8a817b">Live GPS share</span>
+  </div>
+
+  <!-- LOGIN -->
+  
+  <sc-if value="{{ needLogin }}" hint-placeholder-val="{{ true }}">
+    <div style="background:#1c1714;border:1px solid #2a2320;border-radius:16px;padding:22px;animation:fadeIn .2s ease">
+      <div style="display:flex;gap:10px;margin-bottom:16px;background:#14100e;padding:6px;border-radius:10px;border:1px solid #2a2320">
+        <button onClick="{{ gotoLogin }}" style="{{ loginSegStyle }}">Sign In</button>
+        <button onClick="{{ gotoRegister }}" style="{{ regSegStyle }}">Register</button>
+      </div>
+      
+      <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Enter your driver username and password.</div>
+        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
+        <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
+        <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Sign in</button>
+      </sc-if>
+
+      <sc-if value="{{ isRegMode }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">REGISTER</div>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Create a driver account. Admin must approve before you can see jobs.</div>
+        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Full Name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
+        <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
+        <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Register</button>
+      </sc-if>
+    </div>
+  </sc-if>
+
+      <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Sign in</button>
+    </div>
+  </sc-if>
+
+  <!-- JOB PICKER -->
+  <sc-if value="{{ picking }}" hint-placeholder-val="{{ false }}">
+    <div style="animation:fadeIn .2s ease">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">TODAY'S JOBS</div>
+        <button onClick="{{ refreshJobs }}" style="background:#241d19;border:1px solid #2a2320;color:#d9d2cc;font-weight:700;border-radius:9px;padding:8px 14px;cursor:pointer;font-size:13px">Refresh</button>
+      </div>
+      <sc-if value="{{ noJobs }}" hint-placeholder-val="{{ true }}"><div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:26px;text-align:center;color:#8a817b;font-size:14px">No active jobs right now.</div></sc-if>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ jobRows }}" as="j" hint-placeholder-count="0">
+          <button onClick="{{ j.pick }}" style="text-align:left;background:#1c1714;border:1px solid #2a2320;border-radius:13px;padding:15px 16px;cursor:pointer;color:#e9e4df" style-hover="border-color:#e8791a">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:18px;color:#fff">{{ j.svcLabel }}</div>
+              <span style="font-family:'Barlow Condensed';font-weight:700;font-size:12px;color:#f4a04a;background:rgba(232,121,26,.14);border-radius:6px;padding:3px 9px">{{ j.ref }}</span>
+            </div>
+            <div style="color:#9a918a;font-size:13.5px;margin-top:4px">{{ j.name }} · {{ j.reg }} · {{ j.postcode }}</div>
+            <div style="color:#6f6862;font-size:12.5px;margin-top:2px">{{ j.when }}</div>
+          </button>
+        </sc-for>
+      </div>
+      <button onClick="{{ logout }}" style="width:100%;background:none;border:1px solid #2a2320;color:#6f6862;font-weight:700;border-radius:10px;padding:12px;cursor:pointer;margin-top:18px;font-size:13.5px">Sign out</button>
+    </div>
+  </sc-if>
+
+  <!-- SHARING -->
+  <sc-if value="{{ sharing }}" hint-placeholder-val="{{ false }}">
+    <div style="animation:fadeIn .2s ease">
+      <div style="background:#1c1714;border:1px solid #2a2320;border-radius:16px;padding:20px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="{{ statusDotStyle }}"></span>
+          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">{{ shareHeadline }}</div>
+        </div>
+        <div style="color:#9a918a;font-size:14px;line-height:1.5">Job <strong style="color:#f4a04a">{{ activeRef }}</strong> — {{ activeSvc }}<br/>{{ activeWho }}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px">
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:11px;padding:12px;text-align:center">
+            <div style="color:#6f6862;font-size:11px;letter-spacing:.08em">LAST FIX</div>
+            <div style="font-family:'Barlow Condensed';font-weight:700;font-size:18px;color:#fff">{{ lastFix }}</div>
+          </div>
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:11px;padding:12px;text-align:center">
+            <div style="color:#6f6862;font-size:11px;letter-spacing:.08em">ACCURACY</div>
+            <div style="font-family:'Barlow Condensed';font-weight:700;font-size:18px;color:#fff">{{ accuracy }}</div>
+          </div>
+        </div>
+      </div>
+
+      <sc-if value="{{ isOff }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ startShare }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:12px;padding:17px;cursor:pointer;font-size:17px">▶ Start sharing my location</button>
+      </sc-if>
+      <sc-if value="{{ isOn }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ stopShare }}" style="width:100%;background:#a5401a;color:#fff;font-weight:700;border:0;border-radius:12px;padding:17px;cursor:pointer;font-size:17px">■ Stop sharing</button>
+      </sc-if>
+      <sc-if value="{{ shareErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:11px 13px;font-size:13px;margin-top:12px;line-height:1.4">{{ shareErr }}</div></sc-if>
+
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button onClick="{{ markArrived }}" style="flex:1;background:#241d19;border:1px solid #2a2320;color:#4fe06a;font-weight:700;border-radius:10px;padding:13px;cursor:pointer;font-size:14px">Mark arrived</button>
+        <button onClick="{{ backToJobs }}" style="flex:1;background:#241d19;border:1px solid #2a2320;color:#d9d2cc;font-weight:700;border-radius:10px;padding:13px;cursor:pointer;font-size:14px">Change job</button>
+      </div>
+      <div style="color:#6f6862;font-size:12px;text-align:center;margin-top:16px;line-height:1.5">Keep this screen open while driving. The customer sees your live position and ETA on their tracker.</div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:760}}">
+class Component extends DCLogic {
+  state = {
+    token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'',
+    view:'login', jobs:[], activeRef:'', activeSvc:'', activeWho:'',
+    on:false, lastFix:'—', accuracy:'—', shareErr:'', destPostcode:''
+  };
+
+  componentDidMount(){
+    try{ const t=localStorage.getItem('cms_driver_token'); const a=localStorage.getItem('cms_driver_api')||''; if(t){ this.setState({token:t,apiBase:a,apiInput:a}, ()=>this.loadJobs()); } }catch(e){}
+  }
+  componentWillUnmount(){ this.stopShare(); }
+
+  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
+  base(){ return (this.state.apiBase||'').replace(/\/+$/,''); }
+  async api(path, body){ return fetch(this.base()+'/api'+path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({token:this.state.token}, body||{}))}); }
+
+  setToken = e => this.setState({tokenInput:e.target.value});
+  setApi = e => this.setState({apiInput:e.target.value});
+  login = () => {
+    const t=this.state.tokenInput.trim(); if(!t){ this.setState({loginErr:'Enter the access code.'}); return; }
+    const a=this.state.apiInput.trim().replace(/\/+$/,'');
+    try{ localStorage.setItem('cms_driver_token',t); localStorage.setItem('cms_driver_api',a); }catch(e){}
+    this.setState({token:t, apiBase:a, loginErr:''}, ()=>this.loadJobs());
+  };
+  logout = () => { this.stopShare(); try{ localStorage.removeItem('cms_driver_token'); }catch(e){} this.setState({token:'', view:'login', jobs:[], activeRef:''}); };
+
+  async loadJobs(){
+    if(!(this.base()||this.sameOrigin())){ this.setState({view:'pick', jobs:this.demo()}); return; }
+    try{ const r=await this.api('/driver/jobs'); if(r.status===403){ this.setState({loginErr:'Access code rejected.', view:'login'}); return; }
+      const d=await r.json(); this.setState({view:'pick', jobs:d.jobs||[]});
+    }catch(e){ this.setState({view:'pick', jobs:this.demo()}); }
+  }
+  refreshJobs = () => this.loadJobs();
+  demo(){ return [{ref:'CMS-DEMO1',svcLabel:'Mobile tyre fitting',reg:'AB12 CDE',postcode:'DT6 3AA',name:'J. Smith',date:'2026-08-08',time:'Morning'}]; }
+
+  pickJob(j){ this.setState({ activeRef:j.ref, activeSvc:j.svcLabel||'Mobile job', activeWho:(j.name||'')+' · '+(j.reg||'')+' · '+(j.postcode||''), destPostcode:j.postcode||'', view:'share', shareErr:'' }); }
+  backToJobs = () => { this.stopShare(); this.setState({view:'pick'}); };
+
+  startShare = () => {
+    if(!navigator.geolocation){ this.setState({shareErr:'This device has no GPS.'}); return; }
+    this.setState({shareErr:''});
+    this._watch = navigator.geolocation.watchPosition(
+      pos=>this.onFix(pos),
+      err=>{ const m = err.code===1?'Location permission denied — allow location for this site in your phone settings.':err.code===2?'Location unavailable — check GPS is on.':'Location timed out — trying again…'; this.setState({shareErr:m}); },
+      { enableHighAccuracy:true, maximumAge:0, timeout:20000 }
+    );
+    this.setState({on:true});
+  };
+  stopShare = () => { if(this._watch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._watch); this._watch=null; } if(this.state.on) this.setState({on:false}); };
+
+  onFix(pos){
+    const lat=pos.coords.latitude, lng=pos.coords.longitude, acc=Math.round(pos.coords.accuracy||0);
+    const eta=this.estimateEta(lat,lng);
+    this.setState({ lastFix:new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}), accuracy:acc?acc+' m':'—' });
+    if(this.base()||this.sameOrigin()) this.api('/driver/location',{ref:this.state.activeRef,lat,lng,eta}).catch(()=>{});
+  }
+  // rough ETA from straight-line distance to the customer postcode centroid (if geocodable), else blank
+  estimateEta(lat,lng){ if(!this._dest) return null; const d=this.haversine(lat,lng,this._dest[0],this._dest[1]); return Math.max(1, Math.round(d/0.5)); } // ~30km/h town avg
+  haversine(a,b,c,d){ const R=6371,r=Math.PI/180; const dLat=(c-a)*r,dLng=(d-b)*r; const s=Math.sin(dLat/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
+
+  markArrived = () => {
+    if(this.base()||this.sameOrigin()) this.api('/driver/location',{ref:this.state.activeRef,arrived:true}).catch(()=>{});
+    this.setState({shareErr:''});
+    alert('Marked as arrived. The customer tracker will show you\'ve arrived.');
+  };
+
+  renderVals(){
+    const s=this.state;
+    return {
+      
+      needLogin: s.view==='login', picking: s.view==='pick', sharing: s.view==='share',
+      isLoginMode: s.authView==='login', isRegMode: s.authView==='register',
+      usernameInput:s.usernameInput, passwordInput:s.passwordInput, regName:s.regName, apiInput:s.apiInput, loginErr:s.loginErr,
+      setUsername:this.setUsername, setPassword:this.setPassword, setRegName:this.setRegName, setApi:this.setApi,
+      gotoLogin:this.gotoLogin, gotoRegister:this.gotoRegister, login:this.login, register:this.register,
+      logout:this.logout, refreshJobs:this.refreshJobs, backToJobs:this.backToJobs,
+      loginSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='login'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),
+      regSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='register'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),
+
+      noJobs: s.jobs.length===0,
+      jobRows: s.jobs.map(j=>({ ...j, when:(j.date||'TBC')+' · '+(j.time||''), pick:()=>this.pickJob(j) })),
+      activeRef:s.activeRef, activeSvc:s.activeSvc, activeWho:s.activeWho,
+      isOn:s.on, isOff:!s.on, startShare:this.startShare, stopShare:this.stopShare, markArrived:this.markArrived,
+      shareErr:s.shareErr, lastFix:s.lastFix, accuracy:s.accuracy,
+      shareHeadline: s.on?'Sharing live':'Ready to share',
+      statusDotStyle:'width:11px;height:11px;border-radius:50%;flex:none;background:'+(s.on?'#39d353':'#6f6862')+(s.on?';box-shadow:0 0 0 4px rgba(57,211,83,.2);animation:pulseDot 1.6s infinite':'')
+    };
+  }
+}
+</script>
+</body>
+</html>

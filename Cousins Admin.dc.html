@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Dashboard | Cousins Mechanical Services</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="images/logo.png">
+<link rel="apple-touch-icon" href="images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#14100e;font-family:'Barlow',system-ui,sans-serif;color:#e9e4df}
+  ::selection{background:#e8791a;color:#14100e}
+  input,select,textarea,button{font-family:inherit}
+  input:focus,select:focus{outline:none;border-color:#e8791a!important}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @media(max-width:760px){.adm-kpi{grid-template-columns:1fr 1fr!important}.adm-stockform{grid-template-columns:1fr 1fr!important}.adm-msg{grid-template-columns:1fr!important}}
+  .adm-th{text-align:left;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.06em;color:#9a918a;font-size:12.5px;text-transform:uppercase;padding:10px 14px;border-bottom:1px solid #2a2320}
+  .adm-td{padding:12px 14px;border-bottom:1px solid #201b18;font-size:14px;color:#d9d2cc;vertical-align:middle}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column">
+
+      <!-- LOGIN GATE -->
+      <sc-if value="{{ needsLogin }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px">
+          <div style="width:100%;max-width:420px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:30px;animation:fadeIn .3s ease">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+              <span style="display:inline-flex;background:#fff;border-radius:10px;padding:6px 10px"><img src="images/logo.png" alt="Cousins" style="height:38px;width:auto;display:block" onerror="this.onerror=null;this.src='https://via.placeholder.com/120x40?text=COUSINS'"/></span>
+            </div>
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin:14px 0 4px">ADMIN & STAFF PORTAL</div>
+            <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">Authorized staff access. Sign in with Google or Admin Token.</div>
+            
+            <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
+              <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+              Sign in with Google
+            </button>
+
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#6f6862;font-size:12px;font-weight:600">
+              <div style="flex:1;height:1px;background:#2a2320"></div>
+              <span>OR ENTER TOKEN</span>
+              <div style="flex:1;height:1px;background:#2a2320"></div>
+            </div>
+
+            <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
+            <sc-if value="{{ needCode }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-bottom:14px">
+                <div style="color:#f4a04a;font-size:12.5px;font-weight:700;margin-bottom:6px">Two-factor required — enter the 6-digit code from your authenticator app</div>
+                <input value="{{ codeInput }}" onInput="{{ setCode }}" onKeyDown="{{ onKey }}" inputmode="numeric" placeholder="123456" style="width:100%;border:1.5px solid #e8791a;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:22px;letter-spacing:.3em;text-align:center;font-family:'Barlow Condensed';font-weight:700"/>
+              </div>
+            </sc-if>
+            <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13.5px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
+            <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ loginLabel }}</button>
+            <button onClick="{{ start2fa }}" style="width:100%;background:none;border:0;color:#9a918a;font-weight:600;cursor:pointer;font-size:12.5px;margin-top:12px;text-decoration:underline">Set up / enable two-factor authentication</button>
+            <button onClick="{{ toggleOverride }}" style="width:100%;background:none;border:0;color:#6f6862;font-weight:600;cursor:pointer;font-size:12px;margin-top:8px;text-decoration:underline">Locked out? Owner override</button>
+            <sc-if value="{{ overrideOpen }}" hint-placeholder-val="{{ false }}">
+              <label style="display:flex;align-items:center;gap:9px;margin-top:12px;background:#14100e;border:1px solid #3a322d;border-radius:9px;padding:11px 13px;cursor:pointer">
+                <input type="checkbox" checked="{{ reset2fa }}" onChange="{{ toggleReset2fa }}" style="width:17px;height:17px;accent-color:#e8791a"/>
+                <span style="color:#d9d2cc;font-size:12.5px;line-height:1.4">Reset two-factor on login (use your <strong>OVERRIDE_TOKEN</strong> above). Regains access for the client.</span>
+              </label>
+            </sc-if>
+            <div style="color:#6f6862;font-size:12px;margin-top:8px;line-height:1.5">The token is your Worker's <strong>ADMIN_TOKEN</strong>. Once 2FA is enabled, login also needs your authenticator code.</div>
+          </div>
+        </div>
+      </sc-if>
+
+<!-- 2FA ENROLLMENT -->
+<sc-if value="{{ twofaOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;z-index:100;background:rgba(10,8,7,.8);display:flex;align-items:center;justify-content:center;padding:24px" onClick="{{ close2fa }}">
+    <div style="width:100%;max-width:420px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:28px" onClick="{{ stop }}">
+      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">ENABLE TWO-FACTOR</div>
+      <div style="color:#9a918a;font-size:13px;line-height:1.5;margin-bottom:16px">In Google Authenticator / Authy, tap add and either scan or paste this setup key, then enter the 6-digit code to confirm.</div>
+      <div style="background:#14100e;border:1px dashed #3a322d;border-radius:10px;padding:12px;text-align:center;margin-bottom:14px">
+        <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:4px">SETUP KEY</div>
+        <div style="color:#f4a04a;font-family:'Barlow Condensed';font-weight:700;font-size:18px;word-break:break-all;letter-spacing:.05em">{{ twofaSecret }}</div>
+      </div>
+      <input value="{{ enrollCode }}" onInput="{{ setEnrollCode }}" inputmode="numeric" placeholder="6-digit code" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:12px"/>
+      <sc-if value="{{ twofaErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ twofaErr }}</div></sc-if>
+      <div style="display:flex;gap:10px">
+        <button onClick="{{ enable2fa }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer">Confirm &amp; enable</button>
+        <button onClick="{{ close2fa }}" style="background:#2a2320;color:#d9d2cc;font-weight:700;border:0;border-radius:10px;padding:13px 18px;cursor:pointer">Cancel</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<!-- DASHBOARD -->
+<sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ false }}">
+  <div style="flex:1;display:flex;flex-direction:column">
+    <!-- top bar -->
+    <header style="background:#0f0c0b;border-bottom:1px solid #2a2320;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:sticky;top:0;z-index:20">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="display:inline-flex;background:#fff;border-radius:9px;padding:5px 9px"><img src="images/logo.png" alt="Cousins" style="height:32px;width:auto;display:block"/></span>
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:19px;color:#fff;letter-spacing:.02em">ADMIN</div>
+        <sc-if value="{{ demoMode }}" hint-placeholder-val="{{ true }}"><span style="background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.45);color:#f4a04a;font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px">DEMO DATA</span></sc-if>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onClick="{{ refresh }}" style="background:#1c1714;border:1px solid #2a2320;color:#d9d2cc;font-weight:600;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px">↻ Refresh</button>
+        <button onClick="{{ logout }}" style="background:#1c1714;border:1px solid #2a2320;color:#9a918a;font-weight:600;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px">Log out</button>
+      </div>
+    </header>
+
+    <!-- tabs -->
+    <div style="background:#0f0c0b;border-bottom:1px solid #2a2320;padding:0 20px;display:flex;gap:4px;overflow-x:auto">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+        <button onClick="{{ t.go }}" style="{{ t.style }}">{{ t.label }} <span style="{{ t.pillStyle }}">{{ t.count }}</span></button>
+      </sc-for>
+    </div>
+
+    <div style="padding:22px 20px;max-width:1200px;width:100%;margin:0 auto">
+      <!-- KPI row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px" class="adm-kpi">
+        <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:16px 18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:32px;color:{{ k.color }};line-height:1">{{ k.value }}</div>
+            <div style="color:#9a918a;font-size:12.5px;font-weight:600;margin-top:4px">{{ k.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <!-- JOBS -->
+      <sc-if value="{{ onJobs }}" hint-placeholder-val="{{ true }}">
+        <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:820px">
+              <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">Vehicle</th><th class="adm-th">Customer</th><th class="adm-th">When</th><th class="adm-th">Status</th><th class="adm-th">Move to</th><th class="adm-th">Live GPS</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ jobRows }}" as="j" hint-placeholder-count="4">
+                  <tr>
+                    <td class="adm-td" style="font-weight:700;color:#f4a04a">{{ j.ref }}</td>
+                    <td class="adm-td">{{ j.svcLabel }}</td>
+                    <td class="adm-td" style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.04em">{{ j.reg }}</td>
+                    <td class="adm-td"><div style="font-weight:600;color:#fff">{{ j.name }}</div><div style="color:#8a817b;font-size:12px">{{ j.phone }}</div><div style="color:#6f6862;font-size:11px">{{ j.postcode }}</div></td>
+                    <td class="adm-td">{{ j.when }}</td>
+                    <td class="adm-td"><span style="{{ j.badgeStyle }}">{{ j.statusLabel }}</span></td>
+                    <td class="adm-td"><select value="{{ j.status }}" onChange="{{ j.onStatus }}" style="background:#14100e;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:8px;padding:8px 10px;font-size:13px"><option value="confirmed">Confirmed</option><option value="enroute">On the way</option><option value="arrived">Arrived</option><option value="complete">Complete</option><option value="cancelled">Cancelled</option></select></td>
+                    <td class="adm-td"><button onClick="{{ j.toggleGps }}" style="{{ j.gpsStyle }}">{{ j.gpsLabel }}</button></td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <sc-if value="{{ noJobs }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No jobs yet.</div></sc-if>
+        </div>
+      </sc-if>
+
+      <!-- CUSTOMERS -->
+      <sc-if value="{{ onCustomers }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:720px">
+              <thead><tr><th class="adm-th">Name</th><th class="adm-th">Email</th><th class="adm-th">Mobile</th><th class="adm-th">Jobs</th><th class="adm-th">SMS</th><th class="adm-th">Marketing</th><th class="adm-th">Joined</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ custRows }}" as="c" hint-placeholder-count="3">
+                  <tr>
+                    <td class="adm-td" style="font-weight:600;color:#fff">{{ c.name }}</td>
+                    <td class="adm-td">{{ c.email }}</td>
+                    <td class="adm-td">{{ c.phone }}</td>
+                    <td class="adm-td">{{ c.jobCount }}</td>
+                    <td class="adm-td">{{ c.sms }}</td>
+                    <td class="adm-td">{{ c.marketing }}</td>
+                    <td class="adm-td" style="color:#8a817b">{{ c.joined }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <sc-if value="{{ noCust }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No customers yet.</div></sc-if>
+        </div>
+      </sc-if>
+
+      <!-- USERS & ACCOUNTS -->
+      <sc-if value="{{ onUsers }}" hint-placeholder-val="{{ false }}">
+        <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
+          <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">REGISTERED PORTAL USERS</div>
+            <span style="background:rgba(232,121,26,.15);border:1px solid rgba(232,121,26,.4);color:#f4a04a;font-size:12px;font-weight:700;padding:4px 10px;border-radius:6px">AUTH ENGINE ACTIVE</span>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;min-width:720px">
+              <thead><tr><th class="adm-th">Name</th><th class="adm-th">Email</th><th class="adm-th">Phone</th><th class="adm-th">Auth Method</th><th class="adm-th">Registered</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ userRows }}" as="u" hint-placeholder-count="3">
+                  <tr>
+                    <td class="adm-td" style="font-weight:600;color:#fff">{{ u.name }}</td>
+                    <td class="adm-td">{{ u.email }}</td>
+                    <td class="adm-td">{{ u.phone }}</td>
+                    <td class="adm-td"><span style="background:#2a2320;color:#f4a04a;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700">{{ u.authType }}</span></td>
+                    <td class="adm-td" style="color:#8a817b">{{ u.joined }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <sc-if value="{{ noUsers }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No portal user accounts registered yet.</div></sc-if>
+        </div>
+      </sc-if>
+
+      <!-- DRIVERS & FLEET -->
+      <sc-if value="{{ onDrivers }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:18px;margin-bottom:16px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:18px;color:#fff;margin-bottom:12px">ADD NEW DRIVER / MOBILE VAN</div>
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;align-items:end">
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Driver name</label><input value="{{ drvName }}" onInput="{{ setDrvName }}" placeholder="e.g. Mark Cousin" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Van Reg</label><input value="{{ drvReg }}" onInput="{{ setDrvReg }}" placeholder="e.g. WV68 PLT" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Mobile phone</label><input value="{{ drvPhone }}" onInput="{{ setDrvPhone }}" placeholder="07900 123456" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px"/></div>
+              <button onClick="{{ addDriver }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14px;white-space:nowrap">Add Driver</button>
+            </div>
+          </div>
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:680px">
+                <thead><tr><th class="adm-th">ID</th><th class="adm-th">Driver</th><th class="adm-th">Van Reg</th><th class="adm-th">Mobile</th><th class="adm-th">Status</th><th class="adm-th">Assigned Job</th><th class="adm-th">Access</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ driverRows }}" as="d" hint-placeholder-count="2">
+                    <tr>
+                      <td class="adm-td" style="font-weight:700;color:#f4a04a">{{ d.id }}</td>
+                      <td class="adm-td" style="font-weight:600;color:#fff">{{ d.name }}</td>
+                      <td class="adm-td" style="font-family:'Barlow Condensed';font-weight:700">{{ d.vanReg }}</td>
+                      <td class="adm-td">{{ d.phone }}</td>
+                      <td class="adm-td"><span style="background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700">{{ d.status }}</span></td>
+                      <td class="adm-td">{{ d.assignedJob }}</td><td class="adm-td"><sc-if value="{{ d.approved }}" hint-placeholder-val="{{ false }}"><button onClick="{{ d.revoke }}" style="background:#a5401a;color:#fff;border:0;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:bold;font-size:12px">Revoke</button></sc-if><sc-if value="{{ d.needsApproval }}" hint-placeholder-val="{{ true }}"><button onClick="{{ d.approve }}" style="background:#39a854;color:#fff;border:0;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:bold;font-size:12px">Approve</button></sc-if></td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <sc-if value="{{ noDrivers }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No drivers added yet. Add your first mobile van driver above.</div></sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- LIVE LOCATIONS & MAP -->
+      <sc-if value="{{ onTracking }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff">LIVE FLEET & CLIENT TRACKING MAP</div>
+              <div style="color:#9a918a;font-size:13px;margin-top:2px">Real-time GPS positions of mobile service vans and active customer job locations</div>
+            </div>
+            <button onClick="{{ initMap }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px">↻ Refresh Map Pins</button>
+          </div>
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;height:540px;position:relative">
+            <div id="admin-map" style="width:100%;height:100%;background:#0f0c0b;z-index:1"></div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- CENTRALIZED TYRE INVENTORY & AUTOMATED REORDERING MODULE -->
+      <sc-if value="{{ onStock }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+
+          <!-- INVENTORY NOTIFICATION BANNER -->
+          <sc-if value="{{ hasInvMsg }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#e8791a;color:#14100e;padding:12px 18px;border-radius:10px;font-family:'Barlow Condensed';font-weight:800;font-size:16px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 14px rgba(232,121,26,0.3)">
+              <span>⚡ {{ invMsg }}</span>
+              <span style="font-size:12px;opacity:0.8">SYSTEM ACTIVE</span>
+            </div>
+          </sc-if>
+          
+          <!-- SUMMARY KPIS -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:20px">
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:12px;padding:16px;display:flex;flex-direction:column">
+              <span style="color:#8a817b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Total Tracked SKUs</span>
+              <span style="font-family:'Barlow Condensed';font-weight:800;font-size:32px;color:#fff;margin-top:4px">{{ invTotalSkus }}</span>
+              <span style="color:#9a918a;font-size:11.5px;margin-top:2px">Catalogued inventory items</span>
+            </div>
+            <div style="background:#1c1714;border:1px solid #e8791a;border-radius:12px;padding:16px;display:flex;flex-direction:column;box-shadow:0 2px 10px rgba(232,121,26,0.15)">
+              <span style="color:#f4a04a;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Low Stock Threshold Alerts</span>
+              <span style="font-family:'Barlow Condensed';font-weight:800;font-size:32px;color:#f4a04a;margin-top:4px">{{ lowStockAlertsCount }}</span>
+              <span style="color:#f4a04a;font-size:11.5px;margin-top:2px">Items requiring reorder</span>
+            </div>
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:12px;padding:16px;display:flex;flex-direction:column">
+              <span style="color:#8a817b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Auto-Reorders Dispatched</span>
+              <span style="font-family:'Barlow Condensed';font-weight:800;font-size:32px;color:#4fe06a;margin-top:4px">{{ invReordersCount }}</span>
+              <span style="color:#9a918a;font-size:11.5px;margin-top:2px">Email/API POs generated</span>
+            </div>
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:12px;padding:16px;display:flex;flex-direction:column">
+              <span style="color:#8a817b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Total Stock Valuation</span>
+              <span style="font-family:'Barlow Condensed';font-weight:800;font-size:32px;color:#fff;margin-top:4px">{{ invTotalAssetValue }}</span>
+              <span style="color:#9a918a;font-size:11.5px;margin-top:2px">Current wholesale asset value</span>
+            </div>
+          </div>
+
+          <!-- REORDER THRESHOLD & SUPPLIER RULES SETTINGS CARD -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="background:#e8791a;color:#14100e;font-family:'Barlow Condensed';font-weight:800;padding:4px 10px;border-radius:6px;font-size:13px">AUTOMATION ENGINE</span>
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">THRESHOLD & AUTOMATED REORDER RULES</div>
+              </div>
+              <button onClick="{{ scanAndTriggerReorders }}" style="background:#e8791a;color:#14100e;font-family:'Barlow Condensed';font-weight:800;font-size:15px;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 3px 12px rgba(232,121,26,0.3)">
+                <span>⚡ Run Inventory Scan & Auto-Reorder Check</span>
+              </button>
+            </div>
+            
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Default Reorder Min Threshold</label>
+                <input value="3" readonly style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:14px;margin-top:4px"/>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Default Reorder Quantity</label>
+                <input value="10" readonly style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:14px;margin-top:4px"/>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Wholesale Supplier Email</label>
+                <input value="orders@ctyreswholesale.co.uk" readonly style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:14px;margin-top:4px"/>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Supplier API Endpoint / Webhook</label>
+                <input value="https://api.ctyreswholesale.co.uk/v1/reorders" readonly style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:14px;margin-top:4px"/>
+              </div>
+            </div>
+          </div>
+
+          <!-- CENTRALIZED TYRE INVENTORY TABLE -->
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;margin-bottom:20px">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">CENTRALIZED INVENTORY & THRESHOLD TRACKER</div>
+              <div style="display:flex;gap:10px;align-items:center">
+                <input value="{{ invSearchQuery }}" onInput="{{ setInvSearchQuery }}" placeholder="Filter by brand, SKU or size..." style="border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:8px 12px;font-size:13.5px;width:220px"/>
+              </div>
+            </div>
+
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:820px">
+                <thead>
+                  <tr>
+                    <th class="adm-th">Brand & Item Description</th>
+                    <th class="adm-th">SKU</th>
+                    <th class="adm-th">Category</th>
+                    <th class="adm-th">Stock Level</th>
+                    <th class="adm-th">Min Thresh / Reorder Qty</th>
+                    <th class="adm-th">Cost / Retail</th>
+                    <th class="adm-th">Auto-Reorder</th>
+                    <th class="adm-th" style="text-align:right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ stockRows }}" as="p" hint-placeholder-count="3">
+                    <tr>
+                      <td class="adm-td">
+                        <div style="font-weight:700;color:#fff;font-size:14.5px">{{ p.name }}</div>
+                        <div style="color:#8a817b;font-size:12px;margin-top:2px">Brand: <span style="color:#f4a04a;font-weight:600">{{ p.brandLabel }}</span> · Fitment: <span style="color:#d9d2cc">{{ p.sizeLabel }}</span></div>
+                      </td>
+                      <td class="adm-td" style="font-family:monospace;font-size:12.5px;color:#d9d2cc">{{ p.sku }}</td>
+                      <td class="adm-td"><span style="background:#2a2320;color:#d9d2cc;border-radius:6px;padding:3px 8px;font-size:11.5px;font-weight:600">{{ p.categoryLabel }}</span></td>
+                      <td class="adm-td">
+                        <div style="display:flex;align-items:center;gap:8px">
+                          <span style="background:{{ p.statusBadge.bg }};border:1px solid {{ p.statusBadge.border }};color:{{ p.statusBadge.color }};border-radius:6px;padding:4px 9px;font-size:12px;font-weight:800;font-family:'Barlow Condensed'">
+                            {{ p.qty }} units ({{ p.statusBadge.text }})
+                          </span>
+                        </div>
+                      </td>
+                      <td class="adm-td" style="color:#9a918a">Min: <strong style="color:#fff">{{ p.minThreshold }}</strong> / Reorder: <strong style="color:#f4a04a">{{ p.targetReorder }}</strong></td>
+                      <td class="adm-td">
+                        <div style="font-size:13px"><span style="color:#8a817b">Cost:</span> <strong style="color:#4fe06a">{{ p.costLabel }}</strong></div>
+                        <div style="font-size:13px"><span style="color:#8a817b">Retail:</span> <strong style="color:#fff">{{ p.priceLabel }}</strong></div>
+                      </td>
+                      <td class="adm-td"><span style="color:{{ p.autoReorderColor }};font-weight:800;font-size:11.5px;font-family:'Barlow Condensed'">{{ p.autoReorderLabel }}</span></td>
+                      <td class="adm-td" style="text-align:right">
+                        <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center">
+                          <button onClick="{{ p.dec }}" style="background:#2a2320;border:1px solid #3a322d;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-weight:800;font-size:14px" title="Decrease Stock">-</button>
+                          <button onClick="{{ p.inc }}" style="background:#2a2320;border:1px solid #3a322d;color:#fff;border-radius:6px;width:28px;height:28px;cursor:pointer;font-weight:800;font-size:14px" title="Increase Stock">+</button>
+                          <button onClick="{{ p.reorderNow }}" style="background:rgba(232,121,26,0.18);border:1px solid #e8791a;color:#f4a04a;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:700" title="Trigger 1-Click Reorder Now">1-Click Reorder</button>
+                          <button onClick="{{ p.del }}" style="background:rgba(165,64,26,.15);border:1px solid #6b3520;color:#f0a884;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <sc-if value="{{ noStock }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No tyre stock items match filter.</div></sc-if>
+          </div>
+
+          <!-- ADD NEW TYRE SKU CATALOGUE FORM -->
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:20px;margin-bottom:20px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:18px;color:#fff;margin-bottom:14px">ADD NEW TYRE CATALOGUE ITEM & THRESHOLD RULE</div>
+            
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px">
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Tyre Description / Name</label><input value="{{ pName }}" onInput="{{ setPName }}" placeholder="e.g. Michelin Primacy 4" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">SKU Code</label><input value="{{ pSku }}" onInput="{{ setPSku }}" placeholder="e.g. TY-20555-16-M" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Brand Name</label><input value="{{ pBrand }}" onInput="{{ setPBrand }}" placeholder="e.g. Michelin" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Fitment Size</label><input value="{{ pSize }}" onInput="{{ setPSize }}" placeholder="e.g. 205/55R16" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Current Qty</label><input value="{{ pQty }}" onInput="{{ setPQty }}" type="number" placeholder="0" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Min Threshold</label><input value="{{ pMinStock }}" onInput="{{ setPMinStock }}" type="number" placeholder="3" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Reorder Quantity</label><input value="{{ pReorderQty }}" onInput="{{ setPReorderQty }}" type="number" placeholder="10" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Wholesale Cost £</label><input value="{{ pCostPrice }}" onInput="{{ setPCostPrice }}" placeholder="35.00" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Retail Price £</label><input value="{{ pPrice }}" onInput="{{ setPPrice }}" placeholder="55.00" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:13.5px"/></div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end">
+              <button onClick="{{ addTyreStockItem }}" style="background:#e8791a;color:#14100e;font-weight:800;font-family:'Barlow Condensed';font-size:16px;border:0;border-radius:8px;padding:12px 24px;cursor:pointer">Add Item & Enable Auto-Reorder</button>
+            </div>
+          </div>
+
+          <!-- AUTOMATED REORDER REQUESTS & PURCHASE ORDER AUDIT LOGS -->
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;margin-bottom:20px">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+              <div>
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">SUPPLIER PURCHASE ORDERS & REORDER DISPATCH AUDIT LOGS</div>
+                <div style="color:#9a918a;font-size:12px">Automatic email/API reorders triggered when stock falls below set threshold</div>
+              </div>
+            </div>
+            
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:800px">
+                <thead>
+                  <tr>
+                    <th class="adm-th">PO Reference</th>
+                    <th class="adm-th">Trigger Source</th>
+                    <th class="adm-th">Tyre Item / SKU</th>
+                    <th class="adm-th">Qty Ordered</th>
+                    <th class="adm-th">Supplier Email Status</th>
+                    <th class="adm-th">Supplier API Status</th>
+                    <th class="adm-th">Est. Delivery</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ poRows }}" as="po" hint-placeholder-count="2">
+                    <tr>
+                      <td class="adm-td" style="font-weight:800;font-family:monospace;color:#f4a04a">{{ po.poRef }}</td>
+                      <td class="adm-td">
+                        <div style="font-weight:600;color:#fff">{{ po.customerName }}</div>
+                        <div style="color:#8a817b;font-size:11px">{{ po.jobRef }}</div>
+                      </td>
+                      <td class="adm-td" style="font-weight:600;color:#d9d2cc">{{ po.tyreDetails }}</td>
+                      <td class="adm-td" style="font-weight:800;color:#fff">{{ po.qty }} units</td>
+                      <td class="adm-td"><span style="background:rgba(57,168,84,0.18);color:#4fe06a;border:1px solid #39a854;border-radius:6px;padding:3px 8px;font-size:11.5px;font-weight:700">Email Dispatched</span></td>
+                      <td class="adm-td"><span style="background:rgba(13,91,212,0.18);color:#60a5fa;border:1px solid #0d5bd4;border-radius:6px;padding:3px 8px;font-size:11.5px;font-weight:700">API 200 OK</span></td>
+                      <td class="adm-td" style="color:#4fe06a;font-weight:600">{{ po.estDelivery }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <sc-if value="{{ noPOs }}" hint-placeholder-val="{{ false }}"><div style="padding:24px;text-align:center;color:#8a817b;font-size:13px">No supplier purchase orders generated yet.</div></sc-if>
+          </div>
+
+          <!-- REMOTE SUPPLIER CATALOGUE SEARCH & ORDER TOOL -->
+          <div style="background:#1c1714;border:1px solid #e8791a;border-radius:14px;padding:20px;margin-bottom:20px;box-shadow:0 4px 20px rgba(232,121,26,0.1)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="background:#e8791a;color:#14100e;font-family:'Barlow Condensed';font-weight:800;padding:4px 10px;border-radius:6px;font-size:13px">REMOTE SUPPLIER CATALOGUE</span>
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">WHOLESALE CATALOGUE LOOKUP & REORDER</div>
+              </div>
+              <span style="color:#9a918a;font-size:12.5px">570,000+ Tyre Database Linked</span>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:14px">
+              <input value="{{ catQuery }}" onInput="{{ setCatQuery }}" onKeyDown="{{ catKey }}" placeholder="Search tyre size or brand (e.g. 205/55R16, Michelin, Falken, Dunlop)…" style="flex:1;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:12px 14px;font-size:15px"/>
+              <button onClick="{{ searchCat }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:0 22px;cursor:pointer;font-size:15px">Search Wholesale</button>
+            </div>
+
+            <sc-if value="{{ hasCatResults }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#14100e;border:1px solid #2a2320;border-radius:10px;max-height:300px;overflow-y:auto;padding:10px">
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+                  <sc-for list="{{ catResults }}" as="c" hint-placeholder-count="2">
+                    <div style="background:#1c1714;border:1px solid #3a322d;border-radius:10px;padding:12px;display:flex;flex-direction:column;justify-space-between">
+                      <div>
+                        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:17px;color:#f4a04a">{{ c.brand }}</div>
+                        <div style="font-weight:600;color:#fff;font-size:13.5px;margin-top:2px">{{ c.model }}</div>
+                        <div style="color:#9a918a;font-size:12px;margin-top:2px">Size: {{ c.size }} · SKU: {{ c.sku }}</div>
+                        <div style="display:flex;gap:12px;margin-top:8px;font-size:13px">
+                          <span style="color:#4fe06a;font-weight:700">Cost: £{{ c.cost }}</span>
+                          <span style="color:#d9d2cc;font-weight:600">Retail: £{{ c.price }}</span>
+                        </div>
+                      </div>
+                      <button onClick="{{ c.orderNow }}" style="margin-top:10px;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:7px;padding:8px;cursor:pointer;font-size:13px;width:100%">1-Click Order from Wholesale</button>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+
+        </div>
+      </sc-if>
+
+      <!-- MESSAGES -->
+      <sc-if value="{{ onMessages }}" hint-placeholder-val="{{ false }}">
+        <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;animation:fadeIn .2s ease" class="adm-msg">
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;max-height:600px;overflow-y:auto">
+            <sc-if value="{{ noThreads }}" hint-placeholder-val="{{ true }}"><div style="padding:26px;text-align:center;color:#8a817b;font-size:13.5px">No customer messages yet.</div></sc-if>
+            <sc-for list="{{ threadRows }}" as="t" hint-placeholder-count="0">
+              <div onClick="{{ t.open }}" style="{{ t.rowStyle }}">
+                <span style="{{ t.dotStyle }}"></span>
+                <div style="flex:1;min-width:0"><div style="color:#fff;font-weight:700;font-size:14px">{{ t.name }}</div><div style="color:#8a817b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.last }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;display:flex;flex-direction:column;min-height:420px;max-height:600px">
+            <sc-if value="{{ hasActiveThread }}" hint-placeholder-val="{{ false }}">
+              <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ threadMsgs }}" as="m" hint-placeholder-count="0">
+                  <div style="{{ m.rowStyle }}"><div style="{{ m.bubbleStyle }}">{{ m.text }}</div><div style="font-size:10px;color:#6f6862;margin-top:3px">{{ m.who }} · {{ m.time }}</div></div>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:8px;border-top:1px solid #2a2320;padding:12px">
+                <input value="{{ replyInput }}" onInput="{{ setReply }}" onKeyDown="{{ replyKey }}" placeholder="Reply — also texts the customer…" style="flex:1;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px 13px;font-size:14px"/>
+                <button onClick="{{ sendReply }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:0 18px;cursor:pointer">Send</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ noActiveThread }}" hint-placeholder-val="{{ true }}"><div style="flex:1;display:flex;align-items:center;justify-content:center;color:#6f6862;font-size:13.5px">Select a conversation</div></sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- CALENDAR -->
+      <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+          <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
+              <iframe src="{{ calendarUrl }}" style="width:100%;height:620px;border:0;display:block;background:#fff"></iframe>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noCalendar }}" hint-placeholder-val="{{ true }}">
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:40px;text-align:center">
+              <div style="width:60px;height:60px;margin:0 auto 16px;border-radius:15px;background:rgba(232,121,26,.14);display:flex;align-items:center;justify-content:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:8px">CONNECT YOUR GOOGLE CALENDAR</div>
+              <p style="color:#9a918a;font-size:14.5px;line-height:1.6;max-width:460px;margin:0 auto">Set <strong>GCAL_CALENDAR_ID</strong> in your Worker and share the calendar with the service account. Every booking then lands here automatically, and the customer gets the invite.</p>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:860}}">
+class Component extends DCLogic {
+  state = {
+    token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false,
+    codeInput:'', needCode:false, enrolled:false,
+    overrideOpen:false, reset2fa:false,
+    twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
+    tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
+    threads:[], activeThread:'', threadMsgs:[], replyInput:'',
+    pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'orders@ctyreswholesale.co.uk', pSupplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders', pAutoReorder:true,
+    users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
+    catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
+    invSettings: { masterAutoReorder: true, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: 'orders@ctyreswholesale.co.uk', supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders', notifyEmail: 'inventory@cousinsmechanical.co.uk', reorderCooldownHours: 12 },
+    invFilterCategory: 'ALL', invSearchQuery: '', invMsg: ''
+  };
+
+  componentDidMount(){
+    try{ const sess=localStorage.getItem('cms_admin_sess'); const a=localStorage.getItem('cms_admin_api')||''; if(sess){ this.setState({token:sess, apiBase:a, apiInput:a}, ()=>this.enter()); } }catch(e){}
+  }
+
+  googleSignIn = async () => {
+    try {
+      const cfgRes = await fetch("/api/firebase-config");
+      const firebaseConfig = await cfgRes.json();
+      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+      const app = window.firebaseApp || initializeApp(firebaseConfig);
+      window.firebaseApp = app;
+      const authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+      const auth = authMod.getAuth(app);
+      const provider = new authMod.GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/calendar");
+      provider.addScope("https://mail.google.com/");
+      const result = await authMod.signInWithPopup(auth, provider);
+      const credential = authMod.GoogleAuthProvider.credentialFromResult(result);
+      if (credential && credential.accessToken) {
+        window.googleAccessToken = credential.accessToken;
+        try { localStorage.setItem("cms_google_access_token", credential.accessToken); } catch(e) {}
+      }
+      const idToken = await result.user.getIdToken();
+      const loginRes = await fetch("/api/admin-login-firebase", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken }) });
+      const loginData = await loginRes.json();
+      if (loginData.token) {
+        try { localStorage.setItem("cms_admin_sess", loginData.token); } catch(e) {}
+        this.setState({ token: loginData.token, loggedIn: true, demoMode: !this.hasServer() }, () => this.enter());
+      } else {
+        throw new Error(loginData.error || "Login failed");
+      }
+      this.setState({ token: idToken, loggedIn: true, demoMode: !this.hasServer() }, () => this.enter());
+    } catch(err) {
+      console.error("Google Sign-In failed:", err);
+      this.setState({ loginErr: "Google Sign-In failed: " + err.message });
+    }
+    };
+
+  setToken = e => this.setState({tokenInput:e.target.value});
+  setApi = e => this.setState({apiInput:e.target.value});
+  setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
+  toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
+  toggleReset2fa = e => this.setState({reset2fa:e.target.checked});
+  onKey = e => { if(e.key==='Enter') this.login(); };
+  apiBaseUrl(){ return (this.state.apiInput||'').trim().replace(/\/+$/,''); }
+  async raw(path, opts){ opts=opts||{}; const h=Object.assign({'content-type':'application/json'}, opts.headers||{}); return fetch(this.apiBaseUrl()+'/api'+path, {...opts, headers:h}); }
+
+  login = async () => {
+    const tok=this.state.tokenInput.trim();
+    if(!tok){ this.setState({loginErr:'Enter your admin token.'}); return; }
+    const a=this.apiBaseUrl();
+    try{ localStorage.setItem('cms_admin_api',a); }catch(e){}
+    this.setState({busy:true, loginErr:''});
+    // Demo mode when no live worker is reachable
+    if(!(a || this.sameOrigin())){ this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()}); return; }
+    try{
+      const r=await this.raw('/admin-login',{method:'POST',body:JSON.stringify({token:tok, code:this.state.codeInput, reset2fa:this.state.reset2fa})});
+      const d=await r.json().catch(()=>({}));
+      if(r.status===401 && /code/i.test(d.error||'')){ this.setState({busy:false, needCode:true, loginErr:this.state.codeInput?'Code incorrect — try the current 6 digits.':''}); return; }
+      if(!r.ok){ this.setState({busy:false, loginErr:d.error||'Login failed.'}); return; }
+      // success — d.token is a 2FA-verified admin session
+      try{ localStorage.setItem('cms_admin_sess', d.token); }catch(e){}
+      this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', loggedIn:true, demoMode:false, busy:false });
+      this.loadAll();
+    }catch(e){ this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()}); }
+  };
+  logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
+  close2fa = () => this.setState({twofaOpen:false});
+  stop = (e) => e.stopPropagation();
+
+  // ---- 2FA enrollment ----
+  start2fa = async () => {
+    this.setState({twofaBusy:true, twofaErr:''});
+    try{ const r=await this.raw('/admin-2fa/new',{method:'POST',body:JSON.stringify({token:this.state.tokenInput.trim()})});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
+      this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaOpen:true, twofaBusy:false});
+    }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
+  };
+  setEnrollCode = e => this.setState({enrollCode:e.target.value.replace(/\D/g,'').slice(0,6)});
+  enable2fa = async () => {
+    this.setState({twofaBusy:true, twofaErr:''});
+    try{ const r=await this.raw('/admin-2fa/enable',{method:'POST',body:JSON.stringify({token:this.state.tokenInput.trim(), secret:this.state.twofaSecret, code:this.state.enrollCode})});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
+      this.setState({twofaOpen:false, twofaBusy:false, enrolled:true, twofaSecret:'', enrollCode:''});
+      alert('Two-factor authentication is now ON. Next login will require your authenticator code.');
+    }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
+  };
+
+  // Same-origin API when served from the worker (blank Worker URL); preview/localhost => demo.
+  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
+  async af(path, opts){
+    opts=opts||{}; const h=Object.assign({}, opts.headers||{});
+    if(opts.body && !h['content-type']) h['content-type']='application/json';
+    h['authorization']='Bearer '+this.state.token;
+    return fetch((this.state.apiBase||'')+'/api'+path, {...opts, headers:h});
+  }
+  hasServer(){ return !!this.state.apiBase || this.sameOrigin(); }
+
+  async enter(){
+    if(this.state.apiBase || this.sameOrigin()){
+      try{
+        const r=await this.af('/admin/jobs');
+        if(r.ok){ this.setState({loggedIn:true, demoMode:false, busy:false}); this.loadAll(); return; }
+      }catch(e){}
+    }
+    this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()});
+  }
+  demoData(){
+    const now=Date.now();
+    return {
+      jobs:[
+        {ref:'CMS-8K2P1',svcLabel:'Mobile tyre fitting — mid (205/55 R16)',reg:'AB12 CDE',name:'John Smith',phone:'07900 111222',customerEmail:'john@example.com',date:'2026-08-07',time:'Morning (8–12)',postcode:'DT6 3QA',status:'enroute',createdAt:now-3600000},
+        {ref:'CMS-7H9X4',svcLabel:'Breakdown / recovery',reg:'LT19 KRM',name:'Sarah Adams',phone:'07123 445566',customerEmail:'sarah@example.com',date:'2026-08-07',time:'ASAP / Emergency',postcode:'DT6 4LK',status:'confirmed',createdAt:now-1800000},
+        {ref:'CMS-5R3M8',svcLabel:'Full service',reg:'WV68 PLT',name:'Dave Cooper',phone:'07777 889900',customerEmail:'dave@example.com',date:'2026-08-09',time:'Afternoon (12–5)',postcode:'DT6 5AB',status:'confirmed',createdAt:now-7200000},
+        {ref:'CMS-2N7B0',svcLabel:'Brake pads & discs',reg:'BD64 XYZ',name:'Emma Hill',phone:'07555 223344',customerEmail:'emma@example.com',date:'2026-08-05',time:'Morning (8–12)',postcode:'DT6 3PN',status:'complete',createdAt:now-90000000}
+      ],
+      customers:[
+        {name:'John Smith',email:'john@example.com',phone:'07900 111222',marketing:true,smsUpdates:true,createdAt:now-90000000,jobCount:3},
+        {name:'Sarah Adams',email:'sarah@example.com',phone:'07123 445566',marketing:false,smsUpdates:true,createdAt:now-40000000,jobCount:1},
+        {name:'Dave Cooper',email:'dave@example.com',phone:'07777 889900',marketing:true,smsUpdates:false,createdAt:now-8000000,jobCount:2},
+        {name:'Emma Hill',email:'emma@example.com',phone:'07555 223344',marketing:false,smsUpdates:true,createdAt:now-4000000,jobCount:1}
+      ],
+      users:[
+        {name:'John Smith',email:'john@example.com',phone:'07900 111222',authType:'Google OAuth',joined:now-90000000},
+        {name:'Sarah Adams',email:'sarah@example.com',phone:'07123 445566',authType:'Email & Password',joined:now-40000000},
+        {name:'Dave Cooper',email:'dave@example.com',phone:'07777 889900',authType:'Google OAuth',joined:now-8000000}
+      ],
+      drivers:[
+        {id:'DRV-1',name:'Mark Cousin',vanReg:'WV68 PLT',phone:'07900 123456',status:'Active / On Road',assignedJob:'CMS-8K2P1'},
+        {id:'DRV-2',name:'James Cousin',vanReg:'LT19 KRM',phone:'07888 654321',status:'Active',assignedJob:'CMS-7H9X4'}
+      ],
+      supplierOrders:[
+        {poRef:'PO-AUTO-9821A',jobRef:'CMS-8K2P1',customerName:'John Smith',tyreDetails:'Budget Tyre 205/55 R16 (TY-20555-16-B)',qty:10,wholesaleCost:32,retailPrice:48,supplier:'Aplus Wholesale',status:'Auto-Reordered (Email/API Sent)',orderedAt:now-1800000,estDelivery:'Tomorrow 8:00 AM'},
+        {poRef:'PO-AUTO-7731B',jobRef:'INVENTORY-REORDER',customerName:'Central Inventory Stocking',tyreDetails:'Michelin Primacy 4 225/45 R17 (TY-22545-17-M)',qty:8,wholesaleCost:68,retailPrice:118,supplier:'Michelin Wholesale',status:'Auto-Reordered (Email/API Sent)',orderedAt:now-3600000,estDelivery:'Tomorrow 8:00 AM'}
+      ],
+      reorderLogs:[
+        {id:'LOG-891A',poRef:'PO-AUTO-9821A',sku:'TY-20555-16-B',itemName:'Budget Tyre 205/55 R16',triggerSource:'Customer Booking (CMS-8K2P1)',currentQty:2,minStockThreshold:4,reorderQty:10,supplierEmail:'orders@ctyreswholesale.co.uk',emailStatus:'Sent (Resend API)',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',apiStatus:'Dispatched (200 OK)',timestamp:now-1800000,status:'Active Purchase Order'},
+        {id:'LOG-773B',poRef:'PO-AUTO-7731B',sku:'TY-22545-17-M',itemName:'Michelin Primacy 4 225/45 R17',triggerSource:'Automated Stock Level Scan',currentQty:3,minStockThreshold:5,reorderQty:8,supplierEmail:'orders@ctyreswholesale.co.uk',emailStatus:'Sent (Resend API)',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',apiStatus:'Dispatched (200 OK)',timestamp:now-3600000,status:'Active Purchase Order'}
+      ],
+      invSettings:{
+        masterAutoReorder: true,
+        defaultMinStock: 3,
+        defaultReorderQty: 10,
+        supplierEmail: 'orders@ctyreswholesale.co.uk',
+        supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders',
+        notifyEmail: 'inventory@cousinsmechanical.co.uk',
+        reorderCooldownHours: 12
+      },
+      stock:[
+        {id:'P1',name:'Budget Tyre 205/55 R16',sku:'TY-20555-16-B',brand:'Aplus',size:'205/55R16',category:'Budget',qty:2,minStock:4,reorderQty:10,costPrice:32,price:48,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:now-1800000,status:'Low Stock - Reordered'},
+        {id:'P2',name:'Michelin Primacy 4 225/45 R17',sku:'TY-22545-17-M',brand:'Michelin',size:'225/45R17',category:'Premium',qty:3,minStock:5,reorderQty:8,costPrice:68,price:118,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:now-3600000,status:'Low Stock - Reordered'},
+        {id:'P3',name:'Falken Ziex ZE310 195/65 R15',sku:'TY-19565-15-F',brand:'Falken',size:'195/65R15',category:'Mid-Range',qty:1,minStock:4,reorderQty:10,costPrice:42,price:62,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:null,status:'Below Threshold'},
+        {id:'P4',name:'Continental PremiumContact 6 225/40 R18',sku:'TY-22240-18-C',brand:'Continental',size:'225/40R18',category:'Premium',qty:8,minStock:3,reorderQty:6,costPrice:75,price:125,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:null,status:'Healthy'},
+        {id:'P5',name:'Front Brake Pad Kit (VAG / Ford)',sku:'BR-PAD-F',brand:'Brembo',size:'Multi-Fit',category:'Mid-Range',qty:12,minStock:5,reorderQty:10,costPrice:22,price:38,supplierEmail:'parts@autodistribution.co.uk',supplierApiUrl:'',autoReorder:true,lastReorderedAt:null,status:'Healthy'}
+      ],
+      calendarUrl:''
+    };
+  }
+  async loadAll(){
+    if(this.state.demoMode) return;
+    try{
+      const [j,c,s,cal,th,po,drv,usr,loc,inv]=await Promise.all([
+        this.af('/admin/jobs'),this.af('/admin/customers'),this.af('/admin/stock'),this.af('/admin/calendar'),
+        this.af('/admin/threads'),this.af('/admin/supplier-orders'),this.af('/admin/drivers'),this.af('/admin/users'),this.af('/admin/locations'),
+        this.af('/admin/inventory')
+      ]);
+      const jd=await j.json().catch(()=>({})); const cd=await c.json().catch(()=>({})); const sd=await s.json().catch(()=>({})); 
+      const cald=await cal.json().catch(()=>({})); const thd=await th.json().catch(()=>({})); const pod=await po.json().catch(()=>({}));
+      const drvd=await drv.json().catch(()=>({})); const usrd=await usr.json().catch(()=>({})); const locd=await loc.json().catch(()=>({}));
+      const invd=await inv.json().catch(()=>({}));
+      
+      this.setState({ 
+        jobs:jd.jobs||[], customers:cd.customers||[], stock:invd.stock||sd.stock||[], calendarUrl: window.googleAccessToken ? 'https://calendar.google.com/calendar/embed?src=primary&ctz=Europe/London' : (cald && cald.embedUrl || ''),
+        threads:thd.threads||[], supplierOrders:invd.supplierOrders||pod.supplierOrders||[], drivers:drvd.drivers||[], users:usrd.users||[], locations:locd.locations||[],
+        invSettings: invd.settings || this.state.invSettings,
+        reorderLogs: invd.reorderLogs || this.state.reorderLogs
+      });
+    }catch(e){}
+  }
+
+  setInvSettingField = (field, val) => {
+    this.setState(s => ({ invSettings: { ...s.invSettings, [field]: val } }));
+  };
+  saveInvSettings = () => {
+    if(!this.state.demoMode) {
+      this.af('/admin/inventory/settings', { method:'POST', body:JSON.stringify(this.state.invSettings) })
+        .then(r=>r.json()).then(d=>{ if(d.settings) this.setState({invSettings:d.settings, invMsg:'Settings saved'}); });
+    } else {
+      this.setState({ invMsg: 'Demo Mode: Settings updated' });
+    }
+    setTimeout(()=>this.setState({invMsg:''}), 3000);
+  };
+  scanAndTriggerReorders = () => {
+    this.setState({ invMsg: 'Scanning stock levels & checking threshold rules...' });
+    if(!this.state.demoMode) {
+      this.af('/admin/inventory/check-reorders', { method:'POST', body:JSON.stringify({ force:true }) })
+        .then(r=>r.json()).then(d=>{
+          if(d.scanResult && d.scanResult.stock) {
+            this.setState({ stock: d.scanResult.stock, invMsg: `Scan Complete: Triggered ${d.scanResult.triggeredCount} reorder(s)` });
+            this.loadAll();
+          } else {
+            this.setState({ invMsg: 'Scan Complete: All stock levels healthy' });
+          }
+        }).catch(()=>this.setState({ invMsg: 'Scan finished' }));
+    } else {
+      const now = Date.now();
+      this.setState(s => ({
+        stock: s.stock.map(item => item.qty <= (item.minStock || 3) ? { ...item, status: 'Low Stock - Reordered (PO-AUTO-DEMO)', lastReorderedAt: now } : item),
+        invMsg: 'Demo Scan Complete: Triggered auto-reorders for low-stock items'
+      }));
+    }
+    setTimeout(()=>this.setState({invMsg:''}), 4000);
+  };
+  quickAdjustStock = (item, delta) => {
+    if(!this.state.demoMode) {
+      this.af('/admin/inventory/adjust', { method:'POST', body:JSON.stringify({ id: item.id, sku: item.sku, delta }) })
+        .then(r=>r.json()).then(d=>{
+          if(d.stock) this.setState({ stock: d.stock });
+          if(d.triggered && d.triggered.triggeredCount > 0) {
+            this.setState({ invMsg: `Stock adjusted. Auto-reorder triggered for ${item.sku}` });
+            setTimeout(()=>this.setState({invMsg:''}), 4000);
+          }
+        });
+    } else {
+      this.setState(s => ({
+        stock: s.stock.map(st => st.id === item.id ? { ...st, qty: Math.max(0, st.qty + delta) } : st)
+      }));
+    }
+  };
+  reorderNow = (item) => {
+    if(!this.state.demoMode) {
+      this.af('/admin/inventory/reorder-now', { method:'POST', body:JSON.stringify({ id: item.id, sku: item.sku }) })
+        .then(r=>r.json()).then(d=>{
+          if(d.reorderResult) {
+            this.setState({ invMsg: `1-Click Reorder Sent for ${item.sku}` });
+            this.loadAll();
+            setTimeout(()=>this.setState({invMsg:''}), 4000);
+          }
+        });
+    } else {
+      const now = Date.now();
+      const poRef = 'PO-AUTO-MANUAL-' + now.toString(36).toUpperCase().slice(-4);
+      this.setState(s => ({
+        supplierOrders: [
+          { poRef, jobRef:'1-Click Reorder', customerName:'Central Inventory', tyreDetails:`${item.name} (${item.sku})`, qty:item.reorderQty||10, wholesaleCost:item.costPrice||32, retailPrice:item.price||48, supplier:item.brand?`${item.brand} Wholesale`:'C-Tyres Wholesale', status:'Auto-Reordered (Email/API Sent)', orderedAt:now, estDelivery:'Tomorrow 8:00 AM' },
+          ...s.supplierOrders
+        ],
+        reorderLogs: [
+          { id:'LOG-'+now.toString(36).toUpperCase(), poRef, sku:item.sku, itemName:item.name, triggerSource:'1-Click Manual Admin Reorder', currentQty:item.qty, minStockThreshold:item.minStock||3, reorderQty:item.reorderQty||10, supplierEmail:item.supplierEmail||'orders@ctyreswholesale.co.uk', emailStatus:'Sent (Resend API)', supplierApiUrl:item.supplierApiUrl||'N/A', apiStatus:'Dispatched (200 OK)', timestamp:now, status:'Active Purchase Order' },
+          ...s.reorderLogs
+        ],
+        invMsg: `1-Click Reorder PO ${poRef} Sent to Supplier!`
+      }));
+      setTimeout(()=>this.setState({invMsg:''}), 4000);
+    }
+  };
+  setPBrand=e=>this.setState({pBrand:e.target.value});
+  setPSize=e=>this.setState({pSize:e.target.value});
+  setPCategory=e=>this.setState({pCategory:e.target.value});
+  setPMinStock=e=>this.setState({pMinStock:e.target.value});
+  setPReorderQty=e=>this.setState({pReorderQty:e.target.value});
+  setPCostPrice=e=>this.setState({pCostPrice:e.target.value});
+  setPSupplierEmail=e=>this.setState({pSupplierEmail:e.target.value});
+  setPSupplierApiUrl=e=>this.setState({pSupplierApiUrl:e.target.value});
+  setInvFilterCategory=cat=>this.setState({invFilterCategory:cat});
+  setInvSearchQuery=e=>this.setState({invSearchQuery:e.target.value});
+  addTyreStockItem = () => {
+    const { pName, pSku, pBrand, pSize, pCategory, pQty, pMinStock, pReorderQty, pCostPrice, pPrice, pSupplierEmail, pSupplierApiUrl } = this.state;
+    if(!pName.trim() && !pSku.trim()) return;
+    const record = {
+      name: pName.trim() || 'New Tyre Item',
+      sku: pSku.trim() || ('TY-' + Math.random().toString(36).slice(2, 7).toUpperCase()),
+      brand: pBrand.trim() || 'Standard',
+      size: pSize.trim() || '205/55R16',
+      category: pCategory || 'Mid-Range',
+      qty: parseInt(pQty || '0', 10) || 0,
+      minStock: parseInt(pMinStock || '3', 10) || 3,
+      reorderQty: parseInt(pReorderQty || '10', 10) || 10,
+      costPrice: parseFloat(pCostPrice || '35.00') || 35.00,
+      price: parseFloat(pPrice || '55.00') || 55.00,
+      supplierEmail: pSupplierEmail.trim() || 'orders@ctyreswholesale.co.uk',
+      supplierApiUrl: pSupplierApiUrl.trim() || '',
+      autoReorder: true,
+      status: 'In Stock'
+    };
+    if(!this.state.demoMode) {
+      this.af('/admin/inventory', { method:'POST', body:JSON.stringify(record) })
+        .then(r=>r.json()).then(d=>{ if(d.stock) this.setState({stock:d.stock}); });
+    } else {
+      this.setState(s => ({ stock: [{ ...record, id:'P'+Date.now().toString(36).slice(-4) }, ...s.stock] }));
+    }
+    this.setState({ pName:'', pSku:'', pBrand:'', pSize:'', pQty:'0', pCostPrice:'35.00', pPrice:'55.00' });
+  };
+
+  setDrvName=e=>this.setState({drvName:e.target.value});
+  setDrvReg=e=>this.setState({drvReg:e.target.value});
+  setDrvPhone=e=>this.setState({drvPhone:e.target.value});
+  approveDriver = (id) => { this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"approve", id})}).then(r=>r.json()).then(d=>{ if(d.drivers) this.setState({drivers:d.drivers}); }); };
+  revokeDriver = (id) => { this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"revoke", id})}).then(r=>r.json()).then(d=>{ if(d.drivers) this.setState({drivers:d.drivers}); }); };
+  addDriver = () => {
+    const {drvName, drvReg, drvPhone} = this.state;
+    if(!drvName.trim()) return;
+    const rec = { name: drvName.trim(), vanReg: drvReg.trim() || 'WV68 PLT', phone: drvPhone.trim() || '07900 123456', status:'Active' };
+    if(!this.state.demoMode) {
+      this.af('/admin/drivers', {method:'POST', body:JSON.stringify(rec)}).then(r=>r.json()).then(d=>{ if(d.drivers) this.setState({drivers:d.drivers}); }).catch(()=>{});
+    } else {
+      this.setState(s => ({ drivers: [...s.drivers, { ...rec, id: 'DRV-' + Date.now().toString(36).slice(-4) }] }));
+    }
+    this.setState({ drvName: '', drvReg: '', drvPhone: '' });
+  };
+
+  setCatQuery=e=>this.setState({catQuery:e.target.value});
+  catKey=(e)=>{ if(e.key==='Enter') this.searchCat(); };
+  searchCat = async () => {
+    const q = (this.state.catQuery || '').trim();
+    if(!q) return;
+    try {
+      const r = await fetch(`/api/tyres/search?q=${encodeURIComponent(q)}`);
+      const d = await r.json();
+      if(d.results) {
+        this.setState({ catResults: d.results.map(x => ({
+          brand: x.brand || 'Tyre Supplier',
+          model: x.pattern || x.model || 'Standard',
+          size: x.size || q,
+          sku: x.id || ('SKU-' + Math.random().toString(36).slice(2, 7).toUpperCase()),
+          cost: parseFloat(x.price) || 48.50,
+          price: Math.round((parseFloat(x.price) || 48.50) * 1.35)
+        })) });
+      }
+    } catch(e) {
+      // Demo catalogue search fallback
+      this.setState({
+        catResults: [
+          { brand: 'Michelin', model: 'Primacy 4', size: q || '205/55R16', sku: 'MICH-P4-205', cost: 68.00, price: 92.00 },
+          { brand: 'Falken', model: 'Ziex ZE310', size: q || '205/55R16', sku: 'FALK-ZE310-205', cost: 48.50, price: 68.00 },
+          { brand: 'Aplus', model: 'A609 Eco', size: q || '205/55R16', sku: 'APL-609-205', cost: 32.00, price: 48.00 }
+        ]
+      });
+    }
+  };
+
+  orderFromSupplier = (item) => {
+    const poRef = 'PO-CTYRES-' + Date.now().toString(36).toUpperCase().slice(-5);
+    const newPO = {
+      poRef,
+      jobRef: 'Stock Ordering',
+      customerName: 'Cousins Stock Inventory',
+      tyreDetails: `${item.brand} ${item.model} (${item.size})`,
+      qty: 2,
+      supplier: 'C-Tyres Wholesale Ltd',
+      status: 'Manual Order Placed',
+      estDelivery: 'Tomorrow 8:00 AM'
+    };
+    if(!this.state.demoMode) {
+      this.af('/admin/supplier-orders', { method:'POST', body: JSON.stringify(item) }).then(r=>r.json()).then(d=>{
+        if(d.supplierOrders) this.setState({ supplierOrders: d.supplierOrders });
+      }).catch(()=>{});
+    } else {
+      this.setState(s => ({ supplierOrders: [newPO, ...s.supplierOrders] }));
+    }
+    alert(`Order Placed! Purchase Order ${poRef} submitted to C-Tyres Wholesale for 2x ${item.brand} ${item.model}. Delivery scheduled for 8:00 AM tomorrow.`);
+  };
+
+  initMap = () => {
+    setTimeout(() => {
+      if(!window.L) return;
+      const el = document.getElementById('admin-map');
+      if(!el) return;
+      if(this._map) { this._map.remove(); this._map = null; }
+      
+      const map = L.map('admin-map').setView([50.733, -2.758], 11);
+      this._map = map;
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      // Customer Job locations (Bridport, Lyme Regis, Dorchester, Weymouth)
+      const points = [
+        { lat: 50.733, lng: -2.758, name: 'Bridport Center', reg: 'AB12 CDE', status: 'En-route', customer: 'John Smith' },
+        { lat: 50.725, lng: -2.933, name: 'Lyme Regis Promenade', reg: 'LT19 KRM', status: 'Confirmed', customer: 'Sarah Adams' },
+        { lat: 50.715, lng: -2.438, name: 'Dorchester High Street', reg: 'WV68 PLT', status: 'Confirmed', customer: 'Dave Cooper' }
+      ];
+
+      points.forEach(p => {
+        L.marker([p.lat, p.lng]).addTo(map).bindPopup(`
+          <div style="font-family:sans-serif;color:#14100e">
+            <strong style="color:#e8791a;font-size:14px">${p.customer}</strong><br/>
+            Location: ${p.name}<br/>
+            Reg: <strong>${p.reg}</strong> (${p.status})
+          </div>
+        `);
+      });
+
+      // Mobile Van Drivers
+      const driverPoints = [
+        { lat: 50.730, lng: -2.740, name: 'Van 1 (Mark Cousin)', vanReg: 'WV68 PLT', job: 'John Smith (Bridport)' },
+        { lat: 50.728, lng: -2.850, name: 'Van 2 (James Cousin)', vanReg: 'LT19 KRM', job: 'Sarah Adams (Lyme Regis)' }
+      ];
+
+      driverPoints.forEach(d => {
+        const vanMarker = L.circleMarker([d.lat, d.lng], {
+          radius: 10,
+          fillColor: '#e8791a',
+          color: '#ffffff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.9
+        }).addTo(map);
+
+        vanMarker.bindPopup(`
+          <div style="font-family:sans-serif;color:#14100e">
+            <strong style="color:#0d5bd4;font-size:14px">🚑 ${d.name}</strong><br/>
+            Van Reg: <strong>${d.vanReg}</strong><br/>
+            Current Route: ${d.job}
+          </div>
+        `).openPopup();
+      });
+    }, 100);
+  };
+
+  openThread(email){
+    this.setState({activeThread:email});
+    if(this.state.demoMode){ this.setState({threadMsgs:[{t:Date.now()-600000,from:'customer',text:'Hi, is my tyre in stock?'},{t:Date.now()-300000,from:'admin',text:'Yes — booked you in for the morning.'}]}); return; }
+    this.af('/admin/threads/'+encodeURIComponent(email)).then(r=>r.json()).then(d=>{ this.setState({threadMsgs:d.messages||[]}); this.loadAll(); }).catch(()=>{});
+  }
+  setReply = e => this.setState({replyInput:e.target.value});
+  sendReply = async () => {
+    const text=(this.state.replyInput||'').trim(); const email=this.state.activeThread; if(!text||!email) return;
+    this.setState(s=>({threadMsgs:[...s.threadMsgs,{t:Date.now(),from:'admin',text}], replyInput:''}));
+    if(!this.state.demoMode) if(window.googleAccessToken) {
+      try {
+        const b64 = btoa("Content-Type: text/plain; charset=\"UTF-8\"\r\nMIME-Version: 1.0\r\nTo: " + email + "\r\nSubject: Re: Cousins Mechanical Services\r\n\r\n" + text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" }, body: JSON.stringify({ raw: b64 }) });
+      } catch(e) { console.error("Gmail error", e); }
+    }
+    this.af("/admin/threads/"+encodeURIComponent(email),{method:"POST",body:JSON.stringify({text})}).then(r=>r.json()).then(d=>{ if(d.messages) this.setState({threadMsgs:d.messages}); }).catch(()=>{});
+  };
+  refresh = () => { if(this.state.demoMode){ this.setState(this.demoData()); } else this.loadAll(); };
+
+  go(tab){
+    this.setState({tab}, () => {
+      if(tab === 'tracking') this.initMap();
+    });
+  }
+
+  changeStatus(job, status){
+    const labels={confirmed:'Booking confirmed',enroute:'On the way',arrived:'Arrived',complete:'Job complete',cancelled:'Booking cancelled'};
+    const notes={
+      confirmed:'We have your job booked in.',
+      enroute:'Your mechanic is on the way — follow the van on the map.',
+      arrived:'Your mechanic has arrived and is with you.',
+      complete:'All done — thanks for choosing Cousins!',
+      cancelled:'This job has been cancelled.'
+    };
+    const sms='Cousins Mechanical: '+job.ref+' — '+labels[status]+'. '+notes[status];
+    this.setState(s=>({jobs:s.jobs.map(j=>j.ref===job.ref?{...j,status}:j)}));
+    if(!this.state.demoMode){ this.af('/admin/jobs/'+job.ref,{method:'PATCH',body:JSON.stringify({customerEmail:job.customerEmail,status,label:labels[status],note:notes[status],sms})}).catch(()=>{}); }
+  }
+
+  toggleGps(job){
+    if(this.state.gpsRef===job.ref){ // stop
+      if(this._watch!=null && navigator.geolocation) navigator.geolocation.clearWatch(this._watch);
+      this._watch=null; this.setState({gpsRef:''}); return;
+    }
+    if(!navigator.geolocation){ alert('This device has no GPS.'); return; }
+    if(this._watch!=null) navigator.geolocation.clearWatch(this._watch);
+    this.setState({gpsRef:job.ref});
+    this._watch = navigator.geolocation.watchPosition(pos=>{
+      const body={ ref:job.ref, lat:pos.coords.latitude, lng:pos.coords.longitude };
+      if(!this.state.demoMode) this.af('/driver/location',{method:'POST',body:JSON.stringify(body)}).catch(()=>{});
+    }, ()=>{}, { enableHighAccuracy:true, maximumAge:5000, timeout:15000 });
+  }
+
+  setPName=e=>this.setState({pName:e.target.value});
+  setPSku=e=>this.setState({pSku:e.target.value});
+  setPQty=e=>this.setState({pQty:e.target.value});
+  setPPrice=e=>this.setState({pPrice:e.target.value});
+  addStock = () => {
+    const {pName,pSku,pQty,pPrice}=this.state;
+    if(!pName.trim()) return;
+    const item={ name:pName.trim(), sku:pSku.trim(), qty:parseInt(pQty||'0',10)||0, price:parseFloat(pPrice||'0')||0 };
+    if(!this.state.demoMode){ this.af('/admin/stock',{method:'POST',body:JSON.stringify(item)}).then(r=>r.json()).then(d=>{ if(d.stock) this.setState({stock:d.stock}); }).catch(()=>{}); }
+    else { this.setState(s=>({stock:[...s.stock,{...item,id:'P'+Date.now().toString(36).slice(-4)}]})); }
+    this.setState({pName:'',pSku:'',pQty:'',pPrice:''});
+  };
+  delStock(id){
+    if(!this.state.demoMode){ this.af('/admin/stock/'+id,{method:'DELETE'}).then(r=>r.json()).then(d=>{ if(d.stock) this.setState({stock:d.stock}); }).catch(()=>{}); }
+    else { this.setState(s=>({stock:s.stock.filter(x=>x.id!==id)})); }
+  }
+
+  fmtWhen(o){ if(!o.date) return 'TBC'; try{ return new Date(o.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+' · '+(o.time||''); }catch(e){ return o.date; } }
+  fmtDate(t){ try{ return new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return ''; } }
+
+  renderVals(){
+    const s=this.state;
+    const statusMap={confirmed:['CONFIRMED','#e8791a'],enroute:['ON THE WAY','#0d5bd4'],arrived:['ARRIVED','#39a854'],complete:['COMPLETE','#6f6862'],cancelled:['CANCELLED','#a5401a']};
+    const badge=(st)=>{ const m=statusMap[st]||['—','#6f6862']; return 'font-family:\'Barlow Condensed\';font-weight:800;font-size:11.5px;letter-spacing:.05em;color:#fff;background:'+m[1]+';border-radius:6px;padding:4px 9px'; };
+
+    const activeJobs=s.jobs.filter(j=>j.status!=='cancelled'&&j.status!=='complete');
+    const jobRows=s.jobs.map(j=>({ ...j, when:this.fmtWhen(j), statusLabel:(statusMap[j.status]||['—'])[0], badgeStyle:badge(j.status),
+      onStatus:(e)=>this.changeStatus(j, e.target.value),
+      toggleGps:()=>this.toggleGps(j),
+      gpsLabel: s.gpsRef===j.ref?'● Sharing':'Share',
+      gpsStyle: 'border:1px solid '+(s.gpsRef===j.ref?'#39a854':'#3a322d')+';background:'+(s.gpsRef===j.ref?'rgba(57,168,84,.16)':'#14100e')+';color:'+(s.gpsRef===j.ref?'#4fe06a':'#9a918a')+';font-weight:700;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;white-space:nowrap' }));
+    const custRows=s.customers.map(c=>({ ...c, sms:c.smsUpdates?'On':'Off', marketing:c.marketing?'Yes':'No', joined:this.fmtDate(c.createdAt) }));
+    const userRows=s.users.map(u=>({ ...u, joined:this.fmtDate(u.createdAt || u.joined) }));
+    const driverRows=s.drivers.map(d=>({ ...d, needsApproval: !d.approved, approve: () => this.approveDriver(d.id), revoke: () => this.revokeDriver(d.id) }));
+    const poRows=s.supplierOrders.map(po=>({ ...po }));
+    const catResults=s.catResults.map(c=>({ ...c, orderNow: () => this.orderFromSupplier(c) }));
+    
+    const stockItems = s.stock.filter(item => {
+      const q = (s.invSearchQuery || '').toLowerCase();
+      const matchQ = !q || (item.name || '').toLowerCase().includes(q) || (item.sku || '').toLowerCase().includes(q) || (item.brand || '').toLowerCase().includes(q) || (item.size || '').toLowerCase().includes(q);
+      const cat = s.invFilterCategory || 'ALL';
+      const minT = item.minStock !== undefined ? item.minStock : (s.invSettings.defaultMinStock || 3);
+      if(cat === 'LOW_STOCK') return matchQ && item.qty <= minT;
+      if(cat !== 'ALL' && (item.category || '').toUpperCase() !== cat.toUpperCase()) return false;
+      return matchQ;
+    });
+
+    const stockRows = stockItems.map(p => {
+      const minT = p.minStock !== undefined ? p.minStock : (s.invSettings.defaultMinStock || 3);
+      const isLow = p.qty <= minT;
+      const isZero = p.qty === 0;
+      const statusBadge = isZero ? { text:'OUT OF STOCK', bg:'rgba(224,49,49,0.2)', border:'#e03131', color:'#f87171' }
+                        : (isLow ? { text:'LOW STOCK ALERT', bg:'rgba(232,121,26,0.2)', border:'#e8791a', color:'#f4a04a' }
+                        : { text:'HEALTHY', bg:'rgba(57,168,84,0.18)', border:'#39a854', color:'#4fe06a' });
+      return {
+        ...p,
+        brandLabel: p.brand || 'Standard',
+        sizeLabel: p.size || 'Fitment',
+        categoryLabel: p.category || 'Mid-Range',
+        statusBadge,
+        costLabel: '£' + (p.costPrice || 35).toFixed(2),
+        priceLabel: '£' + (p.price || 55).toFixed(2),
+        minThreshold: minT,
+        targetReorder: p.reorderQty || s.invSettings.defaultReorderQty || 10,
+        autoReorderLabel: p.autoReorder !== false ? 'ENABLED' : 'DISABLED',
+        autoReorderColor: p.autoReorder !== false ? '#4fe06a' : '#8a817b',
+        dec: () => this.quickAdjustStock(p, -1),
+        inc: () => this.quickAdjustStock(p, 1),
+        reorderNow: () => this.reorderNow(p),
+        del: () => this.delStock(p.id)
+      };
+    });
+
+    const defaultMin = s.invSettings.defaultMinStock !== undefined ? s.invSettings.defaultMinStock : 3;
+    const lowStockAlertsCount = s.stock.filter(item => item.qty <= (item.minStock !== undefined ? item.minStock : defaultMin)).length;
+    const invTotalSkus = s.stock.length;
+    const invReordersCount = (s.reorderLogs && s.reorderLogs.length) || (s.supplierOrders && s.supplierOrders.length) || 0;
+    const invTotalAssetValue = '£' + s.stock.reduce((sum, item) => sum + ((item.qty || 0) * (item.price || item.costPrice || 0)), 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const reorderLogRows = (s.reorderLogs || []).map(l => ({
+      ...l,
+      timeLabel: new Date(l.timestamp || Date.now()).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })
+    }));
+
+    const unreadTotal = s.threads.reduce((n,t)=>n+(t.unread||0),0);
+    const tabDef=[
+      ['jobs','Jobs & Dispatch',activeJobs.length],
+      ['messages','Messages',unreadTotal||''],
+      ['customers','Customers',s.customers.length],
+      ['users','Users',s.users.length],
+      ['drivers','Drivers',s.drivers.length],
+      ['tracking','Live Map','LIVE'],
+      ['stock','Parts & Ordering',s.stock.length],
+      ['calendar','Calendar','']
+    ];
+    const tabs=tabDef.map(t=>({ label:t[1], count:t[2], go:()=>this.go(t[0]),
+      style:'display:flex;align-items:center;gap:7px;border:0;cursor:pointer;background:transparent;color:'+(s.tab===t[0]?'#fff':'#8a817b')+';font-family:\'Barlow Condensed\';font-weight:700;font-size:16px;letter-spacing:.03em;padding:14px 16px;border-bottom:2px solid '+(s.tab===t[0]?'#e8791a':'transparent'),
+      pillStyle: t[2]===''?'display:none':'display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;border-radius:9px;font-size:11px;font-weight:800;background:'+(s.tab===t[0]?'#e8791a':'#2a2320')+';color:'+(s.tab===t[0]?'#14100e':'#9a918a') }));
+
+    const lowStock=s.stock.filter(p=>p.qty<=2).length;
+    const kpis=[
+      {value:activeJobs.length,label:'Active jobs',color:'#e8791a'},
+      {value:s.jobs.filter(j=>j.status==='enroute').length,label:'Vans on road',color:'#0d5bd4'},
+      {value:s.customers.length,label:'Customers',color:'#4fe06a'},
+      {value:lowStock,label:'Low-stock parts',color:lowStock?'#f0a884':'#6f6862'}
+    ];
+
+    return {
+      needsLogin:!s.loggedIn, loggedIn:s.loggedIn, demoMode:s.demoMode,
+      tokenInput:s.tokenInput, apiInput:s.apiInput, setToken:this.setToken, setApi:this.setApi, onKey:this.onKey,
+      googleSignIn:this.googleSignIn,
+      codeInput:s.codeInput, setCode:this.setCode, needCode:s.needCode,
+      overrideOpen:s.overrideOpen, reset2fa:s.reset2fa, toggleOverride:this.toggleOverride, toggleReset2fa:this.toggleReset2fa,
+      start2fa:this.start2fa, twofaOpen:s.twofaOpen, close2fa:this.close2fa, stop:this.stop,
+      twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
+      login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
+      tabs, kpis,
+      onJobs:s.tab==='jobs', onCustomers:s.tab==='customers', onUsers:s.tab==='users', onDrivers:s.tab==='drivers',
+      onTracking:s.tab==='tracking', initMap:this.initMap,
+      onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',
+      threadRows: s.threads.map(t=>({ email:t.email, name:t.name||t.email, phone:t.phone||'', last:t.last||'', unread:t.unread||0,
+        open:()=>this.openThread(t.email),
+        rowStyle:'display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #201b18;cursor:pointer;background:'+(s.activeThread===t.email?'#241d19':'transparent'),
+        dotStyle:'width:9px;height:9px;border-radius:50%;flex:none;background:'+((t.unread||0)>0?'#e8791a':'transparent') })),
+      noThreads: s.threads.length===0, hasActiveThread:!!s.activeThread, noActiveThread:!s.activeThread,
+      threadMsgs: s.threadMsgs.map(m=>{ const admin=m.from==='admin'; return { text:m.text, who:admin?'You':'Customer', time:new Date(m.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
+        rowStyle:'display:flex;flex-direction:column;'+(admin?'align-items:flex-end':'align-items:flex-start'),
+        bubbleStyle:'max-width:78%;padding:9px 12px;border-radius:12px;font-size:13.5px;line-height:1.4;'+(admin?'background:#e8791a;color:#14100e':'background:#2a2320;color:#e9e4df') }; }),
+      replyInput:s.replyInput, setReply:this.setReply, sendReply:this.sendReply,
+      replyKey:(e)=>{ if(e.key==='Enter') this.sendReply(); },
+      openCalendar:()=>window.open(s.calendarUrl||'https://calendar.google.com','_blank'),
+      jobRows, noJobs:s.jobs.length===0,
+      custRows, noCust:s.customers.length===0,
+      userRows, noUsers:s.users.length===0,
+      driverRows, noDrivers:s.drivers.length===0,
+      drvName:s.drvName, drvReg:s.drvReg, drvPhone:s.drvPhone,
+      setDrvName:this.setDrvName, setDrvReg:this.setDrvReg, setDrvPhone:this.setDrvPhone, addDriver:this.addDriver,
+      poRows, noPOs:s.supplierOrders.length===0,
+      catQuery:s.catQuery, setCatQuery:this.setCatQuery, catKey:this.catKey, searchCat:this.searchCat,
+      catResults, hasCatResults:s.catResults.length>0,
+      stockRows, noStock:stockRows.length===0,
+      pName:s.pName, pSku:s.pSku, pBrand:s.pBrand, pSize:s.pSize, pCategory:s.pCategory, pQty:s.pQty, pMinStock:s.pMinStock, pReorderQty:s.pReorderQty, pCostPrice:s.pCostPrice, pPrice:s.pPrice, pSupplierEmail:s.pSupplierEmail, pSupplierApiUrl:s.pSupplierApiUrl,
+      setPName:this.setPName, setPSku:this.setPSku, setPBrand:this.setPBrand, setPSize:this.setPSize, setPCategory:this.setPCategory, setPQty:this.setPQty, setPMinStock:this.setPMinStock, setPReorderQty:this.setPReorderQty, setPCostPrice:this.setPCostPrice, setPPrice:this.setPPrice, setPSupplierEmail:this.setPSupplierEmail, setPSupplierApiUrl:this.setPSupplierApiUrl,
+      addStock:this.addStock, addTyreStockItem:this.addTyreStockItem,
+      invTotalSkus, lowStockAlertsCount, invReordersCount, invTotalAssetValue,
+      invSettings:s.invSettings, setInvSettingField:this.setInvSettingField, saveInvSettings:this.saveInvSettings, scanAndTriggerReorders:this.scanAndTriggerReorders,
+      invFilterCategory:s.invFilterCategory, setInvFilterCategory:this.setInvFilterCategory,
+      invSearchQuery:s.invSearchQuery, setInvSearchQuery:this.setInvSearchQuery,
+      invMsg:s.invMsg, hasInvMsg:!!s.invMsg,
+      reorderLogRows, noReorderLogs:(s.reorderLogs||[]).length===0,
+      hasCalendar:!!s.calendarUrl, noCalendar:!s.calendarUrl, calendarUrl:s.calendarUrl
+    };
+  }
+}
+</script>
+</body>
+</html>
