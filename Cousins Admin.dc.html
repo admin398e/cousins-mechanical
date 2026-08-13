@@ -546,7 +546,7 @@
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:860}}">
 class Component extends DCLogic {
   state = {
-    token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false,
+    token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
     codeInput:'', needCode:false, enrolled:false,
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
@@ -613,7 +613,7 @@ class Component extends DCLogic {
     try{ localStorage.setItem('cms_admin_api',a); }catch(e){}
     this.setState({busy:true, loginErr:''});
     // Demo mode when no live worker is reachable
-    if(!(a || this.sameOrigin())){ this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()}); return; }
+    if(!(a || this.sameOrigin())){ this.setState({busy:false, loginErr:'No API URL set. Enter your Worker URL, or open the admin panel on your live domain.'}); return; }
     try{
       const r=await this.raw('/admin-login',{method:'POST',body:JSON.stringify({token:tok, code:this.state.codeInput, reset2fa:this.state.reset2fa})});
       const d=await r.json().catch(()=>({}));
@@ -623,7 +623,7 @@ class Component extends DCLogic {
       try{ localStorage.setItem('cms_admin_sess', d.token); }catch(e){}
       this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', loggedIn:true, demoMode:false, busy:false });
       this.loadAll();
-    }catch(e){ this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()}); }
+    }catch(e){ this.setState({busy:false, loginErr:'Could not reach the server. Check your connection and try again.'}); }
   };
   logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
@@ -664,56 +664,29 @@ class Component extends DCLogic {
         if(r.ok){ this.setState({loggedIn:true, demoMode:false, busy:false}); this.loadAll(); return; }
       }catch(e){}
     }
-    this.setState({loggedIn:true, demoMode:true, busy:false, ...this.demoData()});
+    this.setState({loggedIn:true, demoMode:false, busy:false, loadErr:'Could not load live data from the server.', ...this.emptyState()});
   }
-  demoData(){
-    const now=Date.now();
+  /*
+   * No demo data. This panel shows only what the API returns.
+   *
+   * There used to be a full set of fake jobs, customers, drivers and stock here,
+   * and any API failure silently fell back to it — so a broken login looked like
+   * a working dashboard full of invented bookings. Now a failure shows an error
+   * and empty tables, which is the truth.
+   */
+  emptyState(){
     return {
-      jobs:[
-        {ref:'CMS-8K2P1',svcLabel:'Mobile tyre fitting — mid (205/55 R16)',reg:'AB12 CDE',name:'John Smith',phone:'07900 111222',customerEmail:'john@example.com',date:'2026-08-07',time:'Morning (8–12)',postcode:'DT6 3QA',status:'enroute',createdAt:now-3600000},
-        {ref:'CMS-7H9X4',svcLabel:'Breakdown / recovery',reg:'LT19 KRM',name:'Sarah Adams',phone:'07123 445566',customerEmail:'sarah@example.com',date:'2026-08-07',time:'ASAP / Emergency',postcode:'DT6 4LK',status:'confirmed',createdAt:now-1800000},
-        {ref:'CMS-5R3M8',svcLabel:'Full service',reg:'WV68 PLT',name:'Dave Cooper',phone:'07777 889900',customerEmail:'dave@example.com',date:'2026-08-09',time:'Afternoon (12–5)',postcode:'DT6 5AB',status:'confirmed',createdAt:now-7200000},
-        {ref:'CMS-2N7B0',svcLabel:'Brake pads & discs',reg:'BD64 XYZ',name:'Emma Hill',phone:'07555 223344',customerEmail:'emma@example.com',date:'2026-08-05',time:'Morning (8–12)',postcode:'DT6 3PN',status:'complete',createdAt:now-90000000}
-      ],
-      customers:[
-        {name:'John Smith',email:'john@example.com',phone:'07900 111222',marketing:true,smsUpdates:true,createdAt:now-90000000,jobCount:3},
-        {name:'Sarah Adams',email:'sarah@example.com',phone:'07123 445566',marketing:false,smsUpdates:true,createdAt:now-40000000,jobCount:1},
-        {name:'Dave Cooper',email:'dave@example.com',phone:'07777 889900',marketing:true,smsUpdates:false,createdAt:now-8000000,jobCount:2},
-        {name:'Emma Hill',email:'emma@example.com',phone:'07555 223344',marketing:false,smsUpdates:true,createdAt:now-4000000,jobCount:1}
-      ],
-      users:[
-        {name:'John Smith',email:'john@example.com',phone:'07900 111222',authType:'Google OAuth',joined:now-90000000},
-        {name:'Sarah Adams',email:'sarah@example.com',phone:'07123 445566',authType:'Email & Password',joined:now-40000000},
-        {name:'Dave Cooper',email:'dave@example.com',phone:'07777 889900',authType:'Google OAuth',joined:now-8000000}
-      ],
-      drivers:[
-        {id:'DRV-1',name:'Mark Cousin',vanReg:'WV68 PLT',phone:'07900 123456',status:'Active / On Road',assignedJob:'CMS-8K2P1'},
-        {id:'DRV-2',name:'James Cousin',vanReg:'LT19 KRM',phone:'07888 654321',status:'Active',assignedJob:'CMS-7H9X4'}
-      ],
-      supplierOrders:[
-        {poRef:'PO-AUTO-9821A',jobRef:'CMS-8K2P1',customerName:'John Smith',tyreDetails:'Budget Tyre 205/55 R16 (TY-20555-16-B)',qty:10,wholesaleCost:32,retailPrice:48,supplier:'Aplus Wholesale',status:'Auto-Reordered (Email/API Sent)',orderedAt:now-1800000,estDelivery:'Tomorrow 8:00 AM'},
-        {poRef:'PO-AUTO-7731B',jobRef:'INVENTORY-REORDER',customerName:'Central Inventory Stocking',tyreDetails:'Michelin Primacy 4 225/45 R17 (TY-22545-17-M)',qty:8,wholesaleCost:68,retailPrice:118,supplier:'Michelin Wholesale',status:'Auto-Reordered (Email/API Sent)',orderedAt:now-3600000,estDelivery:'Tomorrow 8:00 AM'}
-      ],
-      reorderLogs:[
-        {id:'LOG-891A',poRef:'PO-AUTO-9821A',sku:'TY-20555-16-B',itemName:'Budget Tyre 205/55 R16',triggerSource:'Customer Booking (CMS-8K2P1)',currentQty:2,minStockThreshold:4,reorderQty:10,supplierEmail:'orders@ctyreswholesale.co.uk',emailStatus:'Sent (Resend API)',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',apiStatus:'Dispatched (200 OK)',timestamp:now-1800000,status:'Active Purchase Order'},
-        {id:'LOG-773B',poRef:'PO-AUTO-7731B',sku:'TY-22545-17-M',itemName:'Michelin Primacy 4 225/45 R17',triggerSource:'Automated Stock Level Scan',currentQty:3,minStockThreshold:5,reorderQty:8,supplierEmail:'orders@ctyreswholesale.co.uk',emailStatus:'Sent (Resend API)',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',apiStatus:'Dispatched (200 OK)',timestamp:now-3600000,status:'Active Purchase Order'}
-      ],
+      jobs:[], customers:[], users:[], drivers:[],
+      supplierOrders:[], reorderLogs:[], stock:[],
       invSettings:{
         masterAutoReorder: true,
         defaultMinStock: 3,
         defaultReorderQty: 10,
-        supplierEmail: 'orders@ctyreswholesale.co.uk',
-        supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders',
-        notifyEmail: 'inventory@cousinsmechanical.co.uk',
+        supplierEmail: '',
+        supplierApiUrl: '',
+        notifyEmail: '',
         reorderCooldownHours: 12
       },
-      stock:[
-        {id:'P1',name:'Budget Tyre 205/55 R16',sku:'TY-20555-16-B',brand:'Aplus',size:'205/55R16',category:'Budget',qty:2,minStock:4,reorderQty:10,costPrice:32,price:48,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:now-1800000,status:'Low Stock - Reordered'},
-        {id:'P2',name:'Michelin Primacy 4 225/45 R17',sku:'TY-22545-17-M',brand:'Michelin',size:'225/45R17',category:'Premium',qty:3,minStock:5,reorderQty:8,costPrice:68,price:118,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:now-3600000,status:'Low Stock - Reordered'},
-        {id:'P3',name:'Falken Ziex ZE310 195/65 R15',sku:'TY-19565-15-F',brand:'Falken',size:'195/65R15',category:'Mid-Range',qty:1,minStock:4,reorderQty:10,costPrice:42,price:62,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:null,status:'Below Threshold'},
-        {id:'P4',name:'Continental PremiumContact 6 225/40 R18',sku:'TY-22240-18-C',brand:'Continental',size:'225/40R18',category:'Premium',qty:8,minStock:3,reorderQty:6,costPrice:75,price:125,supplierEmail:'orders@ctyreswholesale.co.uk',supplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders',autoReorder:true,lastReorderedAt:null,status:'Healthy'},
-        {id:'P5',name:'Front Brake Pad Kit (VAG / Ford)',sku:'BR-PAD-F',brand:'Brembo',size:'Multi-Fit',category:'Mid-Range',qty:12,minStock:5,reorderQty:10,costPrice:22,price:38,supplierEmail:'parts@autodistribution.co.uk',supplierApiUrl:'',autoReorder:true,lastReorderedAt:null,status:'Healthy'}
-      ],
       calendarUrl:''
     };
   }
@@ -936,53 +909,57 @@ class Component extends DCLogic {
         attribution: '&copy; OpenStreetMap'
       }).addTo(map);
 
-      // Customer Job locations (Bridport, Lyme Regis, Dorchester, Weymouth)
-      const points = [
-        { lat: 50.733, lng: -2.758, name: 'Bridport Center', reg: 'AB12 CDE', status: 'En-route', customer: 'John Smith' },
-        { lat: 50.725, lng: -2.933, name: 'Lyme Regis Promenade', reg: 'LT19 KRM', status: 'Confirmed', customer: 'Sarah Adams' },
-        { lat: 50.715, lng: -2.438, name: 'Dorchester High Street', reg: 'WV68 PLT', status: 'Confirmed', customer: 'Dave Cooper' }
-      ];
+      /*
+       * Real driver GPS only. `this.state.locations` comes from /admin/locations,
+       * which the driver app populates by posting its position. Previously this
+       * block plotted five hardcoded fake vans and customers, so the map looked
+       * busy whether or not anyone was actually on the road.
+       */
+      const live = (this.state.locations || []).filter(l => typeof l.lat === 'number' && typeof l.lng === 'number');
+      const jobsByRef = {};
+      for (const j of (this.state.jobs || [])) jobsByRef[j.ref] = j;
 
-      points.forEach(p => {
-        L.marker([p.lat, p.lng]).addTo(map).bindPopup(`
+      if (live.length === 0) {
+        const note = L.control({ position: 'topright' });
+        note.onAdd = function () {
+          const div = L.DomUtil.create('div');
+          div.style.cssText = 'background:#14100e;color:#e9e4df;border:1px solid #3a322d;border-radius:8px;padding:10px 12px;font:600 13px sans-serif;max-width:240px';
+          div.innerHTML = 'No vans reporting GPS right now.<br/><span style="color:#9a918a;font-weight:400">Positions appear here once a driver goes on the way from the driver app.</span>';
+          return div;
+        };
+        note.addTo(map);
+      }
+
+      const bounds = [];
+      live.forEach(l => {
+        const job = jobsByRef[l.jobRef] || {};
+        const ageMin = Math.round((Date.now() - (l.t || Date.now())) / 60000);
+        bounds.push([l.lat, l.lng]);
+
+        L.circleMarker([l.lat, l.lng], {
+          radius: 10, fillColor: '#e8791a', color: '#ffffff',
+          weight: 3, opacity: 1, fillOpacity: 0.9,
+        }).addTo(map).bindPopup(`
           <div style="font-family:sans-serif;color:#14100e">
-            <strong style="color:#e8791a;font-size:14px">${p.customer}</strong><br/>
-            Location: ${p.name}<br/>
-            Reg: <strong>${p.reg}</strong> (${p.status})
+            <strong style="color:#0d5bd4;font-size:14px">Van en route</strong><br/>
+            Job: <strong>${l.jobRef || '—'}</strong><br/>
+            ${job.name ? 'Customer: ' + job.name + '<br/>' : ''}
+            ${job.reg ? 'Vehicle: <strong>' + job.reg + '</strong><br/>' : ''}
+            ${l.eta ? 'ETA: ' + l.eta + '<br/>' : ''}
+            <span style="color:#6f6862">Updated ${ageMin < 1 ? 'just now' : ageMin + ' min ago'}</span>
           </div>
         `);
       });
 
-      // Mobile Van Drivers
-      const driverPoints = [
-        { lat: 50.730, lng: -2.740, name: 'Van 1 (Mark Cousin)', vanReg: 'WV68 PLT', job: 'John Smith (Bridport)' },
-        { lat: 50.728, lng: -2.850, name: 'Van 2 (James Cousin)', vanReg: 'LT19 KRM', job: 'Sarah Adams (Lyme Regis)' }
-      ];
+      if (bounds.length === 1) map.setView(bounds[0], 13);
+      else if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] });
 
-      driverPoints.forEach(d => {
-        const vanMarker = L.circleMarker([d.lat, d.lng], {
-          radius: 10,
-          fillColor: '#e8791a',
-          color: '#ffffff',
-          weight: 3,
-          opacity: 1,
-          fillOpacity: 0.9
-        }).addTo(map);
-
-        vanMarker.bindPopup(`
-          <div style="font-family:sans-serif;color:#14100e">
-            <strong style="color:#0d5bd4;font-size:14px">🚑 ${d.name}</strong><br/>
-            Van Reg: <strong>${d.vanReg}</strong><br/>
-            Current Route: ${d.job}
-          </div>
-        `).openPopup();
-      });
     }, 100);
   };
 
   openThread(email){
     this.setState({activeThread:email});
-    if(this.state.demoMode){ this.setState({threadMsgs:[{t:Date.now()-600000,from:'customer',text:'Hi, is my tyre in stock?'},{t:Date.now()-300000,from:'admin',text:'Yes — booked you in for the morning.'}]}); return; }
+    
     this.af('/admin/threads/'+encodeURIComponent(email)).then(r=>r.json()).then(d=>{ this.setState({threadMsgs:d.messages||[]}); this.loadAll(); }).catch(()=>{});
   }
   setReply = e => this.setState({replyInput:e.target.value});
@@ -997,7 +974,7 @@ class Component extends DCLogic {
     }
     this.af("/admin/threads/"+encodeURIComponent(email),{method:"POST",body:JSON.stringify({text})}).then(r=>r.json()).then(d=>{ if(d.messages) this.setState({threadMsgs:d.messages}); }).catch(()=>{});
   };
-  refresh = () => { if(this.state.demoMode){ this.setState(this.demoData()); } else this.loadAll(); };
+  refresh = () => this.loadAll();
 
   go(tab){
     this.setState({tab}, () => {

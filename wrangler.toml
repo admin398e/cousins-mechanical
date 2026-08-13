@@ -10,9 +10,8 @@ compatibility_date = "2024-11-01"
 # Node built-ins the Worker may reach for. Safe to keep on.
 compatibility_flags = ["nodejs_compat"]
 
-# Fail the deploy rather than shipping a Worker that silently exceeds limits.
-[limits]
-cpu_ms = 50
+# NOTE: do not add a [limits] cpu_ms block — CPU limits are a paid-plan feature
+# and the deploy fails with error 100328 on the free plan.
 
 # ---------------------------------------------------------------------------
 # Static site

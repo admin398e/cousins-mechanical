@@ -418,11 +418,23 @@ async function addCalendarEvent(env, o, customerEmail) {
 
 // ---------- Email (Resend — free tier, works from Workers) ----------
 // Set RESEND_API_KEY (from resend.com) + MAIL_FROM (a verified sender on your domain).
+/**
+ * Send an email through Resend.
+ *
+ * `reply_to` is set to the same help@ address so a customer hitting Reply lands
+ * in the business inbox rather than a no-reply void — that only works if the
+ * address is set up to receive (Resend forwards inbound to your real mailbox).
+ * Failures are logged with Resend's own error body; a silent false here is what
+ * makes "why did the confirmation never arrive" impossible to debug.
+ */
 async function sendEmail(env, to, subject, text, ics) {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM || !to) return { skipped: true };
   const body = {
-    from: "Cousins Mechanical <" + env.MAIL_FROM + ">",
-    to: [to], subject, text,
+    from: "Cousins Mechanical Services <" + env.MAIL_FROM + ">",
+    to: [to],
+    reply_to: env.MAIL_REPLY_TO || env.MAIL_FROM,
+    subject,
+    text,
   };
   if (ics) body.attachments = [{ filename: "booking.ics", content: btoa(ics) }];
   const r = await fetch("https://api.resend.com/emails", {
@@ -430,7 +442,13 @@ async function sendEmail(env, to, subject, text, ics) {
     headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
     body: JSON.stringify(body),
   }).catch(() => null);
-  return { ok: r && r.ok };
+  if (!r) return { ok: false, reason: "network error" };
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    console.error("[email] Resend rejected the send", r.status, detail.slice(0, 400));
+    return { ok: false, status: r.status, detail };
+  }
+  return { ok: true };
 }
 
 // Fire all booking automations (best-effort, never blocks the response)
@@ -444,8 +462,39 @@ async function runAutomations(env, u, o) {
     `Booking confirmed — ${o.ref}`,
     `Hi ${u.name},\n\nYour ${o.svcLabel || "mobile job"} is booked for ${when}.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\nCousins Mechanical`,
     buildICS(o, env.MAIL_FROM)));
+
+  // Tell the business about the new job — this is what the owner actually needs
+  // on day one. WhatsApp/SMS to OWNER_PHONE and a copy to the help@ inbox.
+  jobs.push(notifyOwner(env, u, o, when));
+
   await Promise.allSettled(jobs);
   await audit(env, u.email, "booking_automations", o.ref);
+}
+
+/**
+ * Alert the business owner that a booking has come in.
+ *
+ * Deliberately separate from the customer's confirmation: the owner wants the
+ * customer's phone number and postcode, which we would never put in a message
+ * to the customer themselves.
+ */
+async function notifyOwner(env, u, o, when) {
+  const summary =
+    `NEW BOOKING ${o.ref}\n` +
+    `${o.svcLabel || "Mobile job"}\n` +
+    `When: ${when}\n` +
+    `Customer: ${u.name || "-"} (${u.phone || "no phone"})\n` +
+    `Vehicle: ${o.reg || "-"}\n` +
+    `Where: ${o.postcode || "-"}\n` +
+    (o.notes ? `Notes: ${o.notes}\n` : "");
+
+  const out = [];
+  if (env.OWNER_PHONE) out.push(sendSMS(env, env.OWNER_PHONE, summary));
+  if (env.OWNER_EMAIL || env.MAIL_FROM) {
+    out.push(sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM, `New booking ${o.ref} — ${when}`, summary));
+  }
+  const settled = await Promise.allSettled(out);
+  return { notified: settled.length };
 }
 
 // ---------- API ----------
@@ -1567,6 +1616,37 @@ async function processTyreStockForOrder(env, order) {
     // Fire a WhatsApp reminder on demand, so the template can be tested without
     // waiting for 5pm. POST {phone} sends a sample to that number; POST {} runs
     // the real sweep for tomorrow's jobs regardless of the hour.
+    /*
+     * End-to-end channel test. POST {} and it exercises whatever is configured —
+     * email to the owner, WhatsApp/SMS to OWNER_PHONE, and a calendar event —
+     * reporting exactly what worked and what did not. Use this to prove the
+     * client's three channels are live without taking a real booking.
+     */
+    if (p === "/admin/test-channels" && request.method === "POST") {
+      const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+      const results = {};
+
+      results.email = env.RESEND_API_KEY && env.MAIL_FROM
+        ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
+            "Cousins Mechanical — test email",
+            `This is a test from your booking system, sent ${stamp}.\n\nIf you can read this, Resend is working and confirmations will reach customers.\nReply to this message to check the inbound forwarding on ${env.MAIL_FROM} as well.`)
+        : { skipped: true, reason: "RESEND_API_KEY or MAIL_FROM not set" };
+
+      results.phone = env.OWNER_PHONE
+        ? await sendSMS(env, env.OWNER_PHONE, `Cousins Mechanical: test message sent ${stamp}. Your booking alerts are working.`)
+        : { skipped: true, reason: "OWNER_PHONE not set" };
+
+      results.calendar = await addCalendarEvent(env, {
+        ref: "CMS-TEST", svcLabel: "System test — safe to delete",
+        date: londonDate(0), postcode: "Bridport", notes: "Automated channel test.",
+      }, env.OWNER_EMAIL || env.MAIL_FROM || "");
+
+      results.channelInUse = (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID)
+        ? "WhatsApp" : (env.TWILIO_SID ? "Twilio SMS" : "none configured");
+
+      return json({ sentAt: stamp, results });
+    }
+
     if (p === "/admin/test-reminder" && request.method === "POST") {
       const b = await request.json().catch(() => ({}));
       const template = env.WHATSAPP_REMINDER_TEMPLATE || "appointment_reminder";
