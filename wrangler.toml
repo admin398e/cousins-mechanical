@@ -10,10 +10,6 @@ compatibility_date = "2024-11-01"
 # Node built-ins the Worker may reach for. Safe to keep on.
 compatibility_flags = ["nodejs_compat"]
 
-# Fail the deploy rather than shipping a Worker that silently exceeds limits.
-[limits]
-cpu_ms = 50
-
 # ---------------------------------------------------------------------------
 # Static site
 #
