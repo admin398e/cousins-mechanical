@@ -10,6 +10,10 @@ compatibility_date = "2024-11-01"
 # Node built-ins the Worker may reach for. Safe to keep on.
 compatibility_flags = ["nodejs_compat"]
 
+# Fail the deploy rather than shipping a Worker that silently exceeds limits.
+[limits]
+cpu_ms = 50
+
 # ---------------------------------------------------------------------------
 # Static site
 #
@@ -45,9 +49,10 @@ custom_domain = true
 binding = "CMS_KV"
 id = "cdd61c6aa2564cfea5af8afc48f7e947"
 
-# GDPR storage limitation — purges finished jobs daily at 03:00 UTC.
+# Runs hourly: WhatsApp appointment reminders (5pm London, day before) and the
+# GDPR retention purge (03:00 London). Both decide internally whether to act.
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["0 * * * *"]
 
 # ---------------------------------------------------------------------------
 # SECRETS — set each with `npx wrangler secret put NAME`. Never commit values.

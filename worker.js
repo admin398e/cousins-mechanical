@@ -278,6 +278,52 @@ async function sendWhatsApp(env, to, body) {
   }).catch(() => null);
   return { ok: r && r.ok };
 }
+
+/**
+ * Send an approved WhatsApp *template* message.
+ *
+ * WhatsApp only allows free-form text inside the 24-hour window that opens when
+ * the customer last messaged you. A reminder the day before a job is outside
+ * that window, so it MUST be a template Meta has approved — a plain text send
+ * is silently rejected with a 131047 error. That is why reminders use this and
+ * not sendWhatsApp().
+ *
+ * The template's body must contain the same number of {{n}} placeholders as
+ * `params`, in the same order.
+ */
+async function sendWhatsAppTemplate(env, to, templateName, params, lang = "en_GB") {
+  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_ID || !to) return { skipped: true, reason: "WhatsApp not configured" };
+  if (!templateName) return { skipped: true, reason: "No template name set" };
+
+  const payload = {
+    messaging_product: "whatsapp",
+    to: toE164(to),
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: lang },
+      components: [{
+        type: "body",
+        parameters: params.map(t => ({ type: "text", text: String(t ?? "") })),
+      }],
+    },
+  };
+
+  const r = await fetch(`https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_ID}/messages`, {
+    method: "POST",
+    headers: { authorization: "Bearer " + env.WHATSAPP_TOKEN, "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => null);
+
+  if (!r) return { ok: false, reason: "network error" };
+  if (!r.ok) {
+    // Log the real Meta error — template problems are otherwise invisible.
+    const detail = await r.text().catch(() => "");
+    console.error("[whatsapp] template send failed", r.status, detail.slice(0, 400));
+    return { ok: false, status: r.status, detail };
+  }
+  return { ok: true };
+}
 async function sendSMS(env, to, body) {
   // WhatsApp first (cheaper); Twilio only if WhatsApp isn't configured but Twilio is.
   if (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID) return sendWhatsApp(env, to, body);
@@ -1518,6 +1564,29 @@ async function processTyreStockForOrder(env, order) {
     }
 
     // --- ALL LIVE LOCATIONS FOR ADMIN MAP ---
+    // Fire a WhatsApp reminder on demand, so the template can be tested without
+    // waiting for 5pm. POST {phone} sends a sample to that number; POST {} runs
+    // the real sweep for tomorrow's jobs regardless of the hour.
+    if (p === "/admin/test-reminder" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const template = env.WHATSAPP_REMINDER_TEMPLATE || "appointment_reminder";
+      if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_ID) {
+        return bad("WhatsApp is not configured — set WHATSAPP_TOKEN and WHATSAPP_PHONE_ID", 503);
+      }
+      if (b.phone) {
+        const res = await sendWhatsAppTemplate(env, b.phone, template, [
+          b.name || "there",
+          b.svcLabel || "Mobile tyre fitting",
+          b.date || londonDate(1),
+          b.time || "9am - 12pm",
+          b.ref || "CMS-TEST",
+        ]);
+        return json({ template, sent: !!res.ok, detail: res.detail || res.reason || null });
+      }
+      const summary = await reminderSweepNow(env);
+      return json({ template, ...summary });
+    }
+
     if (p === "/admin/locations" && request.method === "GET") {
       const locKeys = await env.CMS_KV.list({ prefix: "loc:" });
       const locations = [];
@@ -1563,6 +1632,93 @@ async function processTyreStockForOrder(env, order) {
   return bad("Not found", 404);
 }
 
+// ---------------------------------------------------------------------------
+// Appointment reminders
+// ---------------------------------------------------------------------------
+
+/** Current hour (0-23) in Europe/London, handling BST automatically. */
+function londonHour() {
+  return Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London", hour: "numeric", hour12: false,
+  }).format(new Date()));
+}
+
+/** Today's date in Europe/London as YYYY-MM-DD, offset by `addDays`. */
+function londonDate(addDays = 0) {
+  const d = new Date(Date.now() + addDays * 86400000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+  return parts; // en-CA formats as YYYY-MM-DD
+}
+
+/**
+ * Send a WhatsApp reminder for every confirmed job happening tomorrow.
+ *
+ * Runs hourly but only acts at REMINDER_HOUR London time, so customers are not
+ * messaged at 3am. Each booking is marked `reminderSent` so a job can never be
+ * reminded twice, even if the cron runs late or twice.
+ */
+const REMINDER_HOUR = 17; // 5pm the day before
+
+async function reminderSweep(env) {
+  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_ID) return { skipped: "WhatsApp not configured" };
+  if (londonHour() !== REMINDER_HOUR) return { skipped: "not the reminder hour" };
+  return reminderSweepNow(env);
+}
+
+/** The sweep itself, with no time-of-day guard — used by the admin test endpoint. */
+async function reminderSweepNow(env) {
+  const template = env.WHATSAPP_REMINDER_TEMPLATE || "appointment_reminder";
+  const tomorrow = londonDate(1);
+  let sent = 0, failed = 0;
+
+  const list = await env.CMS_KV.list({ prefix: "bookings:" });
+  for (const k of list.keys) {
+    const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
+    let changed = false;
+
+    for (const o of arr) {
+      if (o.reminderSent) continue;
+      if (o.date !== tomorrow) continue;
+      if (o.status === "cancelled" || o.status === "complete") continue;
+
+      // The customer's number: on the booking, else on their account record.
+      let phone = o.phone;
+      if (!phone) {
+        const email = k.name.slice("bookings:".length);
+        const u = JSON.parse((await env.CMS_KV.get("user:" + email)) || "null");
+        phone = u?.phone;
+        // Respect the same opt-out that governs every other message we send.
+        if (u && u.smsUpdates === false) continue;
+      }
+      if (!phone) continue;
+
+      const res = await sendWhatsAppTemplate(env, phone, template, [
+        o.name || "there",
+        o.svcLabel || "your booking",
+        o.date,
+        o.time || "during the day",
+        o.ref,
+      ]);
+
+      if (res.ok) {
+        o.reminderSent = Date.now();
+        o.updates = [...(o.updates || []), { t: Date.now(), s: "Reminder sent", d: "We sent you a WhatsApp reminder about tomorrow's job." }];
+        changed = true;
+        sent++;
+      } else {
+        failed++;
+      }
+    }
+
+    if (changed) await env.CMS_KV.put(k.name, JSON.stringify(arr));
+  }
+
+  if (sent || failed) console.log(`[reminders] sent ${sent}, failed ${failed}, for ${tomorrow}`);
+  return { sent, failed, date: tomorrow };
+}
+
 // GDPR storage limitation: scheduled purge of finished jobs older than RETENTION_DAYS
 async function retentionSweep(env) {
   const cutoff = Date.now() - RETENTION_DAYS * 86400000;
@@ -1603,6 +1759,11 @@ export default {
     return new Response("API worker running. Bind ASSETS to serve the site, or call /api/*.", { status: 200 });
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(retentionSweep(env));
+    // The cron fires hourly. Reminders decide for themselves whether it is the
+    // right hour; the GDPR purge only needs to run once a day.
+    ctx.waitUntil(reminderSweep(env).catch(e => console.error("[reminders]", e)));
+    if (londonHour() === 3) {
+      ctx.waitUntil(retentionSweep(env).catch(e => console.error("[retention]", e)));
+    }
   },
 };

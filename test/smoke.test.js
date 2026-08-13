@@ -392,6 +392,21 @@ try {
     assert.ok(typeof d.summary.totalSkus === 'number');
   });
 
+  // --- WhatsApp reminders --------------------------------------------------
+  await check('reminder endpoint reports WhatsApp is not configured', async () => {
+    const { token } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
+    const r = await postJson('/api/admin/test-reminder', {}, { authorization: 'Bearer ' + token });
+    // No WHATSAPP_TOKEN in the test env, so it must say so rather than fail silently.
+    assert.equal(r.status, 503);
+    const d = await r.json();
+    assert.match(d.error, /WhatsApp is not configured/);
+  });
+
+  await check('reminder endpoint requires admin auth', async () => {
+    const r = await postJson('/api/admin/test-reminder', {});
+    assert.equal(r.status, 403);
+  });
+
   // --- rate limiting --------------------------------------------------------
   await check('repeated bad admin logins get rate limited', async () => {
     let sawLimit = false;
