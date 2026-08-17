@@ -39,7 +39,7 @@
               <span style="display:inline-flex;background:#fff;border-radius:10px;padding:6px 10px"><img src="images/logo.png" alt="Cousins" style="height:38px;width:auto;display:block" onerror="this.onerror=null;this.src='https://via.placeholder.com/120x40?text=COUSINS'"/></span>
             </div>
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin:14px 0 4px">ADMIN & STAFF PORTAL</div>
-            <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">Authorized staff access. Sign in with Google or Admin Token.</div>
+            <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">{{ loginSubtitle }}</div>
             
             <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
               <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
@@ -48,11 +48,21 @@
 
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#6f6862;font-size:12px;font-weight:600">
               <div style="flex:1;height:1px;background:#2a2320"></div>
-              <span>OR ENTER TOKEN</span>
+              <span>{{ loginDividerLabel }}</span>
               <div style="flex:1;height:1px;background:#2a2320"></div>
             </div>
 
-            <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            <!-- Normal staff sign-in: email + password -->
+            <sc-if value="{{ staffMode }}" hint-placeholder-val="{{ true }}">
+              <input value="{{ emailInput }}" onInput="{{ setEmail }}" onKeyDown="{{ onKey }}" type="email" autocomplete="username" placeholder="Your work email" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+              <input value="{{ passwordInput }}" onInput="{{ setPassword }}" onKeyDown="{{ onKey }}" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            </sc-if>
+
+            <!-- First run only: the ADMIN_TOKEN, until the first staff account exists -->
+            <sc-if value="{{ setupMode }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:12px;line-height:1.5">First-time setup. Sign in with your <strong>ADMIN_TOKEN</strong>, then create a staff email &amp; password. The token stops working once you do.</div>
+              <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token (setup only)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            </sc-if>
             <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
             <sc-if value="{{ needCode }}" hint-placeholder-val="{{ false }}">
               <div style="margin-bottom:14px">
@@ -70,7 +80,7 @@
                 <span style="color:#d9d2cc;font-size:12.5px;line-height:1.4">Reset two-factor on login (use your <strong>OVERRIDE_TOKEN</strong> above). Regains access for the client.</span>
               </label>
             </sc-if>
-            <div style="color:#6f6862;font-size:12px;margin-top:8px;line-height:1.5">The token is your Worker's <strong>ADMIN_TOKEN</strong>. Once 2FA is enabled, login also needs your authenticator code.</div>
+            <div style="color:#6f6862;font-size:12px;margin-top:8px;line-height:1.5">{{ loginFootnote }}</div>
           </div>
         </div>
       </sc-if>
@@ -152,6 +162,54 @@
             </table>
           </div>
           <sc-if value="{{ noJobs }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No jobs yet.</div></sc-if>
+        </div>
+      </sc-if>
+
+      <!-- STAFF LOGINS -->
+      <sc-if value="{{ onStaff }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+          <sc-if value="{{ mustCreateAccount }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#e8791a;color:#14100e;padding:14px 18px;border-radius:10px;font-weight:700;font-size:15px;margin-bottom:18px;line-height:1.5">
+              Set up your staff login now. Create an email &amp; password below — the shared admin token stops working as a login as soon as you do.
+            </div>
+          </sc-if>
+
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">ADD OR UPDATE A STAFF LOGIN</div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px">Each person gets their own email and password. Entering an existing email changes that person's password.</div>
+            <div style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr auto;gap:10px;align-items:end" class="adm-stockform">
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Work email</label><input value="{{ stEmail }}" onInput="{{ setStEmail }}" type="email" placeholder="name@cousinsmechanicalservices.co.uk" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Name</label><input value="{{ stName }}" onInput="{{ setStName }}" placeholder="e.g. Mark Cousin" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Password (10+ characters)</label><input value="{{ stPassword }}" onInput="{{ setStPassword }}" type="password" autocomplete="new-password" placeholder="Use a long, unique password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <button onClick="{{ saveStaff }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14px;white-space:nowrap">{{ stSaveLabel }}</button>
+            </div>
+            <sc-if value="{{ stMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#4fe06a;font-size:13px;margin-top:12px">{{ stMsg }}</div></sc-if>
+            <sc-if value="{{ stErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:12px">{{ stErr }}</div></sc-if>
+          </div>
+
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:720px">
+                <thead><tr><th class="adm-th">Email</th><th class="adm-th">Name</th><th class="adm-th">Role</th><th class="adm-th">Status</th><th class="adm-th">Added</th><th class="adm-th">Actions</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ staffRows }}" as="a" hint-placeholder-count="1">
+                    <tr>
+                      <td class="adm-td" style="font-weight:600;color:#fff">{{ a.email }}</td>
+                      <td class="adm-td">{{ a.nameLabel }}</td>
+                      <td class="adm-td"><span style="background:#2a2320;color:#f4a04a;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700">{{ a.roleLabel }}</span></td>
+                      <td class="adm-td"><span style="{{ a.statusStyle }}">{{ a.statusLabel }}</span></td>
+                      <td class="adm-td" style="color:#8a817b">{{ a.joined }}</td>
+                      <td class="adm-td" style="white-space:nowrap">
+                        <button onClick="{{ a.toggle }}" style="background:#2a2320;color:#d9d2cc;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:700;font-size:12px;margin-right:6px">{{ a.toggleLabel }}</button>
+                        <button onClick="{{ a.remove }}" style="background:#a5401a;color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-weight:700;font-size:12px">Remove</button>
+                      </td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <sc-if value="{{ noStaff }}" hint-placeholder-val="{{ true }}"><div style="padding:34px;text-align:center;color:#8a817b">No staff logins yet — the dashboard is still protected only by the shared admin token. Add your own login above.</div></sc-if>
+          </div>
         </div>
       </sc-if>
 
@@ -631,6 +689,16 @@
                 <input value="{{ pMarkP }}" onInput="{{ setMarkP }}" type="number" style="{{ pInputStyle }}"/>
               </div>
               <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">CALL-OUT FEE £</label>
+                <input value="{{ pCallout }}" onInput="{{ setCallout }}" placeholder="0" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:15px"/>
+                <div style="color:#6f6862;font-size:11px;margin-top:4px">0 = not shown to customers</div>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">LABOUR PER HOUR £</label>
+                <input value="{{ pHourly }}" onInput="{{ setHourly }}" placeholder="0" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:8px;padding:10px;font-size:15px"/>
+                <div style="color:#6f6862;font-size:11px;margin-top:4px">Shown on the booking form</div>
+              </div>
+              <div>
                 <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">FITTING FEE £</label>
                 <input value="{{ pFitting }}" onInput="{{ setFitting }}" type="number" style="{{ pInputStyle }}"/>
               </div>
@@ -733,6 +801,8 @@
 class Component extends DCLogic {
   state = {
     token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
+    emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'',
+    staff:[], stEmail:'', stName:'', stPassword:'', stMsg:'', stErr:'', stBusy:false,
     codeInput:'', needCode:false, enrolled:false,
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
@@ -744,13 +814,14 @@ class Component extends DCLogic {
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
     catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
     // tyre pricing tab
-    pricing:{}, pMarkB:'60', pMarkM:'50', pMarkP:'42', pFitting:'15', pRound:'1',
+    pricing:{}, pMarkB:'60', pMarkM:'50', pMarkP:'42', pFitting:'15', pRound:'1', pCallout:'0', pHourly:'0',
     pSize:'', pRaw:[], pTyres:[], pLoading:false, pSaving:false, pMsg:'', pErr:'',
     invSettings: { masterAutoReorder: true, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: 'orders@ctyreswholesale.co.uk', supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders', notifyEmail: 'inventory@cousinsmechanicalservices.co.uk', reorderCooldownHours: 12 },
     invFilterCategory: 'ALL', invSearchQuery: '', invMsg: ''
   };
 
   componentDidMount(){
+    this.probeAuthMode();
     try{ const sess=localStorage.getItem('cms_admin_sess'); const a=localStorage.getItem('cms_admin_api')||''; if(sess){ this.setState({token:sess, apiBase:a, apiInput:a}, ()=>this.enter()); } }catch(e){}
   }
 
@@ -789,6 +860,13 @@ class Component extends DCLogic {
     };
 
   setToken = e => this.setState({tokenInput:e.target.value});
+  setEmail = e => this.setState({emailInput:e.target.value});
+  setPassword = e => this.setState({passwordInput:e.target.value});
+  // Ask the server whether any staff account exists yet, so the screen shows
+  // email+password normally and the one-time token setup on a fresh install.
+  async probeAuthMode(){
+    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured}); } }catch(e){}
+  }
   setApi = e => this.setState({apiInput:e.target.value});
   setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
   toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
@@ -798,27 +876,70 @@ class Component extends DCLogic {
   async raw(path, opts){ opts=opts||{}; const h=Object.assign({'content-type':'application/json'}, opts.headers||{}); return fetch(this.apiBaseUrl()+'/api'+path, {...opts, headers:h}); }
 
   login = async () => {
-    const tok=this.state.tokenInput.trim();
-    if(!tok){ this.setState({loginErr:'Enter your admin token.'}); return; }
+    const useStaff = this.state.staffConfigured;
+    const tok = this.state.tokenInput.trim();
+    const em  = this.state.emailInput.trim().toLowerCase();
+    const pw  = this.state.passwordInput;
+    if(useStaff){
+      if(!em || !pw){ this.setState({loginErr:'Enter your email and password.'}); return; }
+    } else if(!tok){ this.setState({loginErr:'Enter your admin token to set up the first account.'}); return; }
     const a=this.apiBaseUrl();
     try{ localStorage.setItem('cms_admin_api',a); }catch(e){}
     this.setState({busy:true, loginErr:''});
     // Demo mode when no live worker is reachable
     if(!(a || this.sameOrigin())){ this.setState({busy:false, loginErr:'No API URL set. Enter your Worker URL, or open the admin panel on your live domain.'}); return; }
     try{
-      const r=await this.raw('/admin-login',{method:'POST',body:JSON.stringify({token:tok, code:this.state.codeInput, reset2fa:this.state.reset2fa})});
+      const payload = useStaff
+        ? { email:em, password:pw, code:this.state.codeInput }
+        : { token:tok, code:this.state.codeInput, reset2fa:this.state.reset2fa };
+      // The owner-override box always sends the token, so lockout recovery works
+      // even once staff accounts exist.
+      if(this.state.overrideOpen && tok){ payload.token = tok; payload.reset2fa = this.state.reset2fa; }
+      const r=await this.raw('/admin-login',{method:'POST',body:JSON.stringify(payload)});
       const d=await r.json().catch(()=>({}));
       if(r.status===401 && /code/i.test(d.error||'')){ this.setState({busy:false, needCode:true, loginErr:this.state.codeInput?'Code incorrect — try the current 6 digits.':''}); return; }
       if(!r.ok){ this.setState({busy:false, loginErr:d.error||'Login failed.'}); return; }
       // success — d.token is a 2FA-verified admin session
       try{ localStorage.setItem('cms_admin_sess', d.token); }catch(e){}
-      this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', loggedIn:true, demoMode:false, busy:false });
+      this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', passwordInput:'',
+                      loggedIn:true, demoMode:false, busy:false, who:d.who||'',
+                      mustCreateAccount:!!d.mustCreateAccount, tab:d.mustCreateAccount?'staff':this.state.tab });
       this.loadAll();
     }catch(e){ this.setState({busy:false, loginErr:'Could not reach the server. Check your connection and try again.'}); }
   };
   logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
   stop = (e) => e.stopPropagation();
+
+  // ---------- STAFF ACCOUNTS ----------
+  loadStaff = async () => {
+    try{ const r=await this.af('/admin/staff'); if(r.ok){ const d=await r.json(); this.setState({staff:d.staff||[]}); } }catch(e){}
+  };
+  setStEmail = e => this.setState({stEmail:e.target.value, stMsg:'', stErr:''});
+  setStName = e => this.setState({stName:e.target.value});
+  setStPassword = e => this.setState({stPassword:e.target.value, stMsg:'', stErr:''});
+  saveStaff = async () => {
+    const email=(this.state.stEmail||'').trim().toLowerCase(), password=this.state.stPassword||'';
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ this.setState({stErr:'Enter a valid email address.'}); return; }
+    if(password.length<10){ this.setState({stErr:'Password must be at least 10 characters.'}); return; }
+    this.setState({stBusy:true, stErr:'', stMsg:''});
+    try{
+      const r=await this.af('/admin/staff',{method:'POST',body:JSON.stringify({email,password,name:this.state.stName})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.error||'Could not save');
+      this.setState({stBusy:false, stEmail:'', stName:'', stPassword:'', mustCreateAccount:false,
+                     stMsg:'Account saved. '+email+' can now sign in with that password.'});
+      this.loadStaff();
+    }catch(e){ this.setState({stBusy:false, stErr:e.message}); }
+  };
+  toggleStaffDisabled = (email, disabled) => {
+    this.af('/admin/staff/'+encodeURIComponent(email),{method:'PATCH',body:JSON.stringify({disabled})})
+      .then(r=>r.json()).then(d=>{ if(d.error) this.setState({stErr:d.error}); this.loadStaff(); }).catch(()=>{});
+  };
+  deleteStaff = (email) => {
+    this.af('/admin/staff/'+encodeURIComponent(email),{method:'DELETE'})
+      .then(r=>r.json()).then(d=>{ if(d.error) this.setState({stErr:d.error}); this.loadStaff(); }).catch(()=>{});
+  };
 
   // ---------- CUSTOMER CRM ----------
   // Record-only. Discount and notes live server-side in KV (crm:<email>); the
@@ -880,6 +1001,8 @@ class Component extends DCLogic {
         pMarkM: String(p.markupPct?.M ?? 50),
         pMarkP: String(p.markupPct?.P ?? 42),
         pFitting: String(p.fittingFee ?? 15),
+        pCallout: String(p.calloutFee ?? 0),
+        pHourly: String(p.hourlyRate ?? 0),
         pRound: String(p.roundTo ?? 1),
         pErr:'',
       });
@@ -890,6 +1013,8 @@ class Component extends DCLogic {
   setMarkM = e => this.setState({pMarkM:e.target.value});
   setMarkP = e => this.setState({pMarkP:e.target.value});
   setFitting = e => this.setState({pFitting:e.target.value});
+  setCallout = e => this.setState({pCallout:e.target.value});
+  setHourly = e => this.setState({pHourly:e.target.value});
   setRound = e => this.setState({pRound:e.target.value});
   setPSize = e => this.setState({pSize:e.target.value});
   onPSizeKey = e => { if(e.key==='Enter') this.loadSizeTyres(); };
@@ -900,6 +1025,8 @@ class Component extends DCLogic {
       const body = {
         markupPct: { B:Number(this.state.pMarkB), M:Number(this.state.pMarkM), P:Number(this.state.pMarkP) },
         fittingFee: Number(this.state.pFitting),
+        calloutFee: Number(this.state.pCallout) || 0,
+        hourlyRate: Number(this.state.pHourly) || 0,
         roundTo: Number(this.state.pRound) || 1,
       };
       const r = await this.af('/admin/pricing', {method:'POST', body:JSON.stringify(body)});
@@ -1032,6 +1159,7 @@ class Component extends DCLogic {
         this.af('/admin/threads'),this.af('/admin/supplier-orders'),this.af('/admin/drivers'),this.af('/admin/users'),this.af('/admin/locations'),
         this.af('/admin/inventory')
       ]);
+      this.loadStaff();
       const jd=await j.json().catch(()=>({})); const cd=await c.json().catch(()=>({})); const sd=await s.json().catch(()=>({})); 
       const cald=await cal.json().catch(()=>({})); const thd=await th.json().catch(()=>({})); const pod=await po.json().catch(()=>({}));
       const drvd=await drv.json().catch(()=>({})); const usrd=await usr.json().catch(()=>({})); const locd=await loc.json().catch(()=>({}));
@@ -1450,6 +1578,7 @@ class Component extends DCLogic {
       ['tracking','Live Map','LIVE'],
       ['stock','Parts & Ordering',s.stock.length],
       ['pricing','Tyre Pricing',''],
+      ['staff','Staff Logins',s.staff.length],
       ['calendar','Calendar','']
     ];
     const tabs=tabDef.map(t=>({ label:t[1], count:t[2], go:()=>this.go(t[0]),
@@ -1478,8 +1607,32 @@ class Component extends DCLogic {
       onTracking:s.tab==='tracking', initMap:this.initMap,
       onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',
       onPricing:s.tab==='pricing',
+      onStaff:s.tab==='staff',
+      staffRows:s.staff.map(a=>({ ...a,
+        nameLabel:a.name||'—',
+        roleLabel:(a.role||'staff').toUpperCase(),
+        statusLabel:a.disabled?'Disabled':'Active',
+        statusStyle:'border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700;'+(a.disabled?'background:rgba(165,64,26,.18);color:#f0a884;border:1px solid #a5401a':'background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854'),
+        joined:this.fmtDate(a.createdAt),
+        toggle:()=>this.toggleStaffDisabled(a.email,!a.disabled),
+        toggleLabel:a.disabled?'Enable':'Disable',
+        remove:()=>this.deleteStaff(a.email) })),
+      noStaff:s.staff.length===0,
+      stEmail:s.stEmail, stName:s.stName, stPassword:s.stPassword,
+      setStEmail:this.setStEmail, setStName:this.setStName, setStPassword:this.setStPassword,
+      saveStaff:this.saveStaff, stSaveLabel:s.stBusy?'Saving…':'Save staff login',
+      stMsg:s.stMsg, stErr:s.stErr, mustCreateAccount:s.mustCreateAccount,
+      whoLabel:s.who?('Signed in as '+s.who):'',
+      // login screen
+      emailInput:s.emailInput, passwordInput:s.passwordInput,
+      setEmail:this.setEmail, setPassword:this.setPassword,
+      staffMode:s.staffConfigured, setupMode:!s.staffConfigured,
+      loginSubtitle: s.staffConfigured ? 'Authorised staff only. Sign in with your work email and password.' : 'First-time setup — sign in with your admin token to create the first staff login.',
+      loginDividerLabel: s.staffConfigured ? 'OR SIGN IN WITH EMAIL' : 'FIRST-TIME SETUP',
+      loginFootnote: s.staffConfigured ? 'Once two-factor is enabled, sign-in also needs your authenticator code.' : 'This is your Worker\'s ADMIN_TOKEN. It stops working as a login once the first staff account exists.',
       // tyre pricing
       pMarkB:s.pMarkB, pMarkM:s.pMarkM, pMarkP:s.pMarkP, pFitting:s.pFitting, pRound:s.pRound,
+      pCallout:s.pCallout, pHourly:s.pHourly, setCallout:this.setCallout, setHourly:this.setHourly,
       setMarkB:this.setMarkB, setMarkM:this.setMarkM, setMarkP:this.setMarkP,
       setFitting:this.setFitting, setRound:this.setRound,
       savePricing:this.savePricing, pSaveLabel: s.pSaving ? 'Saving…' : 'Save pricing',

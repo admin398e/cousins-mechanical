@@ -607,6 +607,16 @@
         </sc-if>
 
         <!-- STEP 4: confirmation / success -->
+        <sc-if value="{{ hasBookErr }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#fdf0eb;border:1.5px solid #a5401a;border-radius:12px;padding:16px;margin-bottom:16px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#a5401a;margin-bottom:6px">BOOKING NOT SAVED</div>
+            <div style="color:#5c534d;font-size:14.5px;line-height:1.6">{{ bookErr }}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+              <a href="tel:07925340977" style="background:#1c1817;color:#fff;font-weight:700;border-radius:9px;padding:11px 16px;font-size:14.5px;text-decoration:none">Call 07925 340977</a>
+              <a href="https://wa.me/447925340977" target="_blank" rel="noopener" style="background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:11px 16px;font-size:14.5px;text-decoration:none">WhatsApp us</a>
+            </div>
+          </div>
+        </sc-if>
         <sc-if value="{{ bookDone }}" hint-placeholder-val="{{ false }}">
           <div style="text-align:center;animation:fadeIn .3s ease">
             <dotlottie-wc src="https://lottie.host/f543018a-a76b-4db1-b72f-b9862629861a/w9AH7f1DHX.json" style="width:170px;height:170px;margin:-6px auto -10px" autoplay loop></dotlottie-wc>
@@ -614,9 +624,13 @@
             <div style="color:#5c534d;font-size:15px;margin:6px 0 4px">Booking reference</div>
             <div style="display:inline-block;background:#14100e;color:#f4a04a;font-family:'Barlow Condensed';font-weight:800;font-size:22px;letter-spacing:.08em;border-radius:10px;padding:8px 18px">{{ lastRef }}</div>
             <div style="background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:16px;margin:20px 0;text-align:left;font-size:14px;color:#5c534d;line-height:1.6">
-              {{ confirmSummary }}<br/>
-              <span style="color:#39a854;font-weight:700">✓ Tap below to confirm with us on WhatsApp</span><br/>
-              <span style="color:#39a854;font-weight:700">✓ You'll get live updates on the day</span>
+              <div style="font-weight:700;color:#1c1817">{{ confirmSummary }}</div>
+              <div style="margin-bottom:8px">{{ confirmSummary2 }}</div>
+              <div style="color:#39a854;font-weight:700">✓ Confirmation email on its way</div>
+              <div style="color:#39a854;font-weight:700">✓ You'll get live updates on the day</div>
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee3d8;color:#5c534d">
+                <strong style="color:#1c1817">Nothing to pay now.</strong> We take payment on site by card or cash when the work is done, and we'll confirm the price with you before starting.
+              </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px">
               <a href="{{ waConfirm }}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:9px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:14px;font-size:15px;text-decoration:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>Confirm on WhatsApp</a>
@@ -626,6 +640,17 @@
           </div>
         </sc-if>
       </div>
+
+      <!-- price & payment terms — shown before they commit -->
+      <sc-if value="{{ bookInProgress }}" hint-placeholder-val="{{ true }}">
+        <div style="margin:0 22px 4px;background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px 16px;font-size:13.5px;color:#5c534d;line-height:1.6">
+          <sc-if value="{{ hasRates }}" hint-placeholder-val="{{ false }}">
+            <div style="color:#1c1817;font-weight:700;margin-bottom:2px">{{ rateCallout }} · {{ rateHourly }}</div>
+          </sc-if>
+          <div>Tyre prices are shown per tyre and include fitting. For other work we confirm the full price with you before anything starts — you are never committed to a cost by booking.</div>
+          <div style="margin-top:6px"><strong style="color:#1c1817">Nothing to pay now.</strong> We take card or cash on site once the job is done.</div>
+        </div>
+      </sc-if>
 
       <!-- footer nav -->
       <sc-if value="{{ bookInProgress }}" hint-placeholder-val="{{ true }}">
@@ -903,7 +928,7 @@ class Component extends DCLogic {
     szWidth: '', szProfile: '', szRim: '', chosenSize: '',
     inStockOnly: false, tyreLoading: false, tyreErr: '', noStockMatch: false,
     tyreOptions: [],
-    bookOpen: false, bookStep: 1, bookDone: false, lastRef: '',
+    bookOpen: false, bookStep: 1, bookDone: false, lastRef: '', bookBusy: false, bookErr: '', svcPricing: {},
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true },
     locHint: 'We use this to route the van straight to you.',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
@@ -1064,7 +1089,10 @@ class Component extends DCLogic {
     }));
   }
   // ---------- BOOKING ----------
-  openBook = () => this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}}));
+  loadServicePricing = () => {
+    fetch('/api/pricing/service').then(r=>r.json()).then(d=>this.setState({svcPricing:d||{}})).catch(()=>{});
+  };
+  openBook = () => (this.loadServicePricing(), this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}})));
   closeBook = () => this.setState({bookOpen:false});
   stop = (e) => e.stopPropagation();
   pickService(id, label, icon){ this.setState(s=>({ book:{...s.book, service:id, svcLabel:label}, bookStep:2 })); }
@@ -1094,51 +1122,45 @@ class Component extends DCLogic {
     const { bookStep, book } = this.state;
     if(bookStep===1){ if(!book.service){ return; } this.setState({bookStep:2}); return; }
     if(bookStep===2){ if(!book.reg||!book.date||!book.time){ alert('Please add your reg, date and time.'); return; } this.setState({bookStep:3}); return; }
-    if(bookStep===3){ if(!book.name||!book.phone){ alert('Please add your name and mobile number.'); return; } this.submitBooking(); return; }
+    if(bookStep===3){
+      if(!book.name||!book.phone){ alert('Please add your name and mobile number.'); return; }
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(book.email||'')){ alert('Please add your email address so we can send your booking confirmation.'); return; }
+      this.submitBooking(); return;
+    }
   };
 
   submitBooking(){
-    if (window.googleAccessToken) {
-      try {
-        const order = this.state.book;
-        const calEvent = {
-          summary: "Cousins Mechanical Booking - " + (order.svcLabel || "Service"),
-          description: "Ref: " + (order.ref || "NEW") + "\n" + (order.notes || ""),
-          start: { date: order.date || new Date().toISOString().slice(0,10) },
-          end: { date: order.date || new Date().toISOString().slice(0,10) }
-        };
-        fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-          method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
-          body: JSON.stringify(calEvent)
-        });
-        const b64 = btoa("Content-Type: text/plain; charset=\"UTF-8\"\r\nMIME-Version: 1.0\r\nTo: " + (order.email || "info@cousinsmechanicalservices.co.uk") + "\r\nSubject: Booking Confirmation: " + (order.ref || "NEW") + "\r\n\r\nYour booking is confirmed. We will see you then.").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-        fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-          method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
-          body: JSON.stringify({ raw: b64 })
-        });
-      } catch(e){}
-    }
+    if(this.state.bookBusy) return;                 // no double-submit
     const b = this.state.book;
-    const ref = 'CMS-' + Date.now().toString(36).toUpperCase().slice(-5);
-    const order = { ...b, ref, status:'confirmed', createdAt: Date.now(),
-      updates: [{ t: Date.now(), s:'Booking confirmed', d:'We have your job — you will get a text when the van is on the way.' }] };
-    const orders = [order, ...this.state.orders];
-    this.saveOrders(orders);
-    
-    // Submit service request to backend API to persist & trigger Google Calendar event creation
-    fetch('/api/service-requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(order)
-    }).then(r => r.json()).then(data => {
-      console.log('Service request submitted to backend & Google Calendar:', data);
-    }).catch(err => console.error('Error sending service request:', err));
+    this.setState({ bookBusy:true, bookErr:'' });
 
-    if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings',{method:'POST',body:JSON.stringify(order)}).catch(()=>{}); }
-    this._lastIcs = this.buildICS(order);
-    this.sendAutomation(order);
-    this.setState({ bookDone:true, lastRef:ref, trackRef:ref });
-    this.startTracking(ref);
+    // The server is the source of truth for whether a job exists. This used to
+    // generate a ref locally, fire the POST without awaiting it, and show
+    // "YOU'RE BOOKED IN!" regardless — so any failure gave the customer a
+    // confirmation for a job that was never recorded.
+    fetch('/api/service-requests', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ ...b, status:'confirmed' })
+    })
+    .then(async r => {
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok || !d.ok || !d.ref) throw new Error(d.error || 'Booking was not accepted');
+      return d;
+    })
+    .then(d => {
+      const order = d.booking || { ...b, ref:d.ref, status:'confirmed', createdAt:Date.now() };
+      this.saveOrders([order, ...this.state.orders]);
+      this._lastIcs = this.buildICS(order);
+      try{ this.sendAutomation(order); }catch(e){}
+      this.setState({ bookBusy:false, bookDone:true, bookErr:'', lastRef:d.ref, trackRef:d.ref });
+      this.startTracking(d.ref);
+    })
+    .catch(err => {
+      console.error('Booking failed:', err);
+      this.setState({ bookBusy:false, bookDone:false,
+        bookErr:'We could not save your booking just then. Nothing has been booked — please call 07925 340977 or message us on WhatsApp and we will sort it straight away.' });
+    });
   }
 
   // Automation: emits a calendar invite + posts the booking to your webhook
@@ -1492,6 +1514,11 @@ class Component extends DCLogic {
   }
 
   fmtTime(t){ const d=new Date(t); return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
+  fmtPostcode(pc){
+    const raw = String(pc||'').toUpperCase().replace(/\s+/g,'');
+    if(!raw) return 'your location';
+    return raw.length>3 ? raw.slice(0,-3)+' '+raw.slice(-3) : raw;   // dt64lb -> DT6 4LB
+  }
   fmtDate(s){ if(!s) return 'TBC'; try{ return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return s; } }
 
   renderVals(){
@@ -1564,9 +1591,12 @@ class Component extends DCLogic {
       };
     });
 
-    const nextLabel = s.bookStep===3 ? 'Confirm booking →' : 'Continue →';
+    const nextLabel = s.bookBusy ? 'Booking…' : (s.bookStep===3 ? 'Confirm booking →' : 'Continue →');
     const bookTitle = s.bookDone ? 'Booking confirmed' : (s.bookStep===1?'Book a job':(s.bookStep===2?'Your vehicle':'Your details'));
-    const confirmSummary = (s.book.svcLabel||'Mobile job')+' · '+(s.book.reg||'')+'<br/>'+this.fmtDate(s.book.date)+' · '+(s.book.time||'time TBC')+' · '+(s.book.postcode||'your location');
+    // Two separate lines: this was one string containing a literal '<br/>',
+    // which the template escapes, so customers saw the tag as text.
+    const confirmSummary = (s.book.svcLabel||'Mobile job')+' · '+String(s.book.reg||'').toUpperCase();
+    const confirmSummary2 = this.fmtDate(s.book.date)+' · '+(s.book.time||'time TBC')+' · '+this.fmtPostcode(s.book.postcode);
 
     const sizeReady = !!(s.szWidth && s.szProfile && s.szRim);
 
@@ -1594,7 +1624,14 @@ class Component extends DCLogic {
       toggleCalendar:this.toggleCalendar, useMyLocation:this.useMyLocation,
       bookBack:this.bookBack, bookNext:this.bookNext, canBack:s.bookStep>1, nextLabel,
       nextBtnStyle:'flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15.5px',
-      lastRef:s.lastRef, confirmSummary, downloadIcs:this.downloadIcs, goTrack:this.goTrack,
+      lastRef:s.lastRef, confirmSummary, confirmSummary2, downloadIcs:this.downloadIcs, goTrack:this.goTrack,
+      bookBusy:s.bookBusy, bookErr:s.bookErr, hasBookErr:!!s.bookErr,
+      // Labour rates are only shown when the owner has actually set them in
+      // admin. Unset means we promise a quote rather than invent a number.
+      hasRates: !!(s.svcPricing && s.svcPricing.configured),
+      rateCallout: s.svcPricing && s.svcPricing.calloutFee ? ('£'+s.svcPricing.calloutFee+' call-out') : '',
+      rateHourly: s.svcPricing && s.svcPricing.hourlyRate ? ('£'+s.svcPricing.hourlyRate+' per hour labour') : '',
+      bookSubmitLabel: s.bookBusy ? 'Booking…' : 'Confirm booking',
       waConfirm: 'https://wa.me/447925340977?text='+encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.'),
       // portal / account
       portalOpen:s.portalOpen, openPortal:this.openPortal, closePortal:this.closePortal, portalToBook:this.portalToBook,

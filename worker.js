@@ -533,6 +533,20 @@ async function api(request, env, url, ctx) {
   // These power the live pricing cards on the customer site and the wholesale
   // search in the admin portal. They must exist here, not only in server.js,
   // or production quietly serves placeholder prices.
+  // Public: labour rates + how payment is taken, shown on the booking form.
+  // Never exposes cost prices or any other pricing internals.
+  if (p === "/pricing/service" && request.method === "GET") {
+    const pr = await getPricing(env);
+    const callout = Number(pr.calloutFee) || 0;
+    const hourly = Number(pr.hourlyRate) || 0;
+    return json({
+      calloutFee: callout,
+      hourlyRate: hourly,
+      configured: callout > 0 || hourly > 0,
+      payment: "Payment is taken on site when the work is done — card or cash. Nothing is charged when you book.",
+    });
+  }
+
   if (p === "/tyres/sizes" && request.method === "GET") {
     const { sizes } = await tyreData(env);
     return json(sizes);
@@ -1025,32 +1039,100 @@ async function processTyreStockForOrder(env, order) {
   // --- Service Requests & Direct Google Calendar Integration ---
   if (p === "/service-requests" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
+
+    // A booking with no way to contact the customer back is worse than no booking.
+    if (!b.name || !b.phone) return bad("Name and mobile number are required.");
+
     const orderRef = b.ref || ("CMS-" + Date.now().toString(36).toUpperCase().slice(-5));
     const order = {
       ...b,
       ref: orderRef,
       status: "confirmed",
       createdAt: Date.now(),
-      updates: [{ t: Date.now(), s: "Service request received", d: "Your service request was submitted and scheduled." }]
+      updates: [{ t: Date.now(), s: "Booking confirmed", d: "We have your job — you will get a message when the van is on the way." }],
     };
 
-    // Auto-check stock & trigger supplier auto-order if required
-    await processTyreStockForOrder(env, order);
-
-    const emailKey = b.email ? ("bookings:" + b.email.toLowerCase()) : "bookings:guest";
+    // ---------------------------------------------------------------------
+    // PERSIST FIRST. Everything else here (stock allocation, calendar invite,
+    // emails, owner alerts) is optional and must never be able to stop a
+    // booking being saved. This used to run stock processing and a calendar
+    // call BEFORE the KV write, so any failure in either lost the job while
+    // still showing the customer a confirmation.
+    // ---------------------------------------------------------------------
+    const emailKey = b.email ? ("bookings:" + String(b.email).toLowerCase()) : "bookings:guest";
     const existing = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
-    existing.unshift(order);
+    if (!existing.some(o => o.ref === order.ref)) existing.unshift(order); // idempotent on retry
     await env.CMS_KV.put(emailKey, JSON.stringify(existing));
 
-    const gcalResult = await addCalendarEvent(env, order, b.email);
+    // From here on, nothing may throw out of the handler.
+    const warnings = [];
+    const safe = async (label, fn) => {
+      try { return await fn(); }
+      catch (err) { console.error("[booking:" + label + "]", orderRef, err && err.stack ? err.stack : err); warnings.push(label); return null; }
+    };
+
+    await safe("stock", () => processTyreStockForOrder(env, order));
+
+    // Re-persist so any enrichment (stock status, extra updates) is kept. Best
+    // effort only — the booking is already safely stored above.
+    await safe("persist-enriched", async () => {
+      const arr = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
+      const i = arr.findIndex(o => o.ref === order.ref);
+      if (i >= 0) { arr[i] = order; await env.CMS_KV.put(emailKey, JSON.stringify(arr)); }
+    });
+
+    const gcalResult = (await safe("calendar", () => addCalendarEvent(env, order, b.email))) || { skipped: true };
+
+    const when = (order.date || "as soon as possible") + " " + (order.time || "");
+    const lines = [
+      "Ref: " + order.ref,
+      "Service: " + (order.svcLabel || order.service || "Mobile job"),
+      "Vehicle: " + (order.reg || "-"),
+      "When: " + when,
+      "Location: " + (order.postcode || "-"),
+      "Name: " + order.name,
+      "Phone: " + order.phone,
+      order.email ? "Email: " + order.email : null,
+      order.notes ? "Notes: " + order.notes : null,
+    ].filter(Boolean).join("\n");
+
+    // Customer confirmation (only possible if they gave us an address).
     if (b.email) {
-      ctx.waitUntil(sendEmail(env, b.email,
-        `Service Request Received — ${order.ref}`,
-        `Hi ${b.name || 'Customer'},\n\nYour service request (${order.svcLabel || order.service || 'Mobile Mechanic'}) has been received and added to our schedule for ${order.date || 'soon'} ${order.time || ''}.\nRef: ${order.ref}\nVehicle Reg: ${order.reg || '-'}\nLocation: ${order.postcode || '-'}\nStock Status: ${order.stockStatus || 'Processing'}\n\nCousins Mechanical Services`,
-        buildICS(order, env.MAIL_FROM)));
+      await safe("customer-email", async () => {
+        const ics = buildICS(order, env.MAIL_FROM);
+        ctx.waitUntil(sendEmail(env, b.email,
+          `Booking confirmed — ${order.ref} — Cousins Mechanical`,
+          `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
+          + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
+          + `Need to change or cancel it? Call 01308 538046 or 07925 340977, or reply to this email.\n\n`
+          + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339\n7 Watton Park, Bridport, DT6 5NJ`,
+          ics));
+      });
     }
 
-    return json({ ok: true, ref: order.ref, booking: order, calendarEventCreated: !!gcalResult.ok, calendarDetails: gcalResult });
+    // Owner alert — Josh must hear about a new job even if the customer gave no
+    // email and even if he is not looking at the dashboard.
+    await safe("owner-alert", async () => {
+      const ownerTo = env.OWNER_EMAIL || env.MAIL_FROM;
+      if (ownerTo) {
+        ctx.waitUntil(sendEmail(env, ownerTo,
+          `NEW JOB ${order.ref} — ${order.svcLabel || order.service || "Mobile job"} — ${order.reg || ""}`,
+          `New booking taken on the website.\n\n${lines}\n\nOpen the dashboard: ${(env.SITE_URL || "")}/admin.html`));
+      }
+      if (env.OWNER_PHONE) {
+        ctx.waitUntil(sendSMS(env, env.OWNER_PHONE,
+          `NEW JOB ${order.ref}: ${order.svcLabel || order.service || "job"} · ${order.reg || ""} · ${when} · ${order.postcode || ""} · ${order.name} ${order.phone}`));
+      }
+    });
+
+    return json({
+      ok: true,
+      ref: order.ref,
+      booking: order,
+      calendarEventCreated: !!gcalResult.ok,
+      calendarDetails: gcalResult,
+      warnings,
+    });
   }
 
   if (p === "/calendar/add-event" && request.method === "POST") {
@@ -1220,33 +1302,71 @@ async function processTyreStockForOrder(env, order) {
     if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
     if (!env.ADMIN_TOKEN) return bad("Admin login is not configured — set the ADMIN_TOKEN secret", 503);
 
-    // Master override: OVERRIDE_TOKEN always grants access and clears any stuck 2FA,
-    // so the site owner can never be locked out and can regain access for the client.
-    if (env.OVERRIDE_TOKEN && safeEqual(b.token, env.OVERRIDE_TOKEN)) {
-      if (b.reset2fa) await env.CMS_KV.delete("admin_totp");
+    const issue = async (who, extra) => {
       await clearFailures(env, rlKey);
       const t = token();
-      await env.CMS_KV.put("asess:" + t, "admin", { expirationTtl: 60 * 60 * 12 });
+      await env.CMS_KV.put("asess:" + t, who, { expirationTtl: 60 * 60 * 12 });
+      return json({ token: t, who, enrolled: !!(await env.CMS_KV.get("admin_totp")), ...(extra || {}) });
+    };
+
+    // Break-glass: OVERRIDE_TOKEN always works and can clear a stuck 2FA, so the
+    // owner can never be permanently locked out of his own business.
+    if (env.OVERRIDE_TOKEN && safeEqual(b.token, env.OVERRIDE_TOKEN)) {
+      if (b.reset2fa) await env.CMS_KV.delete("admin_totp");
       await audit(env, "admin", "admin_login_override", clientIp(request));
-      return json({ token: t, enrolled: !!(await env.CMS_KV.get("admin_totp")), override: true });
+      return issue("admin", { override: true });
     }
-    if (!safeEqual(b.token, env.ADMIN_TOKEN)) {
-      await noteFailure(env, rlKey);
-      await audit(env, "admin", "admin_login_failed", clientIp(request));
-      return bad("Invalid admin token", 401);
-    }
-    const enrolled = await env.CMS_KV.get("admin_totp");
-    if (enrolled) {
-      if (!(await totpValid(enrolled, b.code))) {
+
+    const staffList = await env.CMS_KV.list({ prefix: "staff:" });
+    const haveStaff = staffList.keys.length > 0;
+
+    // --- Email + password (the normal path once staff accounts exist) ---
+    if (b.email) {
+      const em = String(b.email).trim().toLowerCase();
+      // Rate-limit the account as well as the IP, so one address cannot be
+      // ground down from many machines.
+      if (await rateLimited(env, "staffacct:" + em)) return bad("Too many attempts — try again in 15 minutes", 429);
+      const raw = await env.CMS_KV.get("staff:" + em);
+      const acct = raw ? JSON.parse(raw) : null;
+      // Always hash, even for an unknown address, so response time does not
+      // reveal which addresses are staff accounts.
+      const hash = await pbkdf2(b.password || "", acct?.salt || newSalt(), env.SESSION_PEPPER);
+      if (!acct || acct.disabled || !safeEqual(hash, acct.hash)) {
+        await noteFailure(env, rlKey);
+        await noteFailure(env, "staffacct:" + em);
+        await audit(env, "admin", "admin_login_failed", em + " " + clientIp(request));
+        return bad("Email or password not recognised", 401);
+      }
+      const enrolled = await env.CMS_KV.get("admin_totp");
+      if (enrolled && !(await totpValid(enrolled, b.code))) {
         await noteFailure(env, rlKey);
         return bad("Enter the 6-digit code from your authenticator app.", 401);
       }
+      await clearFailures(env, "staffacct:" + em);
+      await audit(env, "admin", "admin_login", em + " " + clientIp(request));
+      return issue(em, { name: acct.name || "" });
     }
-    await clearFailures(env, rlKey);
-    const t = token();
-    await env.CMS_KV.put("asess:" + t, "admin", { expirationTtl: 60 * 60 * 12 });
-    await audit(env, "admin", "admin_login", clientIp(request));
-    return json({ token: t, enrolled: !!enrolled });
+
+    // --- Bootstrap only: the shared ADMIN_TOKEN ---
+    // Accepted ONLY until the first staff account exists. After that this stops
+    // working, so the dashboard is behind a real per-person email + password
+    // rather than one shared secret that cannot be attributed or revoked.
+    if (!safeEqual(b.token, env.ADMIN_TOKEN)) {
+      await noteFailure(env, rlKey);
+      await audit(env, "admin", "admin_login_failed", clientIp(request));
+      return bad(haveStaff ? "Enter your staff email and password." : "Invalid admin token", 401);
+    }
+    if (haveStaff) {
+      await noteFailure(env, rlKey);
+      return bad("The setup token is disabled now that staff accounts exist. Sign in with your email and password.", 403);
+    }
+    const enrolled = await env.CMS_KV.get("admin_totp");
+    if (enrolled && !(await totpValid(enrolled, b.code))) {
+      await noteFailure(env, rlKey);
+      return bad("Enter the 6-digit code from your authenticator app.", 401);
+    }
+    await audit(env, "admin", "admin_login_bootstrap", clientIp(request));
+    return issue("admin", { mustCreateAccount: true });
   }
   // Log out of the admin dashboard — revokes the session immediately.
   if (p === "/admin-logout" && request.method === "POST") {
@@ -1284,6 +1404,13 @@ async function processTyreStockForOrder(env, order) {
   }
   if (p === "/admin-2fa/status" && request.method === "GET") {
     return json({ enrolled: !!(await env.CMS_KV.get("admin_totp")) });
+  }
+
+  // Unauthenticated: lets the login screen show email+password vs first-run
+  // setup. Reveals only whether any staff account exists, never who.
+  if (p === "/admin-auth/mode" && request.method === "GET") {
+    const list = await env.CMS_KV.list({ prefix: "staff:" });
+    return json({ staffConfigured: list.keys.length > 0, enrolled: !!(await env.CMS_KV.get("admin_totp")) });
   }
 
   // --- ADMIN (business owner) — all protected by 2FA-verified session ---
@@ -1351,6 +1478,81 @@ async function processTyreStockForOrder(env, order) {
         if (uraw) { const u = JSON.parse(uraw); if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, "Cousins Mechanical: " + text)); }
         return json({ messages: thread });
       }
+    }
+
+    // --- STAFF ACCOUNTS (email + password logins for the dashboard) ---
+    if (p === "/admin/staff") {
+      if (request.method === "GET") {
+        const list = await env.CMS_KV.list({ prefix: "staff:" });
+        const out = [];
+        for (const k of list.keys) {
+          const a = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
+          // Never return salt or hash.
+          out.push({ email: a.email, name: a.name || "", role: a.role || "staff", disabled: !!a.disabled, createdAt: a.createdAt, lastLoginAt: a.lastLoginAt || null });
+        }
+        out.sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+        return json({ staff: out });
+      }
+
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const em = String(b.email || "").trim().toLowerCase();
+        const pw = String(b.password || "");
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return bad("Enter a valid email address.");
+        if (pw.length < 10) return bad("Password must be at least 10 characters.");
+        const existingRaw = await env.CMS_KV.get("staff:" + em);
+        const existing = existingRaw ? JSON.parse(existingRaw) : null;
+        const salt = newSalt();
+        const acct = {
+          email: em,
+          name: String(b.name || existing?.name || "").trim(),
+          role: b.role === "owner" ? "owner" : (existing?.role || "staff"),
+          salt,
+          hash: await pbkdf2(pw, salt, env.SESSION_PEPPER),
+          disabled: false,
+          createdAt: existing?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        };
+        await env.CMS_KV.put("staff:" + em, JSON.stringify(acct));
+        await audit(env, "admin", existing ? "staff_password_changed" : "staff_created", em);
+        return json({ ok: true, staff: { email: acct.email, name: acct.name, role: acct.role, disabled: false, createdAt: acct.createdAt } });
+      }
+    }
+
+    const staffOne = p.match(/^\/admin\/staff\/([^/]+)$/);
+    if (staffOne && (request.method === "DELETE" || request.method === "PATCH")) {
+      const em = decodeURIComponent(staffOne[1]).toLowerCase();
+      const raw = await env.CMS_KV.get("staff:" + em);
+      if (!raw) return bad("Staff account not found", 404);
+      const list = await env.CMS_KV.list({ prefix: "staff:" });
+
+      if (request.method === "DELETE") {
+        // Refuse to remove the last account — that would lock everyone out and
+        // leave only the break-glass OVERRIDE_TOKEN.
+        if (list.keys.length <= 1) return bad("This is the only staff account — create another before removing it.", 409);
+        await env.CMS_KV.delete("staff:" + em);
+        await audit(env, "admin", "staff_deleted", em);
+        return json({ ok: true, deleted: em });
+      }
+
+      const b = await request.json().catch(() => ({}));
+      const acct = JSON.parse(raw);
+      if (b.disabled !== undefined) {
+        const active = [];
+        for (const k of list.keys) {
+          const a = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
+          if (!a.disabled) active.push(a.email);
+        }
+        if (b.disabled && active.length <= 1 && active[0] === em) {
+          return bad("This is the only active staff account — you would lock yourself out.", 409);
+        }
+        acct.disabled = !!b.disabled;
+      }
+      if (b.name !== undefined) acct.name = String(b.name).trim();
+      acct.updatedAt = Date.now();
+      await env.CMS_KV.put("staff:" + em, JSON.stringify(acct));
+      await audit(env, "admin", "staff_updated", em + " disabled=" + !!acct.disabled);
+      return json({ ok: true, staff: { email: acct.email, name: acct.name, role: acct.role, disabled: !!acct.disabled } });
     }
 
     // Customers (CRM list) — profile + job count + discount + notes count
@@ -1741,6 +1943,10 @@ async function processTyreStockForOrder(env, order) {
             P: numOr(b.markupPct && b.markupPct.P, current.markupPct.P),
           },
           fittingFee: numOr(b.fittingFee, current.fittingFee),
+          // Labour rates shown on the booking form. 0/absent means "not set", and
+          // the site then promises a quote before work instead of inventing a price.
+          calloutFee: numOr(b.calloutFee, current.calloutFee || 0),
+          hourlyRate: numOr(b.hourlyRate, current.hourlyRate || 0),
           roundTo: numOr(b.roundTo, current.roundTo) || 1,
           priceEnding: b.priceEnding === "" || b.priceEnding == null ? null : Number(b.priceEnding),
         };
@@ -1748,6 +1954,8 @@ async function processTyreStockForOrder(env, order) {
           if (next.markupPct[t] < 0 || next.markupPct[t] > 500) return bad(`Markup for ${t} must be between 0 and 500%`, 400);
         }
         if (next.fittingFee < 0 || next.fittingFee > 200) return bad("Fitting fee must be between 0 and 200", 400);
+        if (next.calloutFee < 0 || next.calloutFee > 1000) return bad("Call-out fee must be between 0 and 1000", 400);
+        if (next.hourlyRate < 0 || next.hourlyRate > 1000) return bad("Hourly rate must be between 0 and 1000", 400);
 
         const saved = await savePricing(env, next);
         await audit(env, "admin", "pricing_updated", JSON.stringify(saved.markupPct));

@@ -409,8 +409,11 @@ try {
 
 
   // --- tyre pricing (admin-controlled) --------------------------------------
+  // OVERRIDE_TOKEN, not ADMIN_TOKEN: the shared setup token is deliberately
+  // disabled once a staff account exists, and several tests below create one.
+  // The override is the documented break-glass path and always works.
   const adminTok = async () =>
-    (await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json()).token;
+    (await (await postJson('/api/admin-login', { token: OVERRIDE_TOKEN })).json()).token;
 
   await check('public tyre lookup never leaks wholesale cost or supplier link', async () => {
     const d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
@@ -505,6 +508,98 @@ try {
 
   // --- rate limiting --------------------------------------------------------
   // --- Customer CRM (discount + notes) ---------------------------------------
+  // --- Booking reliability: a job the customer is told is confirmed MUST exist ---
+  await check('a website booking reaches the admin dashboard', async () => {
+    const r = await postJson('/api/service-requests', {
+      name: 'Smoke Booker', phone: '07900555111', email: `booker-${Date.now()}@example.com`,
+      reg: 'KM16GLY', postcode: 'dt64lb', date: '2026-08-21', time: 'Afternoon (12-5)',
+      service: 'recovery', svcLabel: 'Breakdown / recovery',
+    });
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    assert.ok(d.ok && d.ref, 'booking was not accepted');
+    const tok = await adminTok();
+    const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
+    assert.ok(jobs.some(j => j.ref === d.ref), `booking ${d.ref} confirmed to the customer but missing from the dashboard`);
+  });
+
+  await check('a booking with no contact details is rejected, not silently accepted', async () => {
+    const r = await postJson('/api/service-requests', { reg: 'AB12CDE', service: 'recovery' });
+    assert.equal(r.status, 400, 'a booking with no name or phone should be refused');
+  });
+
+  await check('a booking still saves when optional side-effects are unconfigured', async () => {
+    // Calendar/SMS are not configured in tests. Persistence must not depend on them.
+    const r = await postJson('/api/service-requests', {
+      name: 'No Extras', phone: '07900555222', reg: 'XY11ZZZ', service: 'diagnostics', svcLabel: 'Diagnostics',
+    });
+    const d = await r.json();
+    assert.ok(d.ok, 'booking failed when optional integrations were absent');
+    assert.equal(d.calendarEventCreated, false);
+    assert.deepEqual(d.warnings, [], `unexpected warnings: ${JSON.stringify(d.warnings)}`);
+    const tok = await adminTok();
+    const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
+    assert.ok(jobs.some(j => j.ref === d.ref), 'booking without a calendar did not reach the dashboard');
+  });
+
+  // --- Staff logins ---
+  await check('staff account can be created and used to sign in', async () => {
+    const tok = await adminTok();
+    const email = `staff-${Date.now()}@cousinsmechanicalservices.co.uk`;
+    const password = 'a-properly-long-password';
+    const c = await api('/api/admin/staff', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ email, password, name: 'Smoke Staff' }) });
+    assert.equal(c.status, 200, 'could not create staff account');
+    const good = await postJson('/api/admin-login', { email, password, code: totpNow(totpSecret) });
+    assert.equal(good.status, 200, 'correct staff credentials were rejected');
+    assert.ok((await good.json()).token, 'no session issued for valid staff login');
+  });
+
+  await check('staff login rejects a wrong password and an unknown email identically', async () => {
+    const email = `staff2-${Date.now()}@cousinsmechanicalservices.co.uk`;
+    const tok = await adminTok();
+    await api('/api/admin/staff', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ email, password: 'a-properly-long-password' }) });
+    const wrong = await postJson('/api/admin-login', { email, password: 'definitely-not-it', code: totpNow(totpSecret) });
+    const unknown = await postJson('/api/admin-login', { email: 'nobody-' + Date.now() + '@example.com', password: 'definitely-not-it', code: totpNow(totpSecret) });
+    assert.equal(wrong.status, 401);
+    assert.equal(unknown.status, 401);
+    assert.equal((await wrong.json()).error, (await unknown.json()).error, 'error text reveals which emails are staff accounts');
+  });
+
+  await check('staff passwords must be at least 10 characters', async () => {
+    const tok = await adminTok();
+    const r = await api('/api/admin/staff', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: JSON.stringify({ email: `weak-${Date.now()}@example.com`, password: 'short' }) });
+    assert.equal(r.status, 400);
+  });
+
+  await check('the staff list never exposes password material', async () => {
+    const tok = await adminTok();
+    const d = await (await api('/api/admin/staff', { headers: { authorization: 'Bearer ' + tok } })).json();
+    assert.ok(d.staff.length > 0);
+    for (const a of d.staff) {
+      assert.equal(a.hash, undefined, 'staff list leaked a password hash');
+      assert.equal(a.salt, undefined, 'staff list leaked a password salt');
+    }
+  });
+
+  await check('staff endpoints require admin auth', async () => {
+    assert.equal((await api('/api/admin/staff')).status, 403);
+  });
+
+  await check('the shared admin token stops working once staff accounts exist', async () => {
+    // Bootstrap-only: after the first real account the shared secret must not
+    // grant a session, otherwise the dashboard is still behind one password.
+    const r = await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) });
+    assert.ok(r.status === 403 || r.status === 401, `shared token still logs in (status ${r.status})`);
+  });
+
+  await check('service pricing is public but exposes no cost data', async () => {
+    const d = await (await api('/api/pricing/service')).json();
+    assert.ok('calloutFee' in d && 'hourlyRate' in d && 'payment' in d);
+    assert.ok(/on site/i.test(d.payment), 'payment terms not stated');
+    assert.equal(d.costPrice, undefined);
+    assert.equal(d.markupPct, undefined);
+  });
+
   await check('CRM: new customer starts with no discount and no notes', async () => {
     const em = `crm-${Date.now()}@example.com`;
     await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Person', phone: '07900111222', consent: true });
