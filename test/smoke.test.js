@@ -608,6 +608,32 @@ try {
     }
   });
 
+  await check('company number and registered office appear on every public page', async () => {
+    // A UK limited company must show these on its website (Companies Act 2006 /
+    // e-commerce regulations). They live in the shared footer.
+    for (const page of ['/', '/terms.html', '/privacy.html', '/cookies.html', '/accessibility.html', '/404.html']) {
+      const html = await (await api(page)).text();
+      assert.ok(html.includes('16045339'), `${page} does not show the company number`);
+      assert.ok(/7 Watton Park/.test(html), `${page} does not show the registered office`);
+    }
+  });
+
+  await check('legal pages carry no unfilled placeholders or draft warnings', async () => {
+    for (const page of ['/terms.html', '/privacy.html', '/cookies.html', '/accessibility.html']) {
+      const html = await (await api(page)).text();
+      const left = html.match(/\[[A-Z][^\]]*\]/g) || [];
+      assert.equal(left.length, 0, `${page} still has placeholders: ${left.join(', ')}`);
+      assert.ok(!/DRAFT/.test(html), `${page} still carries a DRAFT warning`);
+    }
+  });
+
+  await check('robots.txt blocks un-hydrated template tokens and API paths', async () => {
+    const txt = await (await api('/robots.txt')).text();
+    for (const rule of ['Disallow: /*{{', 'Disallow: /bookings', 'Disallow: /messages', 'Disallow: /track']) {
+      assert.ok(txt.includes(rule), `robots.txt missing "${rule}"`);
+    }
+  });
+
   await check('a branded 404 page exists and offers a way back', async () => {
     const r = await api('/404.html');
     assert.equal(r.status, 200);

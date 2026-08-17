@@ -128,7 +128,7 @@ ${body}
     </div>
   </div>
   <div class="wrap" style="margin-top:32px;border-top:1px solid #241e1b;padding-top:18px;display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:space-between;align-items:center;color:#6f6862;font-size:13px">
-    <span>&copy; Cousins Mechanical Services Ltd</span>
+    <span>&copy; Cousins Mechanical Services Ltd &middot; Registered in England &amp; Wales no. 16045339 &middot; 7 Watton Park, Bridport, DT6 5NJ</span>
     <span style="display:flex;flex-wrap:wrap;gap:14px">
       ${legalBar}
     </span>
@@ -220,13 +220,11 @@ const homeModified = lastmodOf('Cousins Mechanical.dc.html');
 
 // Only genuinely public, indexable destinations. The admin and driver portals are
 // staff-only and are excluded here and in robots.txt.
+// Only real, separately-addressable pages. Fragment URLs (/#services etc.) were
+// listed here before, but search engines discard them as duplicates of "/" — they
+// only made Search Console report more URLs submitted than could ever be indexed.
 const urls = [
   { loc: '/', changefreq: 'weekly', priority: '1.0' },
-  { loc: '/#services', changefreq: 'monthly', priority: '0.8' },
-  { loc: '/#reg', changefreq: 'weekly', priority: '0.9' },
-  { loc: '/#work', changefreq: 'monthly', priority: '0.7' },
-  { loc: '/#track', changefreq: 'monthly', priority: '0.5' },
-  { loc: '/#privacy', changefreq: 'yearly', priority: '0.3' },
   { loc: '/terms.html', changefreq: 'yearly', priority: '0.3', file: 'legal/terms.html' },
   { loc: '/privacy.html', changefreq: 'yearly', priority: '0.4', file: 'legal/privacy.html' },
   { loc: '/cookies.html', changefreq: 'yearly', priority: '0.2', file: 'legal/cookies.html' },

@@ -9,9 +9,21 @@ Disallow: /driver
 Disallow: /driver.html
 
 # API responses are not pages
+Disallow: /api
 Disallow: /api/
 Disallow: /ukvd
 Disallow: /v1/
+Disallow: /bookings
+Disallow: /messages
+Disallow: /track
+Disallow: /notify
+Disallow: /service-requests
+
+# Un-hydrated template tokens: the pages are React-rendered, so a crawler that
+# reads the raw HTML before JS runs can follow a literal "{{ token }}" as a URL.
+# These are never real pages. (Seen in Search Console as /{{ waConfirm }}.)
+Disallow: /*{{
+Disallow: /*%7B%7B
 
 # The error page itself is not content
 Disallow: /404.html
