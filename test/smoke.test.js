@@ -592,6 +592,21 @@ try {
     assert.ok(r.status === 403 || r.status === 401, `shared token still logs in (status ${r.status})`);
   });
 
+  await check('admin backup exports durable data and excludes sessions', async () => {
+    const tok = await adminTok();
+    const noAuth = await api('/api/admin/backup');
+    assert.equal(noAuth.status, 403, 'backup must require admin auth');
+    const r = await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200);
+    assert.ok(/attachment/.test(r.headers.get('content-disposition') || ''), 'backup is not a download');
+    const d = await r.json();
+    const keys = Object.keys(d.data);
+    assert.ok(keys.some(k => k.startsWith('user:')), 'backup missing customer accounts');
+    assert.ok(keys.some(k => k.startsWith('bookings:')), 'backup missing bookings');
+    assert.ok(keys.some(k => k.startsWith('staff:')), 'backup missing staff accounts');
+    assert.ok(!keys.some(k => /^(sess|asess|dsess|rl|reset):/.test(k)), 'backup leaked transient session/rate-limit keys');
+  });
+
   await check('service pricing is public but exposes no cost data', async () => {
     const d = await (await api('/api/pricing/service')).json();
     assert.ok('calloutFee' in d && 'hourlyRate' in d && 'payment' in d);

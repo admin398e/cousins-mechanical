@@ -1480,6 +1480,38 @@ async function processTyreStockForOrder(env, order) {
       }
     }
 
+    // --- BACKUP: full export of everything durable in KV ---
+    // The one real weakness of KV vs a hosted database is that there is no
+    // queryable copy outside Cloudflare. This closes it: one click in admin
+    // downloads the whole business state as JSON. Transient keys (sessions,
+    // rate-limit counters, reset tokens) are deliberately excluded — restoring
+    // them would be wrong, and sessions are secrets.
+    if (p === "/admin/backup" && request.method === "GET") {
+      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:"];
+      const data = {};
+      let cursor;
+      do {
+        const page = await env.CMS_KV.list({ cursor });
+        for (const k of page.keys) {
+          if (EXCLUDE.some(pre => k.name.startsWith(pre))) continue;
+          const raw = await env.CMS_KV.get(k.name);
+          if (raw == null) continue;
+          try { data[k.name] = JSON.parse(raw); } catch { data[k.name] = raw; }
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      await audit(env, "admin", "backup_downloaded", Object.keys(data).length + " keys");
+      return new Response(JSON.stringify({ exportedAt: new Date().toISOString(), site: env.SITE_URL || "", keys: Object.keys(data).length, data }, null, 2), {
+        status: 200,
+        headers: {
+          ...CORS, ...SECURITY_HEADERS,
+          "content-type": "application/json",
+          "content-disposition": `attachment; filename="cousins-backup-${stamp}.json"`,
+        },
+      });
+    }
+
     // --- STAFF ACCOUNTS (email + password logins for the dashboard) ---
     if (p === "/admin/staff") {
       if (request.method === "GET") {

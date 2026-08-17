@@ -117,6 +117,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button onClick="{{ refresh }}" style="background:#1c1714;border:1px solid #2a2320;color:#d9d2cc;font-weight:600;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px">↻ Refresh</button>
+        <button onClick="{{ downloadBackup }}" title="Download a full copy of all site data (customers, jobs, staff, pricing) as JSON" style="background:#1c1714;border:1px solid #2a2320;color:#d9d2cc;font-weight:600;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px">⬇ Backup</button>
         <button onClick="{{ logout }}" style="background:#1c1714;border:1px solid #2a2320;color:#9a918a;font-weight:600;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13.5px">Log out</button>
       </div>
     </header>
@@ -1437,6 +1438,18 @@ class Component extends DCLogic {
     this.af("/admin/threads/"+encodeURIComponent(email),{method:"POST",body:JSON.stringify({text})}).then(r=>r.json()).then(d=>{ if(d.messages) this.setState({threadMsgs:d.messages}); }).catch(()=>{});
   };
   refresh = () => this.loadAll();
+  downloadBackup = async () => {
+    try{
+      const r = await this.af('/admin/backup');
+      if(!r.ok) throw new Error('backup failed');
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cousins-backup-' + new Date().toISOString().slice(0,10) + '.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }catch(e){ alert('Could not download the backup — check your connection and try again.'); }
+  };
 
   go(tab){
     this.setState({tab}, () => {
@@ -1602,7 +1615,7 @@ class Component extends DCLogic {
       start2fa:this.start2fa, twofaOpen:s.twofaOpen, close2fa:this.close2fa, stop:this.stop,
       twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
       login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
-      tabs, kpis,
+      tabs, kpis, downloadBackup:this.downloadBackup,
       onJobs:s.tab==='jobs', onCustomers:s.tab==='customers', onUsers:s.tab==='users', onDrivers:s.tab==='drivers',
       onTracking:s.tab==='tracking', initMap:this.initMap,
       onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',
