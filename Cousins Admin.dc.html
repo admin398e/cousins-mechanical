@@ -24,7 +24,7 @@
   input,select,textarea,button{font-family:inherit}
   input:focus,select:focus{outline:none;border-color:#e8791a!important}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-  @media(max-width:760px){.adm-kpi{grid-template-columns:1fr 1fr!important}.adm-stockform{grid-template-columns:1fr 1fr!important}.adm-msg{grid-template-columns:1fr!important}}
+  @media(max-width:760px){.adm-kpi{grid-template-columns:1fr 1fr!important}.adm-stockform{grid-template-columns:1fr 1fr!important}.adm-msg{grid-template-columns:1fr!important}.crm-grid{grid-template-columns:1fr!important}}
   .adm-th{text-align:left;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.06em;color:#9a918a;font-size:12.5px;text-transform:uppercase;padding:10px 14px;border-bottom:1px solid #2a2320}
   .adm-td{padding:12px 14px;border-bottom:1px solid #201b18;font-size:14px;color:#d9d2cc;vertical-align:middle}
 </style>
@@ -155,28 +155,114 @@
         </div>
       </sc-if>
 
-      <!-- CUSTOMERS -->
+      <!-- CUSTOMERS (CRM) -->
       <sc-if value="{{ onCustomers }}" hint-placeholder-val="{{ false }}">
-        <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
+        <div style="animation:fadeIn .2s ease">
+        <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
+          <div style="padding:14px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">CUSTOMER CRM</div>
+            <span style="color:#8a817b;font-size:12.5px">Click a customer to view job history, set a discount and add notes</span>
+          </div>
           <div style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;min-width:720px">
-              <thead><tr><th class="adm-th">Name</th><th class="adm-th">Email</th><th class="adm-th">Mobile</th><th class="adm-th">Jobs</th><th class="adm-th">SMS</th><th class="adm-th">Marketing</th><th class="adm-th">Joined</th></tr></thead>
+            <table style="width:100%;border-collapse:collapse;min-width:860px">
+              <thead><tr><th class="adm-th">Name</th><th class="adm-th">Email</th><th class="adm-th">Mobile</th><th class="adm-th">Jobs</th><th class="adm-th">Discount</th><th class="adm-th">Notes</th><th class="adm-th">SMS</th><th class="adm-th">Marketing</th><th class="adm-th">Joined</th><th class="adm-th"></th></tr></thead>
               <tbody>
                 <sc-for list="{{ custRows }}" as="c" hint-placeholder-count="3">
-                  <tr>
+                  <tr onClick="{{ c.open }}" style="{{ c.rowStyle }}">
                     <td class="adm-td" style="font-weight:600;color:#fff">{{ c.name }}</td>
                     <td class="adm-td">{{ c.email }}</td>
                     <td class="adm-td">{{ c.phone }}</td>
                     <td class="adm-td">{{ c.jobCount }}</td>
+                    <td class="adm-td"><span style="{{ c.discountStyle }}">{{ c.discountLabel }}</span></td>
+                    <td class="adm-td">{{ c.notesLabel }}</td>
                     <td class="adm-td">{{ c.sms }}</td>
                     <td class="adm-td">{{ c.marketing }}</td>
                     <td class="adm-td" style="color:#8a817b">{{ c.joined }}</td>
+                    <td class="adm-td" style="color:#f4a04a;font-weight:700;white-space:nowrap">Manage ›</td>
                   </tr>
                 </sc-for>
               </tbody>
             </table>
           </div>
           <sc-if value="{{ noCust }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No customers yet.</div></sc-if>
+        </div>
+
+        <!-- CRM DETAIL -->
+        <sc-if value="{{ hasCustSel }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#1c1714;border:1px solid #e8791a;border-radius:14px;margin-top:16px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.35)">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+              <div>
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff">{{ custName }}</div>
+                <div style="color:#8a817b;font-size:13px">{{ custEmail }} · {{ custPhone }}</div>
+              </div>
+              <button onClick="{{ closeCustomer }}" style="background:#14100e;border:1px solid #3a322d;color:#9a918a;font-weight:600;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px">✕ Close</button>
+            </div>
+
+            <sc-if value="{{ custLoading }}" hint-placeholder-val="{{ false }}"><div style="padding:30px;text-align:center;color:#8a817b">Loading…</div></sc-if>
+            <sc-if value="{{ custErr }}" hint-placeholder-val="{{ false }}"><div style="margin:16px 20px;background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 14px;font-size:13px">{{ custErr }}</div></sc-if>
+
+            <div style="padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:18px" class="crm-grid">
+              <div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+                  <div style="background:#14100e;border:1px solid #2a2320;border-radius:10px;padding:12px"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;line-height:1">{{ custBookingCount }}</div><div style="color:#8a817b;font-size:11.5px">Jobs booked</div></div>
+                  <div style="background:#14100e;border:1px solid #2a2320;border-radius:10px;padding:12px"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#4fe06a;line-height:1">{{ custSmsLabel }}</div><div style="color:#8a817b;font-size:11.5px">SMS updates</div></div>
+                  <div style="background:#14100e;border:1px solid #2a2320;border-radius:10px;padding:12px"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#f4a04a;line-height:1">{{ custMktLabel }}</div><div style="color:#8a817b;font-size:11.5px">Marketing</div></div>
+                </div>
+                <div style="background:#14100e;border:1px solid #3a322d;border-radius:12px;padding:16px">
+                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#fff;margin-bottom:4px">LOYALTY DISCOUNT</div>
+                  <div style="color:#8a817b;font-size:12px;margin-bottom:12px">Recorded for your reference when quoting. Not applied to prices automatically.</div>
+                  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+                    <div style="width:110px"><label style="font-size:12px;color:#9a918a;font-weight:600">Discount %</label><input value="{{ custDiscount }}" onInput="{{ setCustDiscount }}" placeholder="0" style="width:100%;border:1.5px solid #3a322d;background:#1c1714;color:#fff;border-radius:8px;padding:10px;font-size:15px;margin-top:4px"/></div>
+                    <div style="flex:1;min-width:150px"><label style="font-size:12px;color:#9a918a;font-weight:600">Reason (optional)</label><input value="{{ custDiscountReason }}" onInput="{{ setCustDiscountReason }}" placeholder="e.g. Fleet account" style="width:100%;border:1.5px solid #3a322d;background:#1c1714;color:#fff;border-radius:8px;padding:10px;font-size:14px;margin-top:4px"/></div>
+                    <button onClick="{{ saveCustDiscount }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:8px;padding:11px 18px;cursor:pointer;font-size:14px;white-space:nowrap">{{ custSaveLabel }}</button>
+                  </div>
+                  <sc-if value="{{ custMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#4fe06a;font-size:12.5px;margin-top:10px">{{ custMsg }}</div></sc-if>
+                </div>
+              </div>
+
+              <div>
+                <div style="background:#14100e;border:1px solid #3a322d;border-radius:12px;padding:16px">
+                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#fff;margin-bottom:10px">NOTES</div>
+                  <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <input value="{{ custNote }}" onInput="{{ setCustNote }}" placeholder="Add a note about this customer…" style="flex:1;border:1.5px solid #3a322d;background:#1c1714;color:#fff;border-radius:8px;padding:10px;font-size:14px"/>
+                    <button onClick="{{ addCustNote }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;white-space:nowrap">Add</button>
+                  </div>
+                  <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ custNoteRows }}" as="n" hint-placeholder-count="0">
+                      <div style="background:#1c1714;border:1px solid #2a2320;border-radius:8px;padding:10px 12px">
+                        <div style="color:#d9d2cc;font-size:13.5px;line-height:1.45">{{ n.text }}</div>
+                        <div style="color:#6f6862;font-size:11px;margin-top:5px">{{ n.when }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ noCustNotes }}" hint-placeholder-val="{{ false }}"><div style="padding:14px;text-align:center;color:#6f6862;font-size:13px">No notes yet.</div></sc-if>
+                </div>
+              </div>
+            </div>
+
+            <div style="padding:0 20px 20px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#fff;margin-bottom:10px">JOB HISTORY</div>
+              <div style="background:#14100e;border:1px solid #2a2320;border-radius:12px;overflow:hidden">
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;min-width:520px">
+                    <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">When</th><th class="adm-th">Status</th></tr></thead>
+                    <tbody>
+                      <sc-for list="{{ custBookingRows }}" as="b" hint-placeholder-count="0">
+                        <tr>
+                          <td class="adm-td" style="font-weight:700;color:#f4a04a">{{ b.ref }}</td>
+                          <td class="adm-td">{{ b.svc }}</td>
+                          <td class="adm-td" style="color:#8a817b">{{ b.when }}</td>
+                          <td class="adm-td">{{ b.status }}</td>
+                        </tr>
+                      </sc-for>
+                    </tbody>
+                  </table>
+                </div>
+                <sc-if value="{{ noCustBookings }}" hint-placeholder-val="{{ false }}"><div style="padding:20px;text-align:center;color:#6f6862;font-size:13px">No jobs booked yet.</div></sc-if>
+              </div>
+            </div>
+          </div>
+        </sc-if>
         </div>
       </sc-if>
 
@@ -520,6 +606,106 @@
       </sc-if>
 
       <!-- CALENDAR -->
+      <!-- ===================== TYRE PRICING ===================== -->
+      <sc-if value="{{ onPricing }}" hint-placeholder-val="{{ false }}">
+        <div>
+          <div style="margin-bottom:18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;letter-spacing:.03em">RETAIL PRICING &amp; STOCK</div>
+            <div style="color:#9a918a;font-size:13px;margin-top:2px">Set your margin once and every tyre on the website reprices. Override any single tyre, and tick what is in the van.</div>
+          </div>
+
+          <!-- markup rules -->
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:18px 20px;margin-bottom:16px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#f4a04a;letter-spacing:.06em;margin-bottom:14px">MARKUP ON WHOLESALE COST</div>
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px" class="adm-grid5">
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">BUDGET %</label>
+                <input value="{{ pMarkB }}" onInput="{{ setMarkB }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">MID-RANGE %</label>
+                <input value="{{ pMarkM }}" onInput="{{ setMarkM }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">PREMIUM %</label>
+                <input value="{{ pMarkP }}" onInput="{{ setMarkP }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">FITTING FEE £</label>
+                <input value="{{ pFitting }}" onInput="{{ setFitting }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">ROUND TO £</label>
+                <input value="{{ pRound }}" onInput="{{ setRound }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap">
+              <button onClick="{{ savePricing }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px 22px;cursor:pointer;font-size:14.5px">{{ pSaveLabel }}</button>
+              <div style="color:#9a918a;font-size:12.5px">Customer price = wholesale cost + markup % + fitting fee, rounded.</div>
+            </div>
+            <sc-if value="{{ pMsg }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:12px;background:rgba(57,168,84,.14);border:1px solid rgba(57,168,84,.4);color:#7fe09a;border-radius:9px;padding:10px 13px;font-size:13px;font-weight:600">{{ pMsg }}</div>
+            </sc-if>
+            <sc-if value="{{ pErr }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:12px;background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;font-weight:600">{{ pErr }}</div>
+            </sc-if>
+          </div>
+
+          <!-- size search -->
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:18px 20px;margin-bottom:16px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#f4a04a;letter-spacing:.06em;margin-bottom:12px">LOOK UP A SIZE</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+              <input value="{{ pSize }}" onInput="{{ setPSize }}" onKeyDown="{{ onPSizeKey }}" placeholder="e.g. 195/65R15" style="flex:1;min-width:200px;border:1.5px solid #3a322d;background:#0f0c0b;color:#fff;border-radius:9px;padding:12px 14px;font-size:15px"/>
+              <button onClick="{{ loadSizeTyres }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 22px;cursor:pointer;font-size:14.5px">{{ pLookupLabel }}</button>
+              <div style="color:#9a918a;font-size:12.5px">{{ pStockSummary }}</div>
+            </div>
+          </div>
+
+          <!-- results -->
+          <sc-if value="{{ hasPTyres }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;overflow:hidden">
+              <div style="overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse;min-width:900px">
+                  <thead>
+                    <tr style="background:#1a1512">
+                      <th style="{{ pThStyle }}">In van</th>
+                      <th style="{{ pThStyle }}">Tier</th>
+                      <th style="{{ pThStyle }}">Tyre</th>
+                      <th style="{{ pThStyle }}">Your SKU</th>
+                      <th style="{{ pThStyle }}">Cost</th>
+                      <th style="{{ pThStyle }}">Sell price</th>
+                      <th style="{{ pThStyle }}">Margin</th>
+                      <th style="{{ pThStyle }}">Supplier</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <sc-for list="{{ pTyres }}" as="t" hint-placeholder-count="4">
+                      <tr style="{{ t.rowStyle }}">
+                        <td style="{{ pTdStyle }}"><input type="checkbox" checked="{{ t.inStock }}" onChange="{{ t.toggleStock }}" style="width:17px;height:17px;accent-color:#39a854;cursor:pointer"/></td>
+                        <td style="{{ pTdStyle }}"><span style="{{ t.tierStyle }}">{{ t.tier }}</span></td>
+                        <td style="{{ pTdStyle }}">
+                          <div style="font-weight:700;color:#fff;font-size:13.5px">{{ t.brand }} {{ t.model }}</div>
+                          <div style="color:#8a817b;font-size:11.5px">{{ t.label }}</div>
+                        </td>
+                        <td style="{{ pTdStyle }}"><span style="font-family:monospace;font-size:11.5px;color:#f4a04a">{{ t.sku }}</span></td>
+                        <td style="{{ pTdStyle }}"><span style="color:#9a918a;font-size:13px">{{ t.costLabel }}</span></td>
+                        <td style="{{ pTdStyle }}">
+                          <input value="{{ t.priceInput }}" onInput="{{ t.setPrice }}" onKeyDown="{{ t.onPriceKey }}" onBlur="{{ t.savePrice }}" style="{{ t.priceStyle }}"/>
+                          <div style="font-size:10.5px;color:#6f6862;margin-top:3px">{{ t.priceNote }}</div>
+                        </td>
+                        <td style="{{ pTdStyle }}"><span style="{{ t.marginStyle }}">{{ t.marginLabel }}</span></td>
+                        <td style="{{ pTdStyle }}"><a href="{{ t.supplierUrl }}" target="_blank" rel="noopener" style="color:#0d8bd4;font-size:12.5px;font-weight:700;text-decoration:underline">Order →</a></td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+              <div style="padding:12px 16px;border-top:1px solid #201b18;color:#8a817b;font-size:12px">Type a price to override that tyre. Clear the box and press Enter to go back to the calculated price.</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
       <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
@@ -552,10 +738,15 @@ class Component extends DCLogic {
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
     threads:[], activeThread:'', threadMsgs:[], replyInput:'',
+    // CRM (customers tab)
+    custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
     pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'orders@ctyreswholesale.co.uk', pSupplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders', pAutoReorder:true,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
     catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
-    invSettings: { masterAutoReorder: true, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: 'orders@ctyreswholesale.co.uk', supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders', notifyEmail: 'inventory@cousinsmechanical.co.uk', reorderCooldownHours: 12 },
+    // tyre pricing tab
+    pricing:{}, pMarkB:'60', pMarkM:'50', pMarkP:'42', pFitting:'15', pRound:'1',
+    pSize:'', pRaw:[], pTyres:[], pLoading:false, pSaving:false, pMsg:'', pErr:'',
+    invSettings: { masterAutoReorder: true, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: 'orders@ctyreswholesale.co.uk', supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders', notifyEmail: 'inventory@cousinsmechanicalservices.co.uk', reorderCooldownHours: 12 },
     invFilterCategory: 'ALL', invSearchQuery: '', invMsg: ''
   };
 
@@ -628,6 +819,149 @@ class Component extends DCLogic {
   logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
   stop = (e) => e.stopPropagation();
+
+  // ---------- CUSTOMER CRM ----------
+  // Record-only. Discount and notes live server-side in KV (crm:<email>); the
+  // customer never sees them and nothing here changes what a customer is charged.
+  openCustomer = async (email) => {
+    this.setState({ custSel:email, custLoading:true, custMsg:'', custErr:'', custDetail:null, custBookings:[], custNotes:[] });
+    try{
+      const r = await this.af('/admin/customers/'+encodeURIComponent(email));
+      if(!r.ok) throw new Error('load failed');
+      const d = await r.json();
+      this.setState({
+        custDetail: d.customer||null, custBookings: d.bookings||[], custNotes: d.notes||[],
+        custDiscount: String(d.discount||0), custDiscountReason: d.discountReason||'', custNote:'',
+        custLoading:false
+      });
+    }catch(e){ this.setState({ custLoading:false, custErr:'Could not load this customer.' }); }
+  };
+  closeCustomer = () => this.setState({ custSel:null, custDetail:null, custMsg:'', custErr:'' });
+  setCustDiscount = e => this.setState({ custDiscount:e.target.value.replace(/[^0-9]/g,'').slice(0,3), custMsg:'' });
+  setCustDiscountReason = e => this.setState({ custDiscountReason:e.target.value, custMsg:'' });
+  setCustNote = e => this.setState({ custNote:e.target.value });
+  saveCustDiscount = async () => {
+    if(!this.state.custSel) return;
+    this.setState({ custSaving:true, custMsg:'', custErr:'' });
+    try{
+      const r = await this.af('/admin/customers/'+encodeURIComponent(this.state.custSel), { method:'PATCH', body:JSON.stringify({ discount:Number(this.state.custDiscount)||0, discountReason:this.state.custDiscountReason }) });
+      if(!r.ok) throw new Error('save failed');
+      const d = await r.json();
+      this.setState({ custDiscount:String(d.discount||0), custDiscountReason:d.discountReason||'', custSaving:false, custMsg:'Discount saved.' });
+      this.loadAll();
+    }catch(e){ this.setState({ custSaving:false, custErr:'Could not save the discount.' }); }
+  };
+  addCustNote = async () => {
+    const text=(this.state.custNote||'').trim();
+    if(!text || !this.state.custSel) return;
+    this.setState({ custSaving:true, custErr:'' });
+    try{
+      const r = await this.af('/admin/customers/'+encodeURIComponent(this.state.custSel)+'/notes', { method:'POST', body:JSON.stringify({ text }) });
+      if(!r.ok) throw new Error('note failed');
+      const d = await r.json();
+      this.setState({ custNotes:d.notes||[], custNote:'', custSaving:false, custMsg:'Note added.' });
+      this.loadAll();
+    }catch(e){ this.setState({ custSaving:false, custErr:'Could not add the note.' }); }
+  };
+
+  // ---------- TYRE PRICING ----------
+  // Rules live server-side in KV; this screen is a thin editor over
+  // /admin/pricing. Nothing is priced in the browser — the same calculation
+  // serves customers, so what you see here is exactly what they will pay.
+  loadPricing = async () => {
+    try{
+      const r = await this.af('/admin/pricing');
+      if(!r.ok) throw new Error('load failed');
+      const d = await r.json();
+      const p = d.pricing || {};
+      this.setState({
+        pricing: p,
+        pMarkB: String(p.markupPct?.B ?? 60),
+        pMarkM: String(p.markupPct?.M ?? 50),
+        pMarkP: String(p.markupPct?.P ?? 42),
+        pFitting: String(p.fittingFee ?? 15),
+        pRound: String(p.roundTo ?? 1),
+        pErr:'',
+      });
+    }catch(e){ this.setState({ pErr:'Could not load pricing rules.' }); }
+  };
+
+  setMarkB = e => this.setState({pMarkB:e.target.value});
+  setMarkM = e => this.setState({pMarkM:e.target.value});
+  setMarkP = e => this.setState({pMarkP:e.target.value});
+  setFitting = e => this.setState({pFitting:e.target.value});
+  setRound = e => this.setState({pRound:e.target.value});
+  setPSize = e => this.setState({pSize:e.target.value});
+  onPSizeKey = e => { if(e.key==='Enter') this.loadSizeTyres(); };
+
+  savePricing = async () => {
+    this.setState({pSaving:true, pMsg:'', pErr:''});
+    try{
+      const body = {
+        markupPct: { B:Number(this.state.pMarkB), M:Number(this.state.pMarkM), P:Number(this.state.pMarkP) },
+        fittingFee: Number(this.state.pFitting),
+        roundTo: Number(this.state.pRound) || 1,
+      };
+      const r = await this.af('/admin/pricing', {method:'POST', body:JSON.stringify(body)});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error || 'Save failed');
+      this.setState({pricing:d.pricing, pSaving:false, pMsg:'Saved — every price on the website has updated.'});
+      setTimeout(()=>this.setState({pMsg:''}), 4000);
+      if(this.state.pSize) this.loadSizeTyres();
+    }catch(e){ this.setState({pSaving:false, pErr:e.message}); }
+  };
+
+  loadSizeTyres = async () => {
+    const size = (this.state.pSize||'').trim();
+    if(!size){ this.setState({pErr:'Type a tyre size first, e.g. 195/65R15'}); return; }
+    this.setState({pLoading:true, pErr:''});
+    try{
+      const r = await this.af('/admin/tyres?size='+encodeURIComponent(size));
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error || 'Lookup failed');
+      if(!d.tyres || !d.tyres.length){
+        this.setState({pLoading:false, pTyres:[], pErr:'No tyres found in that size.'});
+        return;
+      }
+      this.setState({ pLoading:false, pricing:d.pricing || this.state.pricing, pRaw:d.tyres, pTyres:d.tyres, pErr:'' });
+    }catch(e){ this.setState({pLoading:false, pErr:e.message}); }
+  };
+
+  setTyrePrice(id, value){
+    this.setState(s => ({ pRaw: s.pRaw.map(t => t.id===id ? {...t, _edit:value} : t) }));
+  }
+
+  saveTyrePrice = async (id) => {
+    const t = (this.state.pRaw||[]).find(x=>x.id===id);
+    if(!t) return;
+    const raw = t._edit;
+    // Unchanged? do nothing. Empty clears the override.
+    if(raw === undefined) return;
+    const price = String(raw).trim() === '' ? null : Number(String(raw).replace(/[£,\s]/g,''));
+    if(price !== null && (!Number.isFinite(price) || price <= 0)){
+      this.setState({pErr:'That price is not a valid number.'});
+      return;
+    }
+    try{
+      const r = await this.af('/admin/pricing/override', {method:'POST', body:JSON.stringify({id, price})});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'Save failed');
+      this.setState({pricing:d.pricing, pErr:''});
+      this.loadSizeTyres();
+    }catch(e){ this.setState({pErr:e.message}); }
+  };
+
+  toggleTyreStock = async (id, inStock) => {
+    try{
+      const r = await this.af('/admin/pricing/stock', {method:'POST', body:JSON.stringify({id, inStock})});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'Save failed');
+      this.setState(s => ({
+        pricing: {...s.pricing, inStock: d.inStock},
+        pRaw: s.pRaw.map(t => t.id===id ? {...t, inStock} : t),
+      }));
+    }catch(e){ this.setState({pErr:e.message}); }
+  };
 
   // ---- 2FA enrollment ----
   start2fa = async () => {
@@ -979,6 +1313,7 @@ class Component extends DCLogic {
   go(tab){
     this.setState({tab}, () => {
       if(tab === 'tracking') this.initMap();
+      if(tab === 'pricing') this.loadPricing();
     });
   }
 
@@ -1029,6 +1364,7 @@ class Component extends DCLogic {
 
   fmtWhen(o){ if(!o.date) return 'TBC'; try{ return new Date(o.date).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+' · '+(o.time||''); }catch(e){ return o.date; } }
   fmtDate(t){ try{ return new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return ''; } }
+  fmtDateTime(t){ try{ return new Date(t).toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
 
   renderVals(){
     const s=this.state;
@@ -1041,7 +1377,17 @@ class Component extends DCLogic {
       toggleGps:()=>this.toggleGps(j),
       gpsLabel: s.gpsRef===j.ref?'● Sharing':'Share',
       gpsStyle: 'border:1px solid '+(s.gpsRef===j.ref?'#39a854':'#3a322d')+';background:'+(s.gpsRef===j.ref?'rgba(57,168,84,.16)':'#14100e')+';color:'+(s.gpsRef===j.ref?'#4fe06a':'#9a918a')+';font-weight:700;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;white-space:nowrap' }));
-    const custRows=s.customers.map(c=>({ ...c, sms:c.smsUpdates?'On':'Off', marketing:c.marketing?'Yes':'No', joined:this.fmtDate(c.createdAt) }));
+    const custRows=s.customers.map(c=>({ ...c,
+      sms:c.smsUpdates?'On':'Off', marketing:c.marketing?'Yes':'No', joined:this.fmtDate(c.createdAt),
+      discountLabel: c.discount? (c.discount+'%') : '—',
+      discountStyle: c.discount? 'background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.45);color:#f4a04a;border-radius:6px;padding:2px 8px;font-weight:700;font-size:12px' : 'color:#6f6862',
+      notesLabel: c.notesCount? String(c.notesCount) : '—',
+      open:()=>this.openCustomer(c.email),
+      rowStyle:'cursor:pointer;transition:background .15s'+(s.custSel===c.email?';background:#241d18':''),
+    }));
+    const custBookingRows=(s.custBookings||[]).map(o=>({ ref:o.ref||'—', svc:o.svcLabel||o.service||o.svc||'Mobile job', status:o.status||'—', when:this.fmtDate(o.createdAt||o.date||o.t) }));
+    const custNoteRows=(s.custNotes||[]).slice().reverse().map(n=>({ text:n.text, when:this.fmtDateTime(n.t) }));
+    const cbSel=s.custDetail;
     const userRows=s.users.map(u=>({ ...u, joined:this.fmtDate(u.createdAt || u.joined) }));
     const driverRows=s.drivers.map(d=>({ ...d, needsApproval: !d.approved, approve: () => this.approveDriver(d.id), revoke: () => this.revokeDriver(d.id) }));
     const poRows=s.supplierOrders.map(po=>({ ...po }));
@@ -1103,6 +1449,7 @@ class Component extends DCLogic {
       ['drivers','Drivers',s.drivers.length],
       ['tracking','Live Map','LIVE'],
       ['stock','Parts & Ordering',s.stock.length],
+      ['pricing','Tyre Pricing',''],
       ['calendar','Calendar','']
     ];
     const tabs=tabDef.map(t=>({ label:t[1], count:t[2], go:()=>this.go(t[0]),
@@ -1130,6 +1477,40 @@ class Component extends DCLogic {
       onJobs:s.tab==='jobs', onCustomers:s.tab==='customers', onUsers:s.tab==='users', onDrivers:s.tab==='drivers',
       onTracking:s.tab==='tracking', initMap:this.initMap,
       onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',
+      onPricing:s.tab==='pricing',
+      // tyre pricing
+      pMarkB:s.pMarkB, pMarkM:s.pMarkM, pMarkP:s.pMarkP, pFitting:s.pFitting, pRound:s.pRound,
+      setMarkB:this.setMarkB, setMarkM:this.setMarkM, setMarkP:this.setMarkP,
+      setFitting:this.setFitting, setRound:this.setRound,
+      savePricing:this.savePricing, pSaveLabel: s.pSaving ? 'Saving…' : 'Save pricing',
+      pSize:s.pSize, setPSize:this.setPSize, onPSizeKey:this.onPSizeKey,
+      loadSizeTyres:this.loadSizeTyres, pLookupLabel: s.pLoading ? 'Loading…' : 'Look up',
+      pMsg:s.pMsg, pErr:s.pErr, hasPTyres: (s.pRaw||[]).length>0,
+      pStockSummary: ((s.pricing&&s.pricing.inStock)||[]).length + ' tyres marked in the van',
+      pInputStyle:'width:100%;border:1.5px solid #3a322d;background:#0f0c0b;color:#fff;border-radius:9px;padding:11px 12px;font-size:15px',
+      pThStyle:'text-align:left;padding:11px 14px;font-family:\'Barlow Condensed\';font-weight:700;font-size:12px;letter-spacing:.08em;color:#9a918a;border-bottom:1px solid #2a2320;white-space:nowrap',
+      pTdStyle:'padding:11px 14px;border-bottom:1px solid #201b18;vertical-align:middle',
+      pTyres: (s.pRaw||[]).map(t=>{
+        const tierColour = {B:'#6f6862',M:'#e8791a',P:'#0d5bd4'}[t.tier] || '#6f6862';
+        const overridden = t.priceSource === 'override';
+        const shown = t._edit !== undefined ? t._edit : (t.price==null ? '' : String(t.price));
+        return {
+          ...t,
+          priceInput: shown,
+          priceNote: overridden ? 'manual price' : (t.markupPct!=null ? t.markupPct+'% markup' : 'catalogue price'),
+          costLabel: t.cost==null ? '—' : '£'+t.cost.toFixed(2),
+          marginLabel: t.margin==null ? '—' : '£'+t.margin.toFixed(2)+(t.marginPct!=null?' ('+t.marginPct+'%)':''),
+          marginStyle: 'font-weight:700;font-size:13px;color:'+((t.margin||0) >= 20 ? '#7fe09a' : ((t.margin||0) >= 10 ? '#f4a04a' : '#f0a884')),
+          tierStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:11px;letter-spacing:.06em;color:#fff;background:'+tierColour+';border-radius:5px;padding:2px 8px',
+          rowStyle: 'background:'+(t.inStock ? 'rgba(57,168,84,.07)' : 'transparent'),
+          priceStyle: 'width:92px;border:1.5px solid '+(overridden?'#e8791a':'#3a322d')+';background:#0f0c0b;color:#fff;border-radius:8px;padding:8px 10px;font-size:14px;font-weight:700',
+          setPrice: (e)=>this.setTyrePrice(t.id, e.target.value),
+          onPriceKey: (e)=>{ if(e.key==='Enter') this.saveTyrePrice(t.id); },
+          savePrice: ()=>this.saveTyrePrice(t.id),
+          toggleStock: (e)=>this.toggleTyreStock(t.id, e.target.checked),
+        };
+      }),
+
       threadRows: s.threads.map(t=>({ email:t.email, name:t.name||t.email, phone:t.phone||'', last:t.last||'', unread:t.unread||0,
         open:()=>this.openThread(t.email),
         rowStyle:'display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #201b18;cursor:pointer;background:'+(s.activeThread===t.email?'#241d19':'transparent'),
@@ -1143,6 +1524,17 @@ class Component extends DCLogic {
       openCalendar:()=>window.open(s.calendarUrl||'https://calendar.google.com','_blank'),
       jobRows, noJobs:s.jobs.length===0,
       custRows, noCust:s.customers.length===0,
+      hasCustSel:!!s.custSel, custLoading:s.custLoading, closeCustomer:this.closeCustomer,
+      custName: cbSel? cbSel.name : '', custEmail: cbSel? cbSel.email : (s.custSel||''), custPhone: cbSel? (cbSel.phone||'—') : '',
+      custBookingCount:(s.custBookings||[]).length,
+      custSmsLabel: cbSel? (cbSel.smsUpdates?'On':'Off') : '—', custMktLabel: cbSel? (cbSel.marketing?'Yes':'No') : '—',
+      custDiscount:s.custDiscount, setCustDiscount:this.setCustDiscount,
+      custDiscountReason:s.custDiscountReason, setCustDiscountReason:this.setCustDiscountReason,
+      saveCustDiscount:this.saveCustDiscount, custSaveLabel: s.custSaving?'Saving…':'Save discount',
+      custNote:s.custNote, setCustNote:this.setCustNote, addCustNote:this.addCustNote,
+      custBookingRows, noCustBookings:(s.custBookings||[]).length===0,
+      custNoteRows, noCustNotes:(s.custNotes||[]).length===0,
+      custMsg:s.custMsg, custErr:s.custErr,
       userRows, noUsers:s.users.length===0,
       driverRows, noDrivers:s.drivers.length===0,
       drvName:s.drvName, drvReg:s.drvReg, drvPhone:s.drvPhone,

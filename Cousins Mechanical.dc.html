@@ -27,8 +27,9 @@
 <meta name="twitter:title" content="Mobile Mechanic &amp; Tyre Fitting — Bridport &amp; West Dorset">
 <meta name="twitter:description" content="We come to you — home, work or roadside — across Bridport &amp; West Dorset, 24 hours a day. Book online or call 07925 340977.">
 <meta name="twitter:image" content="https://cousinsmechanicalservices.co.uk/images/tyre-van.jpg">
-<link rel="icon" type="image/png" href="images/logo.png">
-<link rel="apple-touch-icon" href="images/logo.png">
+<link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="images/icon-512.png">
+<link rel="apple-touch-icon" sizes="180x180" href="images/apple-touch-icon.png">
 <script src="vehicle-data.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -208,164 +209,109 @@
 <!-- ===== REG LOOKUP ===== -->
 <section id="reg" style="padding:82px 20px;background:linear-gradient(180deg,#f4f2ef,#eae5df)">
   <div style="max-width:1000px;margin:0 auto;text-align:center">
-    <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#c25e0c;font-size:14px;text-transform:uppercase;margin-bottom:12px">Tyres &amp; Parts by Reg</div>
-    <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#1c1817;margin:0 0 14px">ENTER YOUR NUMBER PLATE</h2>
-    <p style="font-size:18px;color:#5c534d;max-width:620px;margin:0 auto 40px;line-height:1.5">Pop in your reg and we will pull your exact vehicle, match the right tyres or parts, then you can book it in. No account, no faff.</p>
+    <div style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.16em;color:#c25e0c;font-size:14px;text-transform:uppercase;margin-bottom:12px">Mobile Tyre Fitting</div>
+    <h2 style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(34px,4.6vw,52px);line-height:1;color:#1c1817;margin:0 0 14px">FIND YOUR TYRE SIZE</h2>
+    <p style="font-size:18px;color:#5c534d;max-width:640px;margin:0 auto 26px;line-height:1.5">Your size is on the sidewall of your current tyre — three numbers like <strong style="color:#1c1817">195/65 R15</strong>. Pick it below for live prices, fitted at your door.</p>
   </div>
 
   <div style="max-width:780px;margin:0 auto;background:#fff;border:1px solid #e2dbd3;border-radius:18px;box-shadow:0 24px 60px -30px rgba(28,24,23,.4);overflow:hidden">
-    <div style="display:grid;grid-template-columns:1fr 1fr;background:#f0ebe5">
-      <button onClick="{{ selectTyres }}" style="{{ tyreTabStyle }}">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4"/></svg>Tyre Fitting</button>
-      <button onClick="{{ selectParts }}" style="{{ partsTabStyle }}">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.3l-6 6a1.5 1.5 0 0 0 2.1 2.1l6-6a4 4 0 0 0 5.3-5.4l-2.4 2.4-2-2 2.4-2.4Z"/></svg>Parts &amp; Repairs</button>
-    </div>
-
     <div style="padding:32px 28px 34px">
-      <!-- input row -->
-      <div style="display:flex;flex-wrap:wrap;gap:12px;max-width:520px;margin:0 auto;align-items:stretch;justify-content:center">
-        <div style="display:flex;flex:1;min-width:240px;border-radius:11px;overflow:hidden;box-shadow:0 6px 18px -8px rgba(0,0,0,.35);border:2px solid #1c1817">
-          <div style="background:#0d5bd4;color:#fff;font-family:'Barlow Condensed';font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;letter-spacing:.05em">
-            <svg width="18" height="12" viewBox="0 0 20 14" style="margin-bottom:3px"><circle cx="10" cy="4" r="1.3" fill="#ffd400"/><circle cx="7" cy="4" r="1.3" fill="#ffd400"/><circle cx="13" cy="4" r="1.3" fill="#ffd400"/><circle cx="8.5" cy="7" r="1.3" fill="#ffd400"/><circle cx="11.5" cy="7" r="1.3" fill="#ffd400"/><circle cx="10" cy="10" r="1.3" fill="#ffd400"/></svg>GB</div>
-          <input value="{{ regInput }}" onInput="{{ onRegInput }}" onKeyDown="{{ onRegKey }}" placeholder="AB12 CDE" maxlength="9" style="flex:1;border:0;background:#ffdd00;color:#1a1a1a;font-family:'Barlow Condensed';font-weight:800;font-size:30px;letter-spacing:.08em;text-align:center;text-transform:uppercase;padding:10px 8px;width:100%"/>
-        </div>
-        <button onClick="{{ lookupReg }}" style="background:#e8791a;color:#14100e;font-weight:700;font-size:17px;border:0;border-radius:11px;padding:0 26px;cursor:pointer;white-space:nowrap" style-hover="background:#f78c30">Find →</button>
-      </div>
-      <div style="text-align:center;color:#8a817b;font-size:13px;margin-top:12px">Enter your registration to find the exact tyres for your vehicle.</div>
 
-      <!-- live vehicle picker -->
-      <sc-if value="{{ showPicker }}" hint-placeholder-val="{{ true }}">
-        <div style="max-width:560px;margin:22px auto 0;border-top:1px dashed #e2dbd3;padding-top:20px">
-          <div style="text-align:center;font-weight:700;color:#1c1817;font-size:15px;margin-bottom:3px">Find your exact tyres by vehicle <span style="display:inline-block;background:#39a854;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.08em;border-radius:5px;padding:2px 7px;vertical-align:middle">LIVE</span></div>
-          <div style="text-align:center;color:#8a817b;font-size:12.5px;margin-bottom:14px">Real tyre sizes from the fitment database — year, make, model &amp; trim.</div>
-          <sc-if value="{{ hasProxy }}" hint-placeholder-val="{{ true }}">
-            <div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-                <select value="{{ pk.year }}" onChange="{{ pickYear }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
-                  <option value="">Year</option>
-                  <sc-for list="{{ opt.years }}" as="y" hint-placeholder-count="0"><option value="{{ y }}">{{ y }}</option></sc-for>
-                </select>
-                <select value="{{ pk.make }}" onChange="{{ pickMake }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
-                  <option value="">Make</option>
-                  <sc-for list="{{ opt.makes }}" as="m" hint-placeholder-count="0"><option value="{{ m }}">{{ m }}</option></sc-for>
-                </select>
-                <select value="{{ pk.model }}" onChange="{{ pickModel }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
-                  <option value="">Model</option>
-                  <sc-for list="{{ opt.models }}" as="m" hint-placeholder-count="0"><option value="{{ m }}">{{ m }}</option></sc-for>
-                </select>
-                <select value="{{ pk.trim }}" onChange="{{ pickTrim }}" style="border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 12px;font-size:15px;background:#fff;color:#1c1817">
-                  <option value="">Trim</option>
-                  <sc-for list="{{ opt.trims }}" as="t" hint-placeholder-count="0"><option value="{{ t }}">{{ t }}</option></sc-for>
-                </select>
-              </div>
-              <sc-if value="{{ pkErr }}" hint-placeholder-val="{{ false }}">
-                <div style="margin-top:10px;text-align:center;color:#a5401a;font-size:12.5px;font-weight:600">{{ pkErr }}</div>
-              </sc-if>
-            </div>
-          </sc-if>
+      <!-- sidewall helper -->
+      <div style="max-width:560px;margin:0 auto 20px;background:#14100e;border-radius:13px;padding:14px 18px;color:#fff;display:flex;align-items:center;gap:14px">
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:23px;letter-spacing:.06em;background:rgba(232,121,26,.18);color:#f4a04a;border-radius:8px;padding:6px 12px;white-space:nowrap">195/65 R15</div>
+        <div style="font-size:13px;color:#b3aaa3;line-height:1.45;text-align:left">Width &middot; Profile &middot; Rim &mdash; read straight off the side of your tyre.</div>
+      </div>
+
+      <!-- size picker -->
+      <div style="max-width:560px;margin:0 auto">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div>
+            <label style="display:block;font-size:12px;font-weight:700;color:#8a817b;margin-bottom:5px;letter-spacing:.04em">WIDTH</label>
+            <select value="{{ szWidth }}" onChange="{{ pickWidth }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:13px 10px;font-size:16px;background:#fff;color:#1c1817">
+              <option value="">—</option>
+              <sc-for list="{{ szWidths }}" as="w" hint-placeholder-count="0"><option value="{{ w }}">{{ w }}</option></sc-for>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:700;color:#8a817b;margin-bottom:5px;letter-spacing:.04em">PROFILE</label>
+            <select value="{{ szProfile }}" onChange="{{ pickProfile }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:13px 10px;font-size:16px;background:#fff;color:#1c1817">
+              <option value="">—</option>
+              <sc-for list="{{ szProfiles }}" as="p" hint-placeholder-count="0"><option value="{{ p }}">{{ p }}</option></sc-for>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12px;font-weight:700;color:#8a817b;margin-bottom:5px;letter-spacing:.04em">RIM</label>
+            <select value="{{ szRim }}" onChange="{{ pickRim }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:13px 10px;font-size:16px;background:#fff;color:#1c1817">
+              <option value="">—</option>
+              <sc-for list="{{ szRims }}" as="r" hint-placeholder-count="0"><option value="{{ r }}">{{ r }}</option></sc-for>
+            </select>
+          </div>
         </div>
-      </sc-if>
+
+        <button onClick="{{ findTyres }}" style="{{ findBtnStyle }}">{{ findBtnLabel }}</button>
+
+        <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;color:#5c534d;font-size:13.5px;cursor:pointer">
+          <input type="checkbox" checked="{{ inStockOnly }}" onChange="{{ toggleInStock }}" style="width:16px;height:16px;accent-color:#e8791a"/>
+          Only show tyres we have in the van right now
+        </label>
+      </div>
 
       <!-- loading -->
-      <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
-        <div style="display:flex;flex-direction:column;align-items:center;padding:14px 0 4px;animation:fadeIn .3s ease">
-          <dotlottie-wc src="https://lottie.host/f543018a-a76b-4db1-b72f-b9862629861a/w9AH7f1DHX.json" style="width:200px;height:200px" autoplay loop></dotlottie-wc>
-          <div style="font-family:'Barlow Condensed';font-weight:700;font-size:19px;color:#1c1817;letter-spacing:.04em;margin-top:-12px">READING YOUR PLATE…</div>
-          <div style="color:#8a817b;font-size:13.5px">Matching your vehicle to the DVLA database</div>
+      <sc-if value="{{ tyreLoading }}" hint-placeholder-val="{{ false }}">
+        <div style="text-align:center;padding:24px 0 6px">
+          <div style="font-family:'Barlow Condensed';font-weight:700;font-size:19px;color:#1c1817;letter-spacing:.04em">CHECKING PRICES…</div>
+          <div style="color:#8a817b;font-size:13.5px">Live stock and prices from our supplier</div>
         </div>
       </sc-if>
 
-      <!-- error -->
-      <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
-        <div style="margin-top:18px;background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:11px;padding:14px 16px;text-align:center;font-weight:600">{{ regError }}</div>
+      <!-- error / nothing found -->
+      <sc-if value="{{ tyreErr }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:18px;background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:11px;padding:14px 16px;text-align:center;font-weight:600">{{ tyreErr }}</div>
       </sc-if>
 
-      <!-- confirm: is this your car? -->
-      <sc-if value="{{ isConfirm }}" hint-placeholder-val="{{ false }}">
-        <div style="margin-top:22px;animation:riseUp .4s ease both">
-          <div style="text-align:center;color:#5c534d;font-size:14px;margin-bottom:12px">We found this vehicle for <strong style="color:#1c1817">{{ confirmReg }}</strong> — is this your car?</div>
-          <div style="max-width:460px;margin:0 auto;background:#14100e;border-radius:14px;padding:20px 22px;color:#fff;display:flex;align-items:center;gap:16px">
-            <div style="width:52px;height:52px;flex:none;border-radius:10px;background:rgba(232,121,26,.16);display:flex;align-items:center;justify-content:center">
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6.5 17l-1.2-5.2A2 2 0 0 1 7.2 9.4l.6-2.6A2 2 0 0 1 9.8 5.3h4.4a2 2 0 0 1 2 1.5l.6 2.6a2 2 0 0 1 1.9 2.4L17.5 17"/><circle cx="8" cy="17.5" r="1.6"/><circle cx="16" cy="17.5" r="1.6"/></svg>
-            </div>
-            <div style="line-height:1.2">
-              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px">{{ confirmVehicle.title }}</div>
-              <div style="color:#b3aaa3;font-size:14px;font-weight:600">{{ confirmVehicle.line2 }}</div>
-            </div>
+      <!-- results -->
+      <sc-if value="{{ hasTyres }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top:26px;animation:riseUp .5s ease both">
+          <div style="display:flex;align-items:center;gap:8px;margin:0 2px 14px;color:#5c534d;font-weight:600;font-size:14px">
+            {{ tyreCountLabel }} <span style="background:#1c1817;color:#fff;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.05em;border-radius:6px;padding:3px 10px;font-size:15px">{{ chosenSize }}</span>
           </div>
-          <div style="max-width:460px;margin:14px auto 0;display:flex;gap:10px">
-            <button onClick="{{ confirmYes }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px" style-hover="background:#f78c30">Yes, that's my car →</button>
-            <button onClick="{{ notMyCar }}" style="background:#f0ebe5;color:#1c1817;font-weight:700;border:0;border-radius:10px;padding:14px 18px;cursor:pointer;font-size:14.5px">Not my car</button>
+          <div style="display:grid;gap:10px">
+            <sc-for list="{{ tyreOptions }}" as="t" hint-placeholder-count="3">
+              <div style="{{ t.cardStyle }}">
+                <img src="{{ t.image }}" alt="{{ t.brand }}" style="width:56px;height:56px;flex:none;object-fit:contain;background:#faf7f3;border-radius:9px"/>
+                <div style="flex:1;min-width:170px;line-height:1.3;text-align:left">
+                  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                    <span style="{{ t.badgeStyle }}">{{ t.tierLabel }}</span>
+                    <sc-if value="{{ t.inStock }}" hint-placeholder-val="{{ true }}"><span style="background:#39a854;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.06em;border-radius:5px;padding:2px 7px">IN STOCK</span></sc-if>
+                  </div>
+                  <div style="font-weight:700;font-size:15.5px;color:#1c1817;margin-top:5px">{{ t.brand }} {{ t.model }}</div>
+                  <div style="color:#8a817b;font-size:12.5px">{{ t.label }} &middot; {{ t.sku }}</div>
+                </div>
+                <div style="text-align:right;min-width:96px">
+                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:29px;color:#1c1817;line-height:1">{{ t.priceEach }}</div>
+                  <div style="font-size:11.5px;color:#8a817b;font-weight:600">per tyre fitted</div>
+                </div>
+                <button onClick="{{ t.book }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14.5px;white-space:nowrap" style-hover="background:#f78c30">Book fitting</button>
+              </div>
+            </sc-for>
           </div>
+          <div style="text-align:center;color:#8a817b;font-size:13px;margin-top:14px">Prices include mobile fitting, valve, balance &amp; old tyre disposal. Cannot see your size or need advice? <button onClick="{{ openBook }}" style="background:none;border:0;color:#c25e0c;font-weight:700;text-decoration:underline;cursor:pointer;font-size:13px">Ask us</button></div>
         </div>
       </sc-if>
 
-      <!-- not my car -->
-      <sc-if value="{{ notMyCarOpen }}" hint-placeholder-val="{{ false }}">
-        <div style="margin-top:20px;max-width:460px;margin-left:auto;margin-right:auto;background:#fff6ec;border:1px solid #f2d9bd;border-radius:12px;padding:18px 20px;text-align:center;animation:fadeIn .3s ease">
-          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#1c1817;margin-bottom:6px">No problem — let's get it right</div>
-          <div style="color:#5c534d;font-size:14px;line-height:1.5;margin-bottom:14px">Give us a quick call and we'll match your exact vehicle and tyres by hand.</div>
+      <!-- nothing in stock -->
+      <sc-if value="{{ noStockMatch }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:20px;max-width:500px;margin-left:auto;margin-right:auto;background:#fff6ec;border:1px solid #f2d9bd;border-radius:12px;padding:18px 20px;text-align:center">
+          <div style="font-family:'Barlow Condensed';font-weight:800;font-size:19px;color:#1c1817;margin-bottom:6px">Nothing in the van in that size today</div>
+          <div style="color:#5c534d;font-size:14px;line-height:1.5;margin-bottom:12px">We can still get them in — usually next morning. Untick the in-stock box to see the full range, or give us a shout.</div>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-            <a href="tel:07925340977" style="display:inline-flex;align-items:center;gap:8px;background:#e8791a;color:#14100e;font-weight:700;border-radius:10px;padding:12px 20px;font-size:15px">📞 Call 07925 340977</a>
-            <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20I%20need%20help%20matching%20my%20vehicle%20for%20tyres." target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:12px 20px;font-size:15px">WhatsApp us</a>
+            <a href="tel:07925340977" style="display:inline-flex;align-items:center;gap:8px;background:#e8791a;color:#14100e;font-weight:700;border-radius:10px;padding:11px 18px;font-size:14.5px">Call 07925 340977</a>
+            <a href="https://wa.me/447925340977?text=Hi%20Cousins%2C%20can%20you%20get%20tyres%20in%20my%20size%3F" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:11px 18px;font-size:14.5px">WhatsApp us</a>
           </div>
-          <button onClick="{{ tryAgain }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:13px;margin-top:12px">Try another registration</button>
         </div>
       </sc-if>
 
-      <!-- result -->
-      <sc-if value="{{ hasResult }}" hint-placeholder-val="{{ false }}">
-        <div style="margin-top:24px;animation:riseUp .5s ease both">
-          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:#14100e;border-radius:14px;padding:18px 20px;color:#fff">
-            <div style="display:flex;align-items:center;gap:16px">
-              <div style="width:52px;height:52px;flex:none;border-radius:10px;background:rgba(232,121,26,.16);display:flex;align-items:center;justify-content:center">
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M6.5 17l-1.2-5.2A2 2 0 0 1 7.2 9.4l.6-2.6A2 2 0 0 1 9.8 5.3h4.4a2 2 0 0 1 2 1.5l.6 2.6a2 2 0 0 1 1.9 2.4L17.5 17"/><circle cx="8" cy="17.5" r="1.6"/><circle cx="16" cy="17.5" r="1.6"/></svg>
-              </div>
-              <div style="line-height:1.2">
-                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:24px">{{ vehicle.title }}</div>
-                <div style="color:#b3aaa3;font-size:14px;font-weight:600">{{ vehicle.line2 }}</div>
-              </div>
-            </div>
-            <div style="{{ verifyStyle }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>{{ verifyLabel }}</div>
-          </div>
-
-          <!-- tyre results -->
-          <sc-if value="{{ showTyres }}" hint-placeholder-val="{{ true }}">
-            <div>
-              <sc-if value="{{ vehicle.tyre }}" hint-placeholder-val="{{ true }}"><div style="display:flex;align-items:center;gap:8px;margin:22px 2px 12px;color:#5c534d;font-weight:600;font-size:14px">Recommended tyre size <span style="background:#1c1817;color:#fff;font-family:'Barlow Condensed';font-weight:700;letter-spacing:.05em;border-radius:6px;padding:3px 10px;font-size:15px">{{ vehicle.tyre }}</span></div></sc-if>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" class="cms-grid3">
-                <sc-for list="{{ tyreOptions }}" as="t" hint-placeholder-count="3">
-                  <div style="{{ t.cardStyle }}">
-                    <div style="{{ t.badgeStyle }}">{{ t.tier }}</div>
-                    <div style="font-weight:700;font-size:15px;color:#1c1817;margin-top:8px">{{ t.brand }}</div>
-                    <div style="color:#8a817b;font-size:12.5px;margin-bottom:12px">{{ t.note }}</div>
-                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:30px;color:#1c1817;line-height:1">{{ t.priceEach }}<span style="font-size:13px;color:#8a817b;font-weight:600"> /tyre fitted</span></div>
-                    <button onClick="{{ t.book }}" style="margin-top:14px;width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:14.5px" style-hover="background:#f78c30">Book fitting</button>
-                  </div>
-                </sc-for>
-              </div>
-              <div style="text-align:center;color:#8a817b;font-size:13px;margin-top:12px">Prices include mobile fitting, valve, balance &amp; old tyre disposal. Need a different budget or brand? <button onClick="{{ openBook }}" style="background:none;border:0;color:#c25e0c;font-weight:700;text-decoration:underline;cursor:pointer;font-size:13px">Ask us</button></div>
-            </div>
-          </sc-if>
-
-          <!-- parts results -->
-          <sc-if value="{{ showParts }}" hint-placeholder-val="{{ false }}">
-            <div>
-              <div style="margin:22px 2px 12px;color:#5c534d;font-weight:600;font-size:14px">Common jobs &amp; repairs for your {{ vehicle.make }} — mobile, at your location</div>
-              <div style="display:grid;gap:10px">
-                <sc-for list="{{ partOptions }}" as="p" hint-placeholder-count="4">
-                  <div style="display:flex;align-items:center;gap:14px;background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px 16px">
-                    <div style="width:40px;height:40px;flex:none;border-radius:9px;background:rgba(232,121,26,.12);color:#c25e0c;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed';font-weight:800;font-size:18px">{{ p.icon }}</div>
-                    <div style="flex:1;line-height:1.25"><div style="font-weight:700;color:#1c1817;font-size:15.5px">{{ p.name }}</div><div style="color:#8a817b;font-size:13px">{{ p.note }}</div></div>
-                    <div style="text-align:right"><div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#1c1817">{{ p.price }}</div><div style="color:#8a817b;font-size:11px">from</div></div>
-                    <button onClick="{{ p.book }}" style="background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:14px;white-space:nowrap" style-hover="background:#332b26">Book</button>
-                  </div>
-                </sc-for>
-              </div>
-            </div>
-          </sc-if>
-        </div>
-      </sc-if>
     </div>
   </div>
 </section>
@@ -517,9 +463,41 @@
       <button onClick="{{ openBook }}" style="margin-top:18px;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px 18px;cursor:pointer;width:100%">Book online</button>
     </div>
   </div>
-  <div style="max-width:1200px;margin:34px auto 0;border-top:1px solid #241e1b;padding-top:20px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;color:#6f6862;font-size:13px">
+  <div style="max-width:1200px;margin:30px auto 0;border-top:1px solid #241e1b;padding-top:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px">
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:15px;letter-spacing:.08em;margin-bottom:12px">EXPLORE</div>
+      <div style="display:flex;flex-wrap:wrap;gap:9px 20px;font-size:14px">
+        <a href="#services" style="color:#9a918a" style-hover="color:#f4a04a">Services</a>
+        <a href="#reg" style="color:#9a918a" style-hover="color:#f4a04a">Tyres &amp; Parts</a>
+        <a href="#work" style="color:#9a918a" style-hover="color:#f4a04a">Recent Work</a>
+        <a href="#track" style="color:#9a918a" style-hover="color:#f4a04a">Track Job</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:15px;letter-spacing:.08em;margin-bottom:12px">LEGAL</div>
+      <div style="display:flex;flex-wrap:wrap;gap:9px 20px;font-size:14px">
+        <a href="terms.html" style="color:#9a918a" style-hover="color:#f4a04a">Terms &amp; Conditions</a>
+        <a href="privacy.html" style="color:#9a918a" style-hover="color:#f4a04a">Privacy Policy</a>
+        <a href="cookies.html" style="color:#9a918a" style-hover="color:#f4a04a">Cookie Policy</a>
+        <a href="accessibility.html" style="color:#9a918a" style-hover="color:#f4a04a">Accessibility</a>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:15px;letter-spacing:.08em;margin-bottom:12px">STAFF</div>
+      <div style="display:flex;flex-wrap:wrap;gap:9px 20px;font-size:14px">
+        <a href="admin.html" style="color:#9a918a" style-hover="color:#f4a04a">Admin portal</a>
+        <a href="driver.html" style="color:#9a918a" style-hover="color:#f4a04a">Driver app</a>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:1200px;margin:26px auto 0;border-top:1px solid #241e1b;padding-top:20px;display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:space-between;color:#6f6862;font-size:13px">
     <span>© Cousins Mechanical Services Ltd</span>
-    <a href="admin.html" style="color:#6f6862;font-weight:600" style-hover="color:#f4a04a">Staff login</a>
+    <span style="display:flex;flex-wrap:wrap;gap:14px">
+      <a href="terms.html" style="color:#6f6862" style-hover="color:#f4a04a">Terms</a>
+      <a href="privacy.html" style="color:#6f6862" style-hover="color:#f4a04a">Privacy</a>
+      <a href="cookies.html" style="color:#6f6862" style-hover="color:#f4a04a">Cookies</a>
+      <a href="accessibility.html" style="color:#6f6862" style-hover="color:#f4a04a">Accessibility</a>
+    </span>
     <span>Mobile Tyre Fitting • Servicing • Welding • Diagnostics • Recovery</span>
   </div>
   <div id="privacy" style="max-width:1200px;margin:22px auto 0;border-top:1px solid #241e1b;padding-top:20px;color:#8a817b;font-size:12.5px;line-height:1.65">
@@ -918,8 +896,11 @@
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:900}}">
 class Component extends DCLogic {
   state = {
-    regTab: 'tyres', regInput: '', regStatus: 'idle', vehicle: null, regError: '',
-    tyreOptions: [], partOptions: [],
+    // tyre size picker (replaced the number-plate lookup)
+    szTree: {}, szWidths: [], szProfiles: [], szRims: [],
+    szWidth: '', szProfile: '', szRim: '', chosenSize: '',
+    inStockOnly: false, tyreLoading: false, tyreErr: '', noStockMatch: false,
+    tyreOptions: [],
     bookOpen: false, bookStep: 1, bookDone: false, lastRef: '',
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true },
     locHint: 'We use this to route the van straight to you.',
@@ -932,9 +913,7 @@ class Component extends DCLogic {
     trackRef: '', eta: 0, distance: 0, feed: [], lightbox: '', now: Date.now(), estimate:true,
     liveTrack:false, custPos:null, mechPos:null, geoErr:'', driverMode:false, driverRef:'', driverOn:false, driverErr:'', driverAcc:0,
     isSample: true, cfgOpen: false, cfgEndpoint: '', cfgKey: '', cfgProvider: 'vdim',
-    confirmVehicle: null, confirmReg: '', notMyCarOpen: false,
-    pk: { year:'', make:'', model:'', trim:'' },
-    opt: { years:[], makes:[], models:[], trims:[] }, pkErr: ''
+    confirmVehicle: null, confirmReg: '', notMyCarOpen: false
   };
 
   componentDidMount(){
@@ -943,7 +922,7 @@ class Component extends DCLogic {
     this.loadSession();
     try{ const m=(location.hash||'').match(/reset=([\w-]+)/); if(m){ this.setState({resetToken:m[1], portalOpen:true}); } }catch(e){}
     this.loadOrders();
-    setTimeout(()=>this.loadYears(), 60);
+    setTimeout(()=>this.loadSizes(), 60);
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);
   }
@@ -958,7 +937,6 @@ class Component extends DCLogic {
       const c = JSON.parse(localStorage.getItem('cms_config')||'null');
       if(c){ window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
         this.setState({ cfgEndpoint:c.tireProxy||'' });
-        if(c.tireProxy) setTimeout(()=>this.loadYears(), 50);
       }
     }catch(e){}
   }
@@ -972,8 +950,7 @@ class Component extends DCLogic {
     const c = { tireProxy: base };
     try{ localStorage.setItem('cms_config', JSON.stringify(c)); }catch(e){}
     window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
-    this.setState({cfgOpen:false, pkErr:''});
-    if(base) this.loadYears();
+    this.setState({cfgOpen:false});
   };
   clearConfig = () => {
     try{ localStorage.removeItem('cms_config'); }catch(e){}
@@ -995,277 +972,95 @@ class Component extends DCLogic {
     return r;
   }
 
-  // ---------- LIVE TYRE LOOKUP (tire.vdim.app via proxy) ----------
-  tireBase(){ return this.apiBase(); }
-  hasProxy(){ return this.apiBase()!==null; }
-  async tapi(path){ const b=this.tireBase(); if(b===null) throw new Error('noproxy'); const r=await fetch(b+'/api/v1'+path); if(!r.ok) throw new Error('api '+r.status); return r.json(); }
-  toList(d){
-    let arr = Array.isArray(d) ? d : null;
-    if(!arr && d && typeof d==='object'){ arr = d.data||d.results||d.items||d.makes||d.models||d.trims||d.years||d.values||d.list; if(!Array.isArray(arr)){ for(const k in d){ if(Array.isArray(d[k])){ arr=d[k]; break; } } } }
-    if(!Array.isArray(arr)) return [];
-    return arr.map(x=> typeof x==='object' ? (x.name||x.make||x.model||x.trim||x.year||x.value||x.label||Object.values(x)[0]) : x).filter(v=>v!==undefined&&v!==null&&v!=='').map(String);
-  }
-  buildSize(t){
-    if(!t) return '';
-    const w=t.SectionWidthMm||t.sectionWidthMm||t.sectionWidth, a=t.AspectRatio||t.aspectRatio, r=t.RimDiameterInches||t.rimDiameterInches||t.rimDiameter;
-    return (w&&a&&r) ? (w+'/'+a+' R'+r) : '';
-  }
-  extractSize(d){
-    if(!d) return '';
-    if(typeof d==='string') return d.replace(/R?(\d{2})$/,' R$1').replace(/\s+R/,' R');
-    if(Array.isArray(d)) return this.extractSize(d[0]);
-    for(const k of ['tiresize','tireSize','tire_size','size','Front','front','standard','Standard','oe']){
-      if(d[k]){ const v=d[k]; const s=this.extractSize(v); if(s) return s; }
-    }
-    const w=d.width||d.Width||d.section_width||d.sectionWidth;
-    const a=d.aspectRatio||d.aspect_ratio||d.AspectRatio||d.ratio||d.aspect;
-    const r=d.diameter||d.Diameter||d.rim||d.rimDiameter||d.wheel||d.rim_diameter;
-    if(w&&a&&r) return w+'/'+a+' R'+r;
-    return '';
-  }
-  loadYears = async () => {
-    // Always seed a sensible year range so the picker is usable immediately
-    const nowY=new Date().getFullYear(); const range=[]; for(let y=nowY+1;y>=1995;y--) range.push(String(y));
-    this.setState(s=>({opt:{...s.opt,years:range}, pkErr:''}));
-    if(!this.hasProxy()) return;
-    try{ const d=await this.tapi('/search_allyear'); const years=this.toList(d).sort((a,b)=>String(b).localeCompare(String(a),undefined,{numeric:true})); if(years.length) this.setState(s=>({opt:{...s.opt,years}})); }catch(e){}
-  };
-  carMakes(){ return (typeof window!=='undefined' && window.CAR_MAKES) ? window.CAR_MAKES : []; }
-  carModels(make){ return (typeof window!=='undefined' && window.CAR_DATA && window.CAR_DATA[make]) ? window.CAR_DATA[make] : []; }
-  pickYear = async (e) => {
-    const year=e.target.value;
-    this.setState(s=>({pk:{year,make:'',model:'',trim:''}, opt:{...s.opt,makes:this.carMakes(),models:[],trims:[]}, pkErr:''}));
-    if(!year || !this.hasProxy()) return;
-    try{ const d=await this.tapi('/by_vehicle/make?year='+encodeURIComponent(year)); const makes=this.toList(d); if(makes.length) this.setState(s=>({opt:{...s.opt,makes}})); }catch(e){}
-  };
-  pickMake = async (e) => {
-    const make=e.target.value; const {year}=this.state.pk;
-    this.setState(s=>({pk:{...s.pk,make,model:'',trim:''}, opt:{...s.opt,models:this.carModels(make),trims:[]}, pkErr:''}));
-    if(!make || !this.hasProxy()) return;
-    try{ const d=await this.tapi('/by_vehicle/model?year='+encodeURIComponent(year)+'&make='+encodeURIComponent(make)); const models=this.toList(d); if(models.length) this.setState(s=>({opt:{...s.opt,models}})); }catch(e){}
-  };
-  pickModel = async (e) => {
-    const model=e.target.value; const {year,make}=this.state.pk;
-    this.setState(s=>({pk:{...s.pk,model,trim:''}, opt:{...s.opt,trims:[]}, pkErr:''}));
-    if(!model) return;
-    try{ const d=await this.tapi('/by_vehicle/trim?year='+encodeURIComponent(year)+'&make='+encodeURIComponent(make)+'&model='+encodeURIComponent(model)); this.setState(s=>({opt:{...s.opt,trims:this.toList(d)}})); }catch(e){ this.pkFail(); }
-  };
-  pickTrim = async (e) => {
-    const trim=e.target.value; this.setState(s=>({pk:{...s.pk,trim}}));
-    if(!trim) return; this.fetchLiveDims(trim);
-  };
-  pkFail(){ this.setState({pkErr:'That step failed — the live service may not list this vehicle. Try another.'}); }
-  async fetchLiveDims(trim){
-    const {year,make,model}=this.state.pk;
-    this.setState({regStatus:'loading', regError:''});
-    try{
-      const params=new URLSearchParams({year,make,model,trim});
-      const d=await this.tapi('/tire_dimensions?'+params.toString());
-      const dims=d.dimensions||d.data||d;
-      const size=this.extractSize(dims);
-      const v={ reg:'', make, model, year, title:(make+' '+model).trim(), line2:[trim,year].filter(Boolean).join(' · '), tyre:size };
-      this.setState({regStatus:'result', regTab:'tyres', vehicle:v});
-      this.buildOptions(v,'tyres');
-    }catch(e){ this.setState({regStatus:'error', regError:'We couldn\u2019t load tyre details for that vehicle just now \u2014 please try again, or call us on 07925 340977.'}); }
-  }
   loadOrders(){ try{ const o=JSON.parse(localStorage.getItem('cms_orders')||'[]'); this.setState({orders:o}); const act=o.find(x=>x.status!=='cancelled'&&x.status!=='complete'); if(act){ this.startTracking(act.ref); } }catch(e){} }
   saveOrders(o){ try{ localStorage.setItem('cms_orders', JSON.stringify(o)); }catch(e){} this.setState({orders:o}); }
 
-  // ---------- REG LOOKUP ----------
-  selectTyres = () => { this.setState({regTab:'tyres'}); if(this.state.vehicle) this.buildOptions(this.state.vehicle,'tyres'); };
-  selectParts = () => { this.setState({regTab:'parts'}); if(this.state.vehicle) this.buildOptions(this.state.vehicle,'parts'); };
-  onRegInput = (e) => this.setState({regInput: e.target.value.toUpperCase()});
-  onRegKey = (e) => { if(e.key==='Enter') this.lookupReg(); };
-  tryDemo = () => { this.setState({regInput:'AB12CDE'}, ()=>this.lookupReg()); };
-
-  lookupReg = async () => {
-    const reg = (this.state.regInput||'').toUpperCase().replace(/\s+/g,'').trim();
-    if(reg.length < 2){ this.setState({regStatus:'error', regError:'Please enter a valid number plate.'}); return; }
-    this.setState({regStatus:'loading', regError:'', notMyCarOpen:false});
-    try {
-      const cv = await this.confirmLookup(reg);           // step 1: confirm make & model
-      this.setState({regStatus:'confirm', confirmReg:reg, confirmVehicle:cv});
-    } catch(err){
-      this.setState({regStatus:'error', regError:'We couldn\u2019t find that registration. Please double-check it, or call us on 07925 340977 and we\u2019ll sort it.'});
+  // ---------- TYRE SIZE PICKER ----------
+  // The number-plate lookup was removed: it depended on a paid DVLA/UKVD call
+  // per search and still guessed the fitment. The size is printed on the tyre,
+  // so we ask for it directly and get an exact match every time.
+  async loadSizes(){
+    try{
+      const r = await fetch(this.apiRoot()+'/api/tyres/sizes');
+      if(!r.ok) throw new Error('sizes');
+      const d = await r.json();
+      const tree = d.tree || {};
+      const widths = (d.widths && d.widths.length ? d.widths : Object.keys(tree).map(Number)).sort((a,b)=>a-b);
+      this.setState({ szTree: tree, szWidths: widths });
+    }catch(e){
+      this.setState({ tyreErr: 'Could not load tyre sizes. Please call us on 07925 340977 and we will sort it.' });
     }
+  }
+  apiRoot(){ return ''; }
+
+  pickWidth = (e) => {
+    const w = e.target.value;
+    const profiles = Object.keys((this.state.szTree||{})[w] || {}).sort((a,b)=>Number(a)-Number(b));
+    this.setState({ szWidth:w, szProfile:'', szRim:'', szProfiles:profiles, szRims:[], tyreOptions:[], tyreErr:'', chosenSize:'' });
   };
-  confirmYes = async () => {                              // step 2: pull tyre info
-    const reg = this.state.confirmReg;
-    this.setState({regStatus:'loading', regError:''});
-    try {
-      const t = await this.fetchVehicle(reg);             // TyreDetails -> size
-      const v = { ...this.state.confirmVehicle, reg, tyre: t.tyre || this.state.confirmVehicle.tyre || '' };
-      this.setState({regStatus:'result', regTab:'tyres', vehicle:v});
-      this.buildOptions(v, 'tyres');
-    } catch(err){
-      this.setState({regStatus:'error', regError:'We couldn\u2019t load tyre details for that vehicle just now \u2014 please try again, or call us on 07925 340977.'});
-    }
+  pickProfile = (e) => {
+    const p = e.target.value;
+    const rims = (((this.state.szTree||{})[this.state.szWidth] || {})[p] || []).slice().sort((a,b)=>Number(a)-Number(b));
+    this.setState({ szProfile:p, szRim:'', szRims:rims, tyreOptions:[], tyreErr:'', chosenSize:'' });
   };
-  notMyCar = () => this.setState({regStatus:'idle', notMyCarOpen:true});
-  tryAgain = () => this.setState({regStatus:'idle', notMyCarOpen:false, regInput:'', vehicle:null});
+  pickRim = (e) => this.setState({ szRim:e.target.value, tyreOptions:[], tyreErr:'', chosenSize:'' });
+  toggleInStock = (e) => {
+    const on = e.target.checked;
+    this.setState({ inStockOnly:on }, () => { if(this.state.chosenSize) this.findTyres(); });
+  };
 
-  // Step 1 — confirm the vehicle via VehicleDetails; fall back to TyreDetails' model name.
-  async confirmLookup(reg){
-    if(this.hasProxy()){
-      try{
-        const r = await fetch(this.tireBase()+'/api/ukvd?package=VehicleDetails&vrm='+encodeURIComponent(reg));
-        if(r.ok){ const d = await r.json(); const v = this.normaliseVD(reg, d); if(v && (v.make||v.model)){ return v; } }
-      }catch(e){}
-      // fallback: TyreDetails carries a model name even without VehicleDetails enabled
-      try{
-        const r2 = await fetch(this.tireBase()+'/api/ukvd?vrm='+encodeURIComponent(reg));
-        if(r2.ok){ const d2 = await r2.json(); const v2 = this.normalise(reg, d2, 'ukvd'); if(v2 && (v2.model||v2.tyre)){ v2.make = v2.make==='Vehicle' ? '' : v2.make; return v2; } }
-      }catch(e){}
+  findTyres = async () => {
+    const { szWidth, szProfile, szRim, inStockOnly } = this.state;
+    if(!szWidth || !szProfile || !szRim){
+      this.setState({ tyreErr:'Pick all three — width, profile and rim.' });
+      return;
     }
-    throw new Error('noconfirm');
-  }
-  // Tolerant VehicleDetails parse (PascalCase VDG shape) + recursive key search fallback.
-  normaliseVD(reg, d){
-    const res = d.Results || d.results || d;
-    const vd = res.VehicleDetails || res.vehicleDetails || res;
-    const vi = vd.VehicleIdentification || vd.vehicleIdentification || vd;
-    const pick = (o,keys)=>{ for(const k of keys){ if(o && o[k]!=null && o[k]!=='' ) return o[k]; } return ''; };
-    let make = pick(vi,['DvlaMake','Make','Marque','make']) || this.deepFind(res,/make|marque/i);
-    let model = pick(vi,['DvlaModel','Model','Range','model']) || this.deepFind(res,/^model$|modelname|range/i);
-    if(typeof window!=='undefined' && window.canonMake && make) make = window.canonMake(make);
-    const year = pick(vi,['YearOfManufacture','ManufacturedYear','year']) || this.deepFind(res,/year/i);
-    const colour = pick(vi,['DvlaColour','Colour','Color']) || this.deepFind(res,/colou?r/i);
-    const fuel = pick(vi,['DvlaFuelType','FuelType','Fuel']) || this.deepFind(res,/fuel/i);
-    return this.pack(reg, String(make||'').trim()||'Vehicle', String(model||'').trim(), year||'', colour||'', fuel||'', '', '');
-  }
-  deepFind(obj, rx, depth){
-    depth = depth||0; if(!obj || typeof obj!=='object' || depth>4) return '';
-    for(const k in obj){ const val=obj[k];
-      if((typeof val==='string'||typeof val==='number') && rx.test(k) && String(val).trim()!=='') return val;
-    }
-    for(const k in obj){ if(obj[k] && typeof obj[k]==='object'){ const r=this.deepFind(obj[k],rx,depth+1); if(r) return r; } }
-    return '';
-  }
+    const size = szWidth + '/' + szProfile + 'R' + szRim;
+    this.setState({ tyreLoading:true, tyreErr:'', tyreOptions:[], noStockMatch:false });
+    try{
+      const qs = '?size=' + encodeURIComponent(size) + (inStockOnly ? '&inStock=1' : '');
+      const r = await fetch(this.apiRoot()+'/api/tyres/lookup'+qs);
+      if(!r.ok) throw new Error('lookup failed');
+      const d = await r.json();
 
-  // LIVE lookup. window.CMS_CONFIG.vehicleEndpoint = your proxy/API URL. The reg is appended
-  // (or use {REG}/{KEY} placeholders). provider tells us how to read the response:
-  //   'ukvd'  -> ukvehicledata.co.uk datapackage (make, model + real tyre size)
-  //   'dvla'  -> DVLA VES (make, colour, fuel, year, cc — no model/tyre)
-  //   'custom'-> your proxy already returns {make,model,year,colour,fuel,tyreSize,engineCapacity}
-  async fetchVehicle(reg){
-    // 1) Live: UK Vehicle Data (plate -> vehicle + tyre) through your proxy
-    if(this.hasProxy()){
-      try{
-        const r = await fetch(this.tireBase()+'/api/ukvd?vrm='+encodeURIComponent(reg));
-        if(r.ok){
-          const d = await r.json();
-          const v = this.normalise(reg, d, 'ukvd');
-          if(v.tyre){ this._live = true; return v; }
+      if(!d.tyres || d.tyres.length === 0){
+        // Distinguish "nothing in stock" from "we do not stock that size at all",
+        // because the fix is different for the customer.
+        if(inStockOnly){
+          this.setState({ tyreLoading:false, noStockMatch:true, chosenSize:size });
+        }else{
+          this.setState({ tyreLoading:false, chosenSize:'', tyreErr:'We could not find that size. Double-check the numbers on your sidewall, or call us on 07925 340977.' });
         }
-      }catch(e){}
-    }
-    // No live match — surface an error rather than any placeholder data
-    this._live = false;
-    throw new Error('nolookup');
-  }
-  normalise(reg, d, provider){
-    if(provider==='ukvd'){
-      // Vehicle Data Global r2 (keys are PascalCase): Results.TyreDetails.TyreDetailsList[]
-      const res = d.Results || d.results || d;
-      const td = res.TyreDetails || res.tyreDetails || {};
-      const list = td.TyreDetailsList || td.tyreDetailsList || [];
-      const item = list.find(x=>x && (x.IsStandardFitmentForVehicle||x.isStandardFitmentForVehicle)) || list[0] || {};
-      const veh = item.Vehicle || item.vehicle || {};
-      const front = item.Front || item.front || {};
-      const ftyre = front.Tyre || front.tyre || {};
-      const size = ftyre.SizeDescription || ftyre.sizeDescription || this.buildSize(ftyre) || '';
-      const model = veh.ModelName || veh.modelName || '';
-      const yr = veh.Year || veh.year || {};
-      const year = yr.Uk || yr.uk || yr.Euro || yr.euro || '';
-      return this.pack(reg, 'Vehicle', String(model).trim(), year, '', '', size, '');
-    }
-    // custom / already-normalised
-    return this.pack(reg, d.make||'Vehicle', d.model||'', d.year||d.yearOfManufacture||'', d.colour||d.color||'', d.fuelType||d.fuel||'', d.tyreSize||d.tyre||'', d.engineCapacity||d.engine||'');
-  }
-  pack(reg, make, model, year, colour, fuel, tyre, engine){    return {
-      reg, make, model, year, colour, fuel, tyre, engine,
-      title: (make + ' ' + model).trim(),
-      line2: [colour, fuel, year, engine?engine+'cc':''].filter(Boolean).join(' · ')
-    };
-  }
-  demoVehicle(reg){
-    const db = {
-      'AB12CDE': ['Ford','Focus Zetec',2016,'Blue','Petrol','205/55 R16',1596],
-      'BD64XYZ': ['Volkswagen','Golf Match TDI',2015,'Grey','Diesel','225/45 R17',1968],
-      'LT19KRM': ['BMW','320d M Sport',2019,'Black','Diesel','225/45 R18',1995],
-      'WV68PLT': ['Vauxhall','Corsa SRi',2018,'White','Petrol','195/55 R16',1398]
-    };
-    if(db[reg]){ const r=db[reg]; return this.pack(reg, r[0],r[1],r[2],r[3],r[4],r[5],r[6]); }
-    // deterministic fallback so any plate returns a plausible vehicle
-    const makes=[['Ford','Fiesta','175/65 R14'],['Vauxhall','Astra','205/55 R16'],['Volkswagen','Polo','185/60 R15'],['Nissan','Qashqai','215/60 R17'],['Toyota','Yaris','185/60 R15'],['Audi','A3','225/45 R17'],['Mercedes-Benz','A-Class','205/55 R16'],['Kia','Sportage','225/60 R17']];
-    const cols=['Silver','Black','Blue','Grey','Red','White'];
-    const fuels=['Petrol','Diesel','Hybrid'];
-    let h=0; for(let i=0;i<reg.length;i++) h=(h*31+reg.charCodeAt(i))>>>0;
-    const mk=makes[h%makes.length];
-    const yr=2012 + (h>>3)%12;
-    return this.pack(reg, mk[0], mk[1], yr, cols[(h>>5)%cols.length], fuels[(h>>7)%fuels.length], mk[2], 1200+((h>>2)%800));
-  }
-
-  async buildOptions(v, tab){
-    const sz = v.tyre || '205/55 R16';
-    let tyreList = [];
-    try {
-      const r = await fetch('/api/tyres/lookup?size=' + encodeURIComponent(sz));
-      if (r.ok) {
-        const d = await r.json();
-        if (d.tyres && d.tyres.length > 0) tyreList = d.tyres;
+        return;
       }
-    } catch(e){}
-
-    const base = 46 + (parseInt((sz.match(/R(\d+)/)||[])[1]||'16',10) - 14) * 9;
-    let tyres;
-    if (tyreList.length > 0) {
-      tyres = tyreList.slice(0, 6).map((t, i) => {
-        const isFeatured = i === 1 || t.brand === 'Falken' || t.brand === 'Avon';
-        const accent = isFeatured ? '#e8791a' : (i >= 3 ? '#0d5bd4' : '#6f6862');
-        return {
-          tier: t.brand.toUpperCase() + ' ' + (t.model || ''),
-          brand: t.brand + ' — ' + (t.model || t.label),
-          note: t.label + ' (SKU: ' + t.sku + ')',
-          priceEach: '£' + (t.price || base),
-          accent: accent,
-          featured: isFeatured,
-          img: t.image,
-          cardStyle: 'border:'+(isFeatured?'2px solid #e8791a':'1.5px solid #eee3d8')+';border-radius:13px;padding:16px 14px 16px;background:'+(isFeatured?'#fff7f0':'#fff')+';text-align:left;position:relative',
-          badgeStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.08em;color:#fff;background:'+accent+';border-radius:6px;padding:3px 9px',
-          book: ()=>this.bookFromReg('tyre', 'Tyre fitting — ' + t.brand + ' ' + t.model + ' (' + sz + ') £' + t.price)
-        };
-      });
-    } else {
-      tyres = [
-        { tier:'BUDGET', brand:'Quality budget brand', note:'Great value, fully warrantied', priceEach:'£'+base, accent:'#6f6862' },
-        { tier:'MID-RANGE', brand:'Avon / Falken', note:'Best all-round choice', priceEach:'£'+(base+28), accent:'#e8791a', featured:true },
-        { tier:'PREMIUM', brand:'Michelin / Continental', note:'Longest life, best grip', priceEach:'£'+(base+64), accent:'#0d5bd4' }
-      ].map((t,i)=>({
-        ...t,
-        cardStyle: 'border:'+(t.featured?'2px solid #e8791a':'1.5px solid #eee3d8')+';border-radius:13px;padding:16px 14px 16px;background:'+(t.featured?'#fff7f0':'#fff')+';text-align:left;position:relative',
-        badgeStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.08em;color:#fff;background:'+t.accent+';border-radius:6px;padding:3px 9px',
-        book: ()=>this.bookFromReg('tyre', 'Tyre fitting — '+t.tier.toLowerCase()+' ('+sz+')')
-      }));
+      this.setState({ tyreLoading:false, chosenSize:d.size || size, tyreOptions:this.decorateTyres(d.tyres, d.size || size) });
+    }catch(e){
+      this.setState({ tyreLoading:false, tyreErr:'We could not reach our price list just now. Please call 07925 340977 and we will quote you directly.' });
     }
+  };
 
-    const parts = [
-      { icon:'🛞', name:'Puncture repair', note:'Safe repair where possible', price:'£25' },
-      { icon:'🛑', name:'Brake pads & discs', note:'Front or rear, quality parts', price:'£120' },
-      { icon:'🔋', name:'Battery supply & fit', note:'Tested & fitted on site', price:'£85' },
-      { icon:'🔧', name:'Full service', note:'Oil, filters, full check', price:'£99' },
-      { icon:'⚙️', name:'Clutch replacement', note:'Mobile or recovery to base', price:'£380' },
-      { icon:'🩺', name:'Diagnostics', note:'Fault codes read & explained', price:'£40' }
-    ].map(p=>({ ...p, book: ()=>this.bookFromReg('part', p.name) }));
-    this.setState({ tyreOptions: tyres, partOptions: parts });
+  // Turn the API payload into the shape the cards render, and attach the
+  // per-tyre booking action. Prices come from the admin's pricing rules — the
+  // page never calculates a price of its own.
+  decorateTyres(list, size){
+    const accent = { B:'#6f6862', M:'#e8791a', P:'#0d5bd4' };
+    return list.map(t => ({
+      ...t,
+      priceEach: t.price == null ? 'POA' : '£' + t.price,
+      tierLabel: t.tierLabel || '',
+      cardStyle: 'display:flex;flex-wrap:wrap;align-items:center;gap:14px;border:'+(t.inStock?'1.5px solid #39a854':'1.5px solid #eee3d8')+';border-radius:13px;padding:14px 16px;background:'+(t.inStock?'#f6fbf7':'#fff'),
+      badgeStyle: "display:inline-block;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.08em;color:#fff;background:"+(accent[t.tier]||'#6f6862')+";border-radius:5px;padding:2px 8px",
+      book: () => this.bookTyre(t, size),
+    }));
   }
 
-  bookFromReg(kind, label){
-    const v = this.state.vehicle;
-    this.setState(s=>({ bookOpen:true, bookStep:2, bookDone:false,
-      book:{ ...s.book, reg: v?v.reg:s.book.reg, service:kind, svcLabel:label } }));
+  bookTyre(t, size){
+    const label = 'Tyre fitting — ' + t.brand + ' ' + (t.model||'') + ' ' + size + (t.price!=null ? ' £'+t.price : '') + ' [' + t.sku + ']';
+    this.setState(s => ({
+      bookOpen:true, bookStep:2, bookDone:false,
+      book:{ ...s.book, service:'tyre', svcLabel:label, notes: (s.book.notes||'') },
+    }));
   }
-
   // ---------- BOOKING ----------
   openBook = () => this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}}));
   closeBook = () => this.setState({bookOpen:false});
@@ -1314,7 +1109,7 @@ class Component extends DCLogic {
           method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
           body: JSON.stringify(calEvent)
         });
-        const b64 = btoa("Content-Type: text/plain; charset=\"UTF-8\"\r\nMIME-Version: 1.0\r\nTo: " + (order.email || "info@cousinsmechanical.co.uk") + "\r\nSubject: Booking Confirmation: " + (order.ref || "NEW") + "\r\n\r\nYour booking is confirmed. We will see you then.").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const b64 = btoa("Content-Type: text/plain; charset=\"UTF-8\"\r\nMIME-Version: 1.0\r\nTo: " + (order.email || "info@cousinsmechanicalservices.co.uk") + "\r\nSubject: Booking Confirmation: " + (order.ref || "NEW") + "\r\n\r\nYour booking is confirmed. We will see you then.").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
         fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
           method: "POST", headers: { "Authorization": "Bearer " + window.googleAccessToken, "Content-Type": "application/json" },
           body: JSON.stringify({ raw: b64 })
@@ -1745,7 +1540,7 @@ class Component extends DCLogic {
     ];
     const R=React.createElement;
     const services = gServices.map(x=>({ title:x[0], body:x[1], img:x[2],
-      imgEl: R('img',{src:x[2],alt:x[0],style:{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}),
+      imgEl: R('img',{src:x[2],alt:x[0],loading:'lazy',decoding:'async',style:{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}),
       book:()=>this.setState(st=>({bookOpen:true,bookStep:2,bookDone:false,book:{...st.book,service:x[3],svcLabel:x[4]}})) }));
 
     const galImgs = ['job-01','job-04','job-06','job-07','job-08','job-09','job-10','job-11','job-12','job-13','job-14','job-15'];
@@ -1771,22 +1566,22 @@ class Component extends DCLogic {
     const bookTitle = s.bookDone ? 'Booking confirmed' : (s.bookStep===1?'Book a job':(s.bookStep===2?'Your vehicle':'Your details'));
     const confirmSummary = (s.book.svcLabel||'Mobile job')+' · '+(s.book.reg||'')+'<br/>'+this.fmtDate(s.book.date)+' · '+(s.book.time||'time TBC')+' · '+(s.book.postcode||'your location');
 
+    const sizeReady = !!(s.szWidth && s.szProfile && s.szRim);
+
     return {
       quickItems:[ ['images/qs-tyre-round.png','Tyre Fitting','Any size, on your drive'],['images/qs-breakdown-round.png','Breakdown','24hr roadside help'],['images/qs-servicing-round.png','Servicing','Oil, filters, checks'],['images/qs-recovery-round.png','Recovery','We tow it in'] ].map(q=>({title:q[1],sub:q[2],iconEl:R('img',{src:q[0],alt:q[1],style:{width:'100%',height:'100%',objectFit:'cover',display:'block'}})})),
       services, gallery,
       lightboxEl: s.lightbox ? R('img',{src:s.lightbox,alt:'Job photo',style:{maxWidth:'94vw',maxHeight:'90vh',borderRadius:'12px',boxShadow:'0 30px 80px rgba(0,0,0,.6)'}}) : null,
-      // reg
-      regInput:s.regInput, regError:s.regError,
-      onRegInput:this.onRegInput, onRegKey:this.onRegKey, lookupReg:this.lookupReg, tryDemo:this.tryDemo,
-      selectTyres:this.selectTyres, selectParts:this.selectParts,
-      tyreTabStyle: s.regTab==='tyres'?active:idle, partsTabStyle: s.regTab==='parts'?active:idle,
-      isLoading: s.regStatus==='loading', isError: s.regStatus==='error', hasResult: s.regStatus==='result',
-      isConfirm: s.regStatus==='confirm', confirmVehicle: s.confirmVehicle || {title:'',line2:''}, confirmReg: s.confirmReg,
-      notMyCarOpen: s.notMyCarOpen, confirmYes:this.confirmYes, notMyCar:this.notMyCar, tryAgain:this.tryAgain,
-      vehicle: s.vehicle || {title:'',line2:'',tyre:'',make:''},
-      showTyres: s.regStatus==='result' && s.regTab==='tyres',
-      showParts: s.regStatus==='result' && s.regTab==='parts',
-      tyreOptions:s.tyreOptions, partOptions:s.partOptions,
+      // tyre size picker
+      szWidth:s.szWidth, szProfile:s.szProfile, szRim:s.szRim,
+      szWidths:s.szWidths, szProfiles:s.szProfiles, szRims:s.szRims,
+      pickWidth:this.pickWidth, pickProfile:this.pickProfile, pickRim:this.pickRim,
+      findTyres:this.findTyres, inStockOnly:s.inStockOnly, toggleInStock:this.toggleInStock,
+      findBtnLabel: s.tyreLoading ? 'Checking…' : 'Show me prices →',
+      findBtnStyle: 'width:100%;margin-top:16px;background:'+(sizeReady?'#e8791a':'#d8cfc6')+';color:#14100e;font-weight:700;font-size:17px;border:0;border-radius:11px;padding:15px;cursor:'+(sizeReady?'pointer':'not-allowed'),
+      tyreLoading:s.tyreLoading, tyreErr:s.tyreErr, noStockMatch:s.noStockMatch,
+      hasTyres: s.tyreOptions.length>0, tyreOptions:s.tyreOptions, chosenSize:s.chosenSize,
+      tyreCountLabel: s.tyreOptions.length===1 ? '1 tyre available in' : (s.tyreOptions.length+' tyres available in'),
       // booking
       bookOpen:s.bookOpen, closeBook:this.closeBook, openBook:this.openBook, stop:this.stop,
       bookInProgress: !s.bookDone, bookDone:s.bookDone, bookTitle,
@@ -1854,10 +1649,6 @@ class Component extends DCLogic {
       // verified badge (always live)
       verifyLabel: 'DVLA verified',
       verifyStyle: 'display:flex;align-items:center;gap:7px;border-radius:100px;padding:6px 12px;font-size:12.5px;font-weight:700;background:rgba(57,211,83,.14);border:1px solid rgba(57,211,83,.4);color:#4fe06a',
-      // live vehicle picker
-      showPicker: s.regTab==='tyres', hasProxy: true,
-      opt: s.opt, pk: s.pk, pkErr: s.pkErr,
-      pickYear:this.pickYear, pickMake:this.pickMake, pickModel:this.pickModel, pickTrim:this.pickTrim
     };
   }
 }

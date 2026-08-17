@@ -1,4 +1,7 @@
-import { lookupBySize, search as searchCatalogue, byId as tyreById } from "./tyre-data.js";
+import {
+  lookupBySize, lookupBySizeAdmin, search as searchCatalogue, byId as tyreById,
+  normalisePricing, DEFAULT_PRICING, assignTiers, forAdmin,
+} from "./tyre-data.js";
 
 /*
  * Cousins Mechanical — full backend (Cloudflare Worker)
@@ -34,9 +37,9 @@ import { lookupBySize, search as searchCatalogue, byId as tyreById } from "./tyr
  *      GCAL_PRIVATE_KEY      service-account private key (PEM, keep the \n newlines)
  *      GCAL_CALENDAR_ID      calendar id the invites land on (share it with the service account)
  *      RESEND_API_KEY        Resend API key (resend.com — free 3,000 emails/mo)
- *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanical.co.uk
+ *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
  *      OWNER_PHONE           the business owner's number (E.164, e.g. 447925340977) — gets WhatsApp/SMS on new customer messages
- *      SITE_URL              your live site URL, e.g. https://cousinsmechanical.co.uk (used in reset links)
+ *      SITE_URL              your live site URL, e.g. https://cousinsmechanicalservices.co.uk (used in reset links)
  *      ADMIN_TOKEN           long random string — the admin dashboard password + status-text auth
  *      OVERRIDE_TOKEN        owner master key — always logs in and can reset 2FA (never get locked out)
  *      (2FA: enrolled in-app; the TOTP secret is stored in KV as "admin_totp", not a Worker secret)
@@ -175,6 +178,28 @@ async function tyreData(env) {
   return _tyreCache;
 }
 
+
+// ---------- retail pricing (admin-controlled, stored in KV) ----------
+// Cached per isolate. `pricingVersion` is bumped on every save so other isolates
+// pick the change up on their next request instead of serving stale prices.
+let _pricingCache = null;
+let _pricingStamp = 0;
+async function getPricing(env) {
+  const now = Date.now();
+  if (_pricingCache && now - _pricingStamp < 30000) return _pricingCache;
+  const raw = await env.CMS_KV.get("pricing");
+  _pricingCache = normalisePricing(raw ? JSON.parse(raw) : null);
+  _pricingStamp = now;
+  return _pricingCache;
+}
+async function savePricing(env, pricing) {
+  const clean = normalisePricing({ ...pricing, updatedAt: Date.now() });
+  await env.CMS_KV.put("pricing", JSON.stringify(clean));
+  _pricingCache = clean;
+  _pricingStamp = Date.now();
+  return clean;
+}
+
 // ---------- TOTP 2FA (RFC 6238, SHA-1, 6 digits, 30s) ----------
 function b32decode(s) {
   s = (s || "").replace(/=+$/, "").toUpperCase(); const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -254,7 +279,7 @@ function buildICS(o, org) {
     "SUMMARY:Cousins Mechanical — " + (o.svcLabel || "Mobile job"),
     "DESCRIPTION:Ref " + o.ref + ". " + (o.svcLabel || "") + " for " + (o.reg || "") + ". " + (o.notes || ""),
     "LOCATION:" + (o.postcode || "Your location"),
-    "ORGANIZER;CN=Cousins Mechanical:mailto:" + (org || "bookings@cousinsmechanical.co.uk"),
+    "ORGANIZER;CN=Cousins Mechanical:mailto:" + (org || "bookings@cousinsmechanicalservices.co.uk"),
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
 }
@@ -514,19 +539,25 @@ async function api(request, env, url, ctx) {
   }
   if (p === "/tyres/lookup" && request.method === "GET") {
     const { catalogue, costMap } = await tyreData(env);
-    const result = lookupBySize(catalogue, costMap, url.searchParams.get("size"));
-    // Cache at the edge: the catalogue only changes when the scraper reruns.
+    const pricing = await getPricing(env);
+    let result = lookupBySize(catalogue, costMap, url.searchParams.get("size"), pricing);
+    // ?inStock=1 narrows to what the van is actually carrying.
+    if (url.searchParams.get("inStock") === "1") {
+      const tyres = result.tyres.filter(t => t.inStock);
+      result = { ...result, tyres, total: tyres.length };
+    }
+    // Short cache only: prices change the moment the admin saves a markup.
     return new Response(JSON.stringify(result), {
-      headers: { ...CORS, "content-type": "application/json", "cache-control": "public, max-age=3600" },
+      headers: { ...CORS, ...SECURITY_HEADERS, "content-type": "application/json", "cache-control": "public, max-age=60" },
     });
   }
   if (p === "/tyres/search" && request.method === "GET") {
     const { catalogue, costMap } = await tyreData(env);
-    return json(searchCatalogue(catalogue, costMap, url.searchParams.get("q")));
+    return json(searchCatalogue(catalogue, costMap, url.searchParams.get("q"), 100, await getPricing(env)));
   }
   if (p.startsWith("/tyres/details/") && request.method === "GET") {
     const { catalogue, costMap } = await tyreData(env);
-    const tyre = tyreById(catalogue, costMap, p.slice("/tyres/details/".length));
+    const tyre = tyreById(catalogue, costMap, p.slice("/tyres/details/".length), await getPricing(env));
     return tyre ? json(tyre) : bad("Tyre not found", 404);
   }
 
@@ -731,7 +762,7 @@ async function checkAndTriggerReorders(env, opts = {}) {
       defaultReorderQty: 10,
       supplierEmail: "orders@ctyreswholesale.co.uk",
       supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders",
-      notifyEmail: "inventory@cousinsmechanical.co.uk",
+      notifyEmail: "inventory@cousinsmechanicalservices.co.uk",
       reorderCooldownHours: 12
     };
 
@@ -1322,17 +1353,82 @@ async function processTyreStockForOrder(env, order) {
       }
     }
 
-    // Customers
+    // Customers (CRM list) — profile + job count + discount + notes count
     if (p === "/admin/customers" && request.method === "GET") {
       const out = [];
       const list = await env.CMS_KV.list({ prefix: "user:" });
       for (const k of list.keys) {
         const u = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
+        if (!u.email) continue;
         const jobs = JSON.parse((await env.CMS_KV.get("bookings:" + u.email)) || "[]");
-        out.push({ name: u.name, email: u.email, phone: u.phone, marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false, createdAt: u.createdAt, jobCount: jobs.length });
+        const crm = JSON.parse((await env.CMS_KV.get("crm:" + u.email)) || "{}");
+        const lastJobAt = jobs.reduce((m, j) => Math.max(m, j.createdAt || j.t || 0), 0);
+        out.push({
+          name: u.name, email: u.email, phone: u.phone,
+          marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false,
+          createdAt: u.createdAt, jobCount: jobs.length,
+          discount: Number(crm.discount) || 0, discountReason: crm.discountReason || "",
+          notesCount: Array.isArray(crm.notes) ? crm.notes.length : 0,
+          lastJobAt,
+        });
       }
       out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       return json({ customers: out });
+    }
+
+    // Add a CRM note to a customer (append-only log). Kept before the record
+    // route so ".../notes" is not swallowed by the single-segment matcher.
+    const custNotes = p.match(/^\/admin\/customers\/(.+)\/notes$/);
+    if (custNotes && request.method === "POST") {
+      const email = decodeURIComponent(custNotes[1]).toLowerCase();
+      if (!(await env.CMS_KV.get("user:" + email))) return bad("Customer not found", 404);
+      const b = await request.json().catch(() => ({}));
+      const text = String(b.text || "").slice(0, 2000).trim();
+      if (!text) return bad("Note is empty");
+      const crm = JSON.parse((await env.CMS_KV.get("crm:" + email)) || "{}");
+      crm.notes = Array.isArray(crm.notes) ? crm.notes : [];
+      crm.notes.push({ t: Date.now(), text });
+      crm.notes = crm.notes.slice(-500); // keep the log bounded
+      await env.CMS_KV.put("crm:" + email, JSON.stringify(crm));
+      await audit(env, email, "crm_note_added", text.slice(0, 80));
+      return json({ notes: crm.notes });
+    }
+
+    // Single customer CRM record: full detail (GET) or set discount (PATCH)
+    const custRec = p.match(/^\/admin\/customers\/([^/]+)$/);
+    if (custRec) {
+      const email = decodeURIComponent(custRec[1]).toLowerCase();
+      const uraw = await env.CMS_KV.get("user:" + email);
+      if (!uraw) return bad("Customer not found", 404);
+      const u = JSON.parse(uraw);
+      const crm = JSON.parse((await env.CMS_KV.get("crm:" + email)) || "{}");
+
+      if (request.method === "GET") {
+        const bookings = JSON.parse((await env.CMS_KV.get("bookings:" + email)) || "[]");
+        return json({
+          customer: {
+            name: u.name, email: u.email, phone: u.phone,
+            marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false, createdAt: u.createdAt,
+          },
+          discount: Number(crm.discount) || 0,
+          discountReason: crm.discountReason || "",
+          notes: Array.isArray(crm.notes) ? crm.notes : [],
+          bookings,
+        });
+      }
+
+      if (request.method === "PATCH") {
+        const b = await request.json().catch(() => ({}));
+        if (b.discount !== undefined) {
+          let d = Number(b.discount);
+          if (!Number.isFinite(d)) d = 0;
+          crm.discount = Math.max(0, Math.min(100, Math.round(d))); // record-only %, 0-100
+        }
+        if (b.discountReason !== undefined) crm.discountReason = String(b.discountReason).slice(0, 200).trim();
+        await env.CMS_KV.put("crm:" + email, JSON.stringify(crm));
+        await audit(env, email, "crm_discount_set", "discount=" + (crm.discount || 0) + "%");
+        return json({ discount: crm.discount || 0, discountReason: crm.discountReason || "" });
+      }
     }
 
     // Centralized Tyre Inventory API Endpoints
@@ -1616,6 +1712,90 @@ async function processTyreStockForOrder(env, order) {
     // Fire a WhatsApp reminder on demand, so the template can be tested without
     // waiting for 5pm. POST {phone} sends a sample to that number; POST {} runs
     // the real sweep for tomorrow's jobs regardless of the hour.
+    /* ---------------------------------------------------------------------
+     * TYRE PRICING
+     *
+     * GET  /admin/pricing            current rules
+     * POST /admin/pricing            save rules (markup %, fitting fee, rounding)
+     * POST /admin/pricing/override   set or clear one tyre's price
+     * POST /admin/pricing/stock      mark tyres in / out of stock
+     * GET  /admin/tyres?size=...     the size, priced, WITH cost, margin and the
+     *                                direct ctyres.co.uk link for reordering
+     * ------------------------------------------------------------------- */
+    if (p === "/admin/pricing") {
+      if (request.method === "GET") {
+        return json({ pricing: await getPricing(env), defaults: DEFAULT_PRICING });
+      }
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const current = await getPricing(env);
+        const numOr = (v, fallback) => (v === "" || v == null || !Number.isFinite(Number(v)) ? fallback : Number(v));
+
+        // Only the rule fields are accepted here. Overrides and stock have their
+        // own endpoints so a careless save can never wipe them.
+        const next = {
+          ...current,
+          markupPct: {
+            B: numOr(b.markupPct && b.markupPct.B, current.markupPct.B),
+            M: numOr(b.markupPct && b.markupPct.M, current.markupPct.M),
+            P: numOr(b.markupPct && b.markupPct.P, current.markupPct.P),
+          },
+          fittingFee: numOr(b.fittingFee, current.fittingFee),
+          roundTo: numOr(b.roundTo, current.roundTo) || 1,
+          priceEnding: b.priceEnding === "" || b.priceEnding == null ? null : Number(b.priceEnding),
+        };
+        for (const t of ["B", "M", "P"]) {
+          if (next.markupPct[t] < 0 || next.markupPct[t] > 500) return bad(`Markup for ${t} must be between 0 and 500%`, 400);
+        }
+        if (next.fittingFee < 0 || next.fittingFee > 200) return bad("Fitting fee must be between 0 and 200", 400);
+
+        const saved = await savePricing(env, next);
+        await audit(env, "admin", "pricing_updated", JSON.stringify(saved.markupPct));
+        return json({ pricing: saved });
+      }
+    }
+
+    if (p === "/admin/pricing/override" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      if (b.id == null) return bad("Missing tyre id");
+      const current = await getPricing(env);
+      const overrides = { ...current.overrides };
+      // null / "" clears the override, returning the tyre to calculated pricing.
+      if (b.price == null || b.price === "") delete overrides[String(b.id)];
+      else {
+        const v = Number(b.price);
+        if (!Number.isFinite(v) || v <= 0) return bad("Price must be a positive number", 400);
+        overrides[String(b.id)] = Math.round(v * 100) / 100;
+      }
+      const saved = await savePricing(env, { ...current, overrides });
+      return json({ pricing: saved, overrideCount: Object.keys(saved.overrides).length });
+    }
+
+    if (p === "/admin/pricing/stock" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const current = await getPricing(env);
+      let inStock = new Set(current.inStock);
+
+      if (Array.isArray(b.ids)) {
+        inStock = new Set(b.ids.map(Number).filter(Number.isFinite)); // bulk replace
+      } else if (b.id != null) {
+        const id = Number(b.id);
+        if (b.inStock === false) inStock.delete(id); else inStock.add(id);
+      } else {
+        return bad("Send { id, inStock } or { ids: [...] }");
+      }
+      const saved = await savePricing(env, { ...current, inStock: [...inStock] });
+      return json({ inStock: saved.inStock, count: saved.inStock.length });
+    }
+
+    if (p === "/admin/tyres" && request.method === "GET") {
+      const size = url.searchParams.get("size");
+      if (!size) return bad("Add ?size= e.g. 195/65R15");
+      const { catalogue, costMap } = await tyreData(env);
+      const pricing = await getPricing(env);
+      return json({ ...lookupBySizeAdmin(catalogue, costMap, size, pricing), pricing });
+    }
+
     /*
      * End-to-end channel test. POST {} and it exercises whatever is configured —
      * email to the owner, WhatsApp/SMS to OWNER_PHONE, and a calendar event —

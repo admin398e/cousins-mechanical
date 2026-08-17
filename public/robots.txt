@@ -13,6 +13,9 @@ Disallow: /api/
 Disallow: /ukvd
 Disallow: /v1/
 
+# The error page itself is not content
+Disallow: /404.html
+
 # Internal pricing worksheets
 Disallow: /pricingworkout.html
 Disallow: /tyre_finder.html

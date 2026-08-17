@@ -407,7 +407,164 @@ try {
     assert.equal(r.status, 403);
   });
 
+
+  // --- tyre pricing (admin-controlled) --------------------------------------
+  const adminTok = async () =>
+    (await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json()).token;
+
+  await check('public tyre lookup never leaks wholesale cost or supplier link', async () => {
+    const d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    const raw = JSON.stringify(d);
+    assert.ok(!raw.includes('ctyres.co.uk'), 'supplier URL leaked to the public API');
+    for (const t of d.tyres) {
+      assert.equal(t.cost, undefined, 'wholesale cost leaked to customers');
+      assert.equal(t.supplierUrl, undefined, 'supplier URL leaked to customers');
+      assert.equal(t.margin, undefined, 'margin leaked to customers');
+    }
+  });
+
+  await check('customer SKU is CUZ/<ref><tier> and tier is one of B/M/P', async () => {
+    const d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    for (const t of d.tyres) {
+      assert.match(t.sku, /^CUZ\/.+[BMP]$/, `bad SKU: ${t.sku}`);
+      assert.ok(['B', 'M', 'P'].includes(t.tier), `bad tier: ${t.tier}`);
+      assert.ok(t.sku.endsWith(t.tier), `SKU tier letter does not match tier: ${t.sku} / ${t.tier}`);
+    }
+    // All three tiers should be represented in a size with plenty of options.
+    const tiers = new Set(d.tyres.map(t => t.tier));
+    assert.equal(tiers.size, 3, `expected all 3 tiers, got ${[...tiers].join(',')}`);
+  });
+
+  await check('admin tyre view exposes cost, margin and the wholesaler link', async () => {
+    const r = await api('/api/admin/tyres?size=195/65R15', { headers: { authorization: 'Bearer ' + await adminTok() } });
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    const t = d.tyres[0];
+    assert.ok(typeof t.cost === 'number' && t.cost > 0, 'no wholesale cost in admin view');
+    assert.ok(typeof t.margin === 'number', 'no margin in admin view');
+    assert.match(t.supplierUrl, /^https:\/\/www\.ctyres\.co\.uk\//, `bad supplier URL: ${t.supplierUrl}`);
+    assert.ok(t.ean, 'no EAN in admin view');
+    assert.ok(t.supplierSku, 'no supplier SKU in admin view');
+  });
+
+  await check('admin tyre view requires auth', async () => {
+    assert.equal((await api('/api/admin/tyres?size=195/65R15')).status, 403);
+  });
+
+  await check('changing the markup percentage moves customer prices', async () => {
+    const tok = await adminTok();
+    const before = (await (await api('/api/tyres/lookup?size=195/65R15')).json()).tyres[0].price;
+
+    const r = await postJson('/api/admin/pricing',
+      { markupPct: { B: 200, M: 50, P: 42 }, fittingFee: 15, roundTo: 1 },
+      { authorization: 'Bearer ' + tok });
+    assert.equal(r.status, 200);
+
+    const after = (await (await api('/api/tyres/lookup?size=195/65R15')).json()).tyres[0].price;
+    assert.ok(after > before, `price did not rise: ${before} -> ${after}`);
+
+    // put it back
+    await postJson('/api/admin/pricing', { markupPct: { B: 60, M: 50, P: 42 }, fittingFee: 15, roundTo: 1 },
+      { authorization: 'Bearer ' + tok });
+  });
+
+  await check('markup is validated', async () => {
+    const r = await postJson('/api/admin/pricing', { markupPct: { B: 9999 } }, { authorization: 'Bearer ' + await adminTok() });
+    assert.equal(r.status, 400);
+  });
+
+  await check('an individual price override wins, and can be cleared', async () => {
+    const tok = await adminTok();
+    const first = (await (await api('/api/tyres/lookup?size=195/65R15')).json()).tyres[0];
+
+    await postJson('/api/admin/pricing/override', { id: first.id, price: 199.5 }, { authorization: 'Bearer ' + tok });
+    let d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    assert.equal(d.tyres.find(t => t.id === first.id).price, 199.5, 'override not applied');
+
+    await postJson('/api/admin/pricing/override', { id: first.id, price: null }, { authorization: 'Bearer ' + tok });
+    d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    assert.equal(d.tyres.find(t => t.id === first.id).price, first.price, 'override not cleared');
+  });
+
+  await check('marking a tyre in stock shows on the customer side and filters', async () => {
+    const tok = await adminTok();
+    const all = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    const pick = all.tyres[1];
+
+    await postJson('/api/admin/pricing/stock', { ids: [pick.id] }, { authorization: 'Bearer ' + tok });
+
+    const d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
+    assert.equal(d.tyres.find(t => t.id === pick.id).inStock, true, 'in-stock flag not set');
+
+    const only = await (await api('/api/tyres/lookup?size=195/65R15&inStock=1')).json();
+    assert.equal(only.total, 1, `in-stock filter returned ${only.total}`);
+    assert.equal(only.tyres[0].id, pick.id);
+
+    await postJson('/api/admin/pricing/stock', { ids: [] }, { authorization: 'Bearer ' + tok });
+  });
+
   // --- rate limiting --------------------------------------------------------
+  // --- Customer CRM (discount + notes) ---------------------------------------
+  await check('CRM: new customer starts with no discount and no notes', async () => {
+    const em = `crm-${Date.now()}@example.com`;
+    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Person', phone: '07900111222', consent: true });
+    const tok = await adminTok();
+    const r = await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200);
+    const row = (await r.json()).customers.find(c => c.email === em);
+    assert.ok(row, 'new customer not listed');
+    assert.equal(row.discount, 0);
+    assert.equal(row.notesCount, 0);
+  });
+
+  await check('CRM: setting a discount is recorded and clamped to 0-100', async () => {
+    const em = `crm2-${Date.now()}@example.com`;
+    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Two', phone: '07900111333', consent: true });
+    const tok = await adminTok();
+    const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    let r = await api('/api/admin/customers/' + encodeURIComponent(em), { method: 'PATCH', headers: auth, body: JSON.stringify({ discount: 10, discountReason: 'Loyal customer' }) });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).discount, 10);
+    r = await api('/api/admin/customers/' + encodeURIComponent(em), { method: 'PATCH', headers: auth, body: JSON.stringify({ discount: 150 }) });
+    assert.equal((await r.json()).discount, 100, 'discount not clamped to 100');
+  });
+
+  await check('CRM: notes append and read back on the detail record', async () => {
+    const em = `crm3-${Date.now()}@example.com`;
+    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Three', phone: '07900111444', consent: true });
+    const tok = await adminTok();
+    const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const empty = await api('/api/admin/customers/' + encodeURIComponent(em) + '/notes', { method: 'POST', headers: auth, body: JSON.stringify({ text: '   ' }) });
+    assert.equal(empty.status, 400, 'empty note should be rejected');
+    const add = await api('/api/admin/customers/' + encodeURIComponent(em) + '/notes', { method: 'POST', headers: auth, body: JSON.stringify({ text: 'Prefers early morning fittings' }) });
+    assert.equal(add.status, 200);
+    assert.equal((await add.json()).notes.length, 1);
+    const det = await api('/api/admin/customers/' + encodeURIComponent(em), { headers: { authorization: 'Bearer ' + tok } });
+    const d = await det.json();
+    assert.equal(d.notes.length, 1);
+    assert.equal(d.notes[0].text, 'Prefers early morning fittings');
+    assert.ok(Array.isArray(d.bookings), 'detail should include a bookings array');
+    assert.equal(d.customer.email, em);
+  });
+
+  await check('CRM: customer records require admin auth', async () => {
+    const r = await api('/api/admin/customers/anyone@example.com');
+    assert.equal(r.status, 403);
+  });
+
+  await check('CRM: discount and notes never leak to the customer profile', async () => {
+    const em = `crm4-${Date.now()}@example.com`;
+    const signup = await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Four', phone: '07900111555', consent: true });
+    const custTok = (await signup.json()).token;
+    const tok = await adminTok();
+    const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    await api('/api/admin/customers/' + encodeURIComponent(em), { method: 'PATCH', headers: auth, body: JSON.stringify({ discount: 25 }) });
+    const me = await api('/api/auth/me', { headers: { authorization: 'Bearer ' + custTok } });
+    const prof = (await me.json()).user;
+    assert.equal(prof.discount, undefined, 'discount leaked to customer profile');
+    assert.equal(prof.notes, undefined, 'notes leaked to customer profile');
+  });
+
   await check('repeated bad admin logins get rate limited', async () => {
     let sawLimit = false;
     for (let i = 0; i < 12; i++) {
@@ -429,6 +586,93 @@ try {
     assert.equal((await api('/sitemap.xml')).status, 200);
     assert.equal((await api('/robots.txt')).status, 200);
     assert.equal((await api('/site.webmanifest')).status, 200);
+  });
+
+  await check('every public page is served and carries the shared menu + footer', async () => {
+    for (const page of ['/terms.html', '/privacy.html', '/cookies.html', '/accessibility.html']) {
+      const r = await api(page);
+      assert.equal(r.status, 200, `${page} not served`);
+      const html = await r.text();
+      assert.ok(html.includes('index.html#services'), `${page} is missing the shared menu bar`);
+      assert.ok(html.includes('Staff login'), `${page} is missing the shared footer`);
+      for (const legal of ['terms.html', 'privacy.html', 'cookies.html', 'accessibility.html']) {
+        assert.ok(html.includes(legal), `${page} footer does not link ${legal}`);
+      }
+    }
+  });
+
+  await check('the home page footer links every legal page', async () => {
+    const html = await (await api('/')).text();
+    for (const legal of ['terms.html', 'privacy.html', 'cookies.html', 'accessibility.html']) {
+      assert.ok(html.includes(legal), `home page does not link ${legal}`);
+    }
+  });
+
+  await check('a branded 404 page exists and offers a way back', async () => {
+    const r = await api('/404.html');
+    assert.equal(r.status, 200);
+    const html = await r.text();
+    assert.ok(/not found/i.test(html), '404 page has no "not found" wording');
+    assert.ok(html.includes('07925'), '404 page does not offer the phone number');
+    assert.ok(html.includes('index.html'), '404 page has no route back to the site');
+  });
+
+  await check('an unknown URL does not return a 200', async () => {
+    const r = await api('/definitely-not-a-real-page-' + Date.now());
+    assert.notEqual(r.status, 200, 'unknown URL returned 200 — check not_found_handling');
+  });
+
+  await check('PWA manifest icons exist and match their declared sizes', async () => {
+    const r = await api('/site.webmanifest');
+    assert.equal(r.status, 200);
+    const m = JSON.parse(await r.text());
+    assert.ok(m.icons.length >= 2, 'manifest needs at least 192 and 512 icons');
+    assert.ok(m.icons.some(i => i.purpose === 'maskable'), 'no maskable icon for Android');
+    for (const icon of m.icons) {
+      const res = await api(icon.src);
+      assert.equal(res.status, 200, `${icon.src} is declared but missing`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      // PNG header: width/height are big-endian uint32 at bytes 16 and 20.
+      const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+      const [dw, dh] = icon.sizes.split('x').map(Number);
+      assert.equal(w, dw, `${icon.src} is ${w}px wide but declares ${dw}`);
+      assert.equal(h, dh, `${icon.src} is ${h}px tall but declares ${dh}`);
+    }
+  });
+
+  await check('no stray cousinsmechanical.co.uk addresses (wrong domain)', async () => {
+    const fs = await import('node:fs');
+    for (const f of ['worker.js', 'Cousins Mechanical.dc.html', 'Cousins Admin.dc.html']) {
+      const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+      const bad = src.match(/@cousinsmechanical\.co\.uk/g) || [];
+      assert.equal(bad.length, 0, `${f} still uses the wrong email domain`);
+    }
+  });
+
+  await check('every catalogue image exists and is a real image, not an error page', async () => {
+    // The scraper once saved HTML error pages under .jpg names; 14 listings
+    // shipped a broken thumbnail. Existence alone is not enough — check magic bytes.
+    const fs = await import('node:fs');
+    const cat = JSON.parse(fs.readFileSync(new URL('../public/data/tyre-catalogue.json', import.meta.url), 'utf8'));
+    const refs = new Set();
+    (function walk(o) {
+      if (Array.isArray(o)) return o.forEach(walk);
+      if (o && typeof o === 'object') {
+        if (typeof o.img === 'string') refs.add(o.img); else Object.values(o).forEach(walk);
+      }
+    })(cat);
+    assert.ok(refs.size > 100, `only ${refs.size} catalogue images found — catalogue may be empty`);
+    const broken = [];
+    for (const img of refs) {
+      const file = new URL('../public/images/' + img, import.meta.url);
+      if (!fs.existsSync(file)) { broken.push(img + ' (missing)'); continue; }
+      const head = Buffer.alloc(4);
+      const fd = fs.openSync(file, 'r'); fs.readSync(fd, head, 0, 4, 0); fs.closeSync(fd);
+      const isJpg = head[0] === 0xff && head[1] === 0xd8;
+      const isPng = head.toString('ascii', 1, 4) === 'PNG';
+      if (!isJpg && !isPng) broken.push(img + ' (not an image)');
+    }
+    assert.equal(broken.length, 0, `broken catalogue images: ${broken.join(', ')}`);
   });
 
   await check('a tyre image referenced by the API actually exists', async () => {

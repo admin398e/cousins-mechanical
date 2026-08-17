@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { lookupBySize, search, byId } from './tyre-data.js';
+import { lookupBySize, lookupBySizeAdmin, search, byId } from './tyre-data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,19 +43,24 @@ export function getTyreCatalogue() {
   return catalogue;
 }
 
-export function lookupTyresBySize(rawSize) {
+export function lookupTyresBySize(rawSize, pricing) {
   load();
-  return lookupBySize(catalogue, costMap, rawSize);
+  return lookupBySize(catalogue, costMap, rawSize, pricing);
 }
 
-export function searchTyres(query) {
+export function lookupTyresBySizeAdmin(rawSize, pricing) {
   load();
-  return search(catalogue, costMap, query);
+  return lookupBySizeAdmin(catalogue, costMap, rawSize, pricing);
 }
 
-export function getTyreById(id) {
+export function searchTyres(query, pricing) {
   load();
-  return byId(catalogue, costMap, id);
+  return search(catalogue, costMap, query, 100, pricing);
+}
+
+export function getTyreById(id, pricing) {
+  load();
+  return byId(catalogue, costMap, id, pricing);
 }
 
 /** Sanity check used by server startup and `npm run check`. */
