@@ -41,8 +41,8 @@
       
       <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
         <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
-        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the username or email address you registered with.</div>
-        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username or email" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the email address you registered with.</div>
+        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ signInLabel }}</button>
@@ -62,12 +62,10 @@
 
       <sc-if value="{{ isRegMode }}" hint-placeholder-val="{{ false }}">
         <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">REGISTER</div>
-        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Create a driver account. Admin must approve before you can see jobs.</div>
-        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Full Name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ regEmail }}" onInput="{{ setRegEmail }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ regVan }}" onInput="{{ setRegVan }}" placeholder="Van registration (optional)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Your email address is your sign-in. We will send a code to confirm it, then Cousins approves your account before you can see any jobs.</div>
+        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" autocomplete="new-password" placeholder="Password (10 characters or more)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Your full name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ registerLabel }}</button>
       </sc-if>
@@ -143,7 +141,7 @@ class Component extends DCLogic {
     // the template but never set here, so isLoginMode and isRegMode were both
     // false and the card rendered with no fields in it at all.
     authView:'login',
-    usernameInput:'', passwordInput:'', regName:'', regEmail:'', regVan:'',
+    usernameInput:'', passwordInput:'', regName:'',
     verifyCodeInput:'', verifyEmail:'', verifyMsg:'', busy:false,
     token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'',
     view:'login', jobs:[], activeRef:'', activeSvc:'', activeWho:'',
@@ -164,8 +162,6 @@ class Component extends DCLogic {
   setUsername = e => this.setState({usernameInput:e.target.value, loginErr:''});
   setPassword = e => this.setState({passwordInput:e.target.value, loginErr:''});
   setRegName  = e => this.setState({regName:e.target.value, loginErr:''});
-  setRegEmail = e => this.setState({regEmail:e.target.value, loginErr:''});
-  setRegVan   = e => this.setState({regVan:e.target.value.toUpperCase(), loginErr:''});
   setVerifyCode = e => this.setState({verifyCodeInput:e.target.value.replace(/\D/g,'').slice(0,6), loginErr:''});
 
   submitVerify = async () => {
@@ -229,19 +225,26 @@ class Component extends DCLogic {
   };
 
   register = async () => {
-    const username=(this.state.usernameInput||'').trim();
+    // One identifier: the email. It is the login AND where the confirmation
+    // code goes. Van registration is not asked for here — which van somebody
+    // drives is Cousins' decision, set in the admin after approval.
+    const email=(this.state.usernameInput||'').trim().toLowerCase();
     const password=this.state.passwordInput||'';
     const name=(this.state.regName||'').trim();
-    if(!username || password.length<8){ this.setState({loginErr:'Choose a username and a password of at least 8 characters.'}); return; }
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ this.setState({loginErr:'Enter a valid email address.'}); return; }
+    if(password.length<10){ this.setState({loginErr:'Password must be at least 10 characters.'}); return; }
     this.setState({busy:true, loginErr:''});
     const a=this.cleanApi();
     try{
       const r=await fetch(a+'/api/driver/register',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({username,password,name})});
+        body:JSON.stringify({email,password,name})});
       const d=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(d.error||'Could not register.');
-      this.setState({busy:false, authView:'login', passwordInput:'',
-        loginErr:'Account created. An admin has to approve you before you can see jobs.'});
+      // Straight to the code step — the account does nothing until the address
+      // is confirmed AND Cousins approves it.
+      this.setState({busy:false, authView:'verify', verifyEmail:email, verifyCodeInput:'',
+        passwordInput:'', loginErr:'',
+        verifyMsg:'We have emailed a 6-digit code to '+email+'. Enter it to confirm your address.'});
     }catch(e){ this.setState({busy:false, loginErr:e.message||'Could not register.'}); }
   };
   logout = () => { this.stopShare(); try{ localStorage.removeItem('cms_driver_token'); }catch(e){} this.setState({token:'', view:'login', jobs:[], activeRef:''}); };

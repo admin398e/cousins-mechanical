@@ -232,7 +232,7 @@ try {
   const driverPass = 'driver-password-123';
   await check('driver registration succeeds and starts unapproved', async () => {
     const r = await postJson('/api/driver/register', {
-      username: 'TestDriver', email: driverEmail, password: driverPass, name: 'Test Driver',
+      email: driverEmail, password: driverPass, name: 'Test Driver',
     });
     assert.equal(r.status, 200);
     const d = await r.json();
@@ -244,11 +244,47 @@ try {
 
   await check('driver registration is refused without a real email address', async () => {
     for (const email of [undefined, '', 'not-an-email']) {
-      const r = await postJson('/api/driver/register', {
-        username: 'NoEmail' + Date.now(), email, password: driverPass, name: 'No Email',
-      });
+      const r = await postJson('/api/driver/register', { email, password: driverPass, name: 'No Email' });
       assert.equal(r.status, 400, `registration accepted email "${email}"`);
     }
+  });
+
+  await check('a driver cannot choose their own van at sign-up', async () => {
+    // Which van somebody drives is Cousins' decision, set in the admin after
+    // approval — not something an applicant types into a public form.
+    const em = `van-${Date.now()}@example.com`;
+    await postJson('/api/driver/register', { email: em, password: driverPass, name: 'Van Chooser', vanReg: 'STOLEN1', phone: '07999999999' });
+    const { token: tok } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
+    const list = (await (await api('/api/admin/drivers', { headers: { authorization: 'Bearer ' + tok } })).json()).drivers;
+    const d = list.find(x => x.email === em);
+    assert.ok(d, 'driver not created');
+    assert.equal(d.vanReg, '', 'the applicant set their own van registration');
+    assert.equal(d.phone, '', 'the applicant set their own phone from the sign-up form');
+  });
+
+  await check('the admin can permanently delete a driver', async () => {
+    const em = `gone-${Date.now()}@example.com`;
+    const rd = await (await postJson('/api/driver/register', { email: em, password: driverPass, name: 'Delete Me' })).json();
+    await postJson('/api/driver/verify-email', { email: em, code: rd.devCode });
+
+    const { token: tok } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    let list = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
+    const id = list.find(x => x.email === em).id;
+    await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id }) });
+    const { token: drvTok } = await (await postJson('/api/driver/login', { username: em, password: driverPass })).json();
+    assert.ok(drvTok, 'setup failed — driver could not sign in');
+
+    const del = await api('/api/admin/drivers', { method: 'DELETE', headers: h, body: JSON.stringify({ id }) });
+    assert.equal(del.status, 200);
+    list = (await del.json()).drivers;
+    assert.ok(!list.some(x => x.id === id), 'the driver is still in the list');
+
+    // Deletion must take effect immediately, not at session expiry.
+    const after = await postJson('/api/driver/jobs', { token: drvTok });
+    assert.equal(after.status, 403, 'a deleted driver kept access with their existing session');
+    const relogin = await postJson('/api/driver/login', { username: em, password: driverPass });
+    assert.equal(relogin.status, 401, 'a deleted driver could sign in again');
   });
 
   await check('confirming the email does not by itself grant access', async () => {
@@ -269,12 +305,12 @@ try {
   });
 
   await check('unapproved driver cannot log in', async () => {
-    const r = await postJson('/api/driver/login', { username: 'TestDriver', password: driverPass });
+    const r = await postJson('/api/driver/login', { username: driverEmail, password: driverPass });
     assert.equal(r.status, 403);
   });
 
   await check('driver login rejects a wrong password', async () => {
-    const r = await postJson('/api/driver/login', { username: 'TestDriver', password: 'wrong-password' });
+    const r = await postJson('/api/driver/login', { username: driverEmail, password: 'wrong-password' });
     assert.equal(r.status, 401);
   });
 
@@ -282,7 +318,7 @@ try {
   await check('admin can approve a driver', async () => {
     const { token } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
     const list = await (await api('/api/admin/drivers', { headers: { authorization: 'Bearer ' + token } })).json();
-    driverId = list.drivers.find(d => d.username === 'testdriver')?.id;
+    driverId = list.drivers.find(d => d.email === driverEmail)?.id;
     assert.ok(driverId, 'registered driver not present in admin list');
     const r = await postJson('/api/admin/drivers', { action: 'approve', id: driverId }, { authorization: 'Bearer ' + token });
     assert.equal(r.status, 200);
@@ -291,7 +327,7 @@ try {
 
   let driverToken = null;
   await check('approved driver can log in and gets a random token', async () => {
-    const r = await postJson('/api/driver/login', { username: 'TestDriver', password: driverPass });
+    const r = await postJson('/api/driver/login', { username: driverEmail, password: driverPass });
     assert.equal(r.status, 200);
     const d = await r.json();
     driverToken = d.token;
@@ -306,7 +342,7 @@ try {
     const { token } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
     // Previously this wrote a fresh object and silently dropped username/hash/approved.
     await postJson('/api/admin/drivers', { id: driverId, name: 'Renamed Driver', vanReg: 'WV68 PLT' }, { authorization: 'Bearer ' + token });
-    const r = await postJson('/api/driver/login', { username: 'TestDriver', password: driverPass });
+    const r = await postJson('/api/driver/login', { username: driverEmail, password: driverPass });
     assert.equal(r.status, 200, 'driver could no longer log in after an admin edit');
   });
 
@@ -419,7 +455,7 @@ try {
     // Re-approve the driver revoked by the earlier test, then log back in.
     const { token: adminTok } = await (await postJson('/api/admin-login', { token: ADMIN_TOKEN, code: totpNow(totpSecret) })).json();
     await postJson('/api/admin/drivers', { action: 'approve', id: driverId }, { authorization: 'Bearer ' + adminTok });
-    const { token: drvTok } = await (await postJson('/api/driver/login', { username: 'TestDriver', password: driverPass })).json();
+    const { token: drvTok } = await (await postJson('/api/driver/login', { username: driverEmail, password: driverPass })).json();
 
     // The ref must name a REAL booking now, so make one. Previously any string
     // was accepted and became a new KV key.
@@ -456,7 +492,7 @@ try {
     // stranger's customer as "your mechanic is with you".
     const other = 'Driver2-' + Date.now();
     const otherPass = 'anotherLongPassword1';
-    const reg2 = await postJson('/api/driver/register', { username: other, email: `${other}@example.com`, password: otherPass, name: 'Second Driver' });
+    const reg2 = await postJson('/api/driver/register', { email: `${other}@example.com`, password: otherPass, name: 'Second Driver' });
     const d2 = await reg2.json();
     await postJson('/api/admin/drivers', { action: 'approve', id: d2.id || d2.driver?.id }, { authorization: 'Bearer ' + adminTok });
     const { token: tok2 } = await (await postJson('/api/driver/login', { username: other, password: otherPass })).json();
@@ -839,7 +875,7 @@ try {
     const em = `${uname}@example.com`;
     const pw = 'aVeryLongDriverPassword1';
 
-    const reg = await postJson('/api/driver/register', { username: uname, email: em, password: pw, name: 'Gated Driver' });
+    const reg = await postJson('/api/driver/register', { email: em, password: pw, name: 'Gated Driver' });
     assert.equal(reg.status, 200, 'register failed: ' + (await reg.clone().text()));
     const rd = await reg.json();
     assert.equal(rd.verifyRequired, true, 'registration did not ask for email confirmation');
@@ -847,7 +883,7 @@ try {
 
     // Gate 1 still closed. Note the login path deliberately issues a FRESH
     // code, which invalidates the one from registration — so carry it forward.
-    const before = await postJson('/api/driver/login', { username: uname, password: pw });
+    const before = await postJson('/api/driver/login', { username: em, password: pw });
     assert.equal(before.status, 403, 'an unconfirmed driver could sign in');
     const bd = await before.json();
     assert.equal(bd.verifyRequired, true);
@@ -863,7 +899,7 @@ try {
     const tok = await adminTok();
     const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
     const drivers = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
-    const rec = drivers.find(d => d.username === uname);
+    const rec = drivers.find(d => d.email === em);
     assert.ok(rec, 'driver missing from the admin list');
     assert.equal(rec.emailVerified, false);
     const early = await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id: rec.id }) });
@@ -872,13 +908,13 @@ try {
     // Clear gate 1 — still no access, because gate 2 is closed.
     const v = await postJson('/api/driver/verify-email', { email: em, code: liveCode });
     assert.equal(v.status, 200, 'verify failed: ' + (await v.clone().text()));
-    const mid = await postJson('/api/driver/login', { username: uname, password: pw });
+    const mid = await postJson('/api/driver/login', { username: em, password: pw });
     assert.equal(mid.status, 403, 'a confirmed but unapproved driver got in');
     assert.equal((await mid.json()).pendingApproval, true);
 
     // Clear gate 2 — now in, and by email as well as username.
     await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id: rec.id }) });
-    const ok = await postJson('/api/driver/login', { username: uname, password: pw });
+    const ok = await postJson('/api/driver/login', { username: em, password: pw });
     assert.equal(ok.status, 200, 'an approved, confirmed driver still could not sign in');
     assert.ok((await ok.json()).token);
     const byEmail = await postJson('/api/driver/login', { username: em, password: pw });
@@ -889,13 +925,13 @@ try {
     const uname = 'edit' + Date.now();
     const em = `${uname}@example.com`;
     const pw = 'aVeryLongDriverPassword1';
-    const rd = await (await postJson('/api/driver/register', { username: uname, email: em, password: pw, name: 'Edit Me' })).json();
+    const rd = await (await postJson('/api/driver/register', { email: em, password: pw, name: 'Edit Me' })).json();
     await postJson('/api/driver/verify-email', { email: em, code: rd.devCode });
 
     const tok = await adminTok();
     const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
     let list = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
-    const id = list.find(d => d.username === uname).id;
+    const id = list.find(d => d.email === em).id;
     await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id }) });
 
     await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ id, name: 'Mark Cousin', vanReg: 'KM16 GLY', phone: '07925340977' }) });
@@ -910,8 +946,21 @@ try {
     assert.equal(d.hash, undefined, 'the driver list leaked password material');
 
     // Editing must not have destroyed the login — this has broken before.
-    const still = await postJson('/api/driver/login', { username: uname, password: pw });
+    const still = await postJson('/api/driver/login', { username: em, password: pw });
     assert.equal(still.status, 200, 'editing the driver in admin broke their password');
+  });
+
+  await check('the CAPTCHA is inert until it is configured, and advertises itself honestly', async () => {
+    // TURNSTILE_SECRET is not set in tests, so every check must pass. A
+    // half-configured CAPTCHA that silently rejects real customers is worse
+    // than no CAPTCHA at all — a mechanic in the rain cannot debug it.
+    const em = `captcha-${Date.now()}@example.com`;
+    const r = await postJson('/api/auth/signup', { name: 'No Captcha', email: em, phone: '07900000123', password: 'aVeryLongPassword1', consent: true });
+    assert.equal(r.status, 200, 'signup was blocked while the CAPTCHA is unconfigured');
+
+    // And the front end must be able to tell that there is no widget to render.
+    const cfg = await api('/api/turnstile-config');
+    assert.equal(cfg.status, 404, 'turnstile-config returned a site key that is not set');
   });
 
   // ---- Security regressions --------------------------------------------------

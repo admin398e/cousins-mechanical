@@ -42,6 +42,9 @@ import {
  *                            leave unset and the marketing tick is still recorded in KV but nothing is synced.
  *      RESEND_WEBHOOK_SECRET Signing secret (whsec_...) from Resend → Webhooks. Required for /api/resend-webhook;
  *                            unset means the endpoint refuses every request rather than trusting forged bounces.
+ *      TURNSTILE_SITE_KEY    Cloudflare Turnstile public site key — sent to the browser to render the widget.
+ *      TURNSTILE_SECRET      Turnstile secret. While UNSET every CAPTCHA check passes, so a half-configured
+ *                            widget can never lock real customers out. Set both together to switch it on.
  *      OWNER_PHONE           the business owner's number (E.164, e.g. 447925340977) — gets WhatsApp/SMS on new customer messages
  *      SITE_URL              your live site URL, e.g. https://cousinsmechanicalservices.co.uk (used in reset links)
  *      ADMIN_TOKEN           long random string — the admin dashboard password + status-text auth
@@ -193,6 +196,37 @@ function customerUpdates(updates) {
     if (!u || u.internal) return false;
     return !INTERNAL_UPDATE.test(String(u.s || "") + " " + String(u.d || ""));
   });
+}
+
+// ---------- Turnstile (bot check on the forms that cost us something) ----------
+//
+// Cloudflare's CAPTCHA. Chosen over reCAPTCHA because the site already runs on
+// Cloudflare, it is free at any volume, and it does not profile the visitor —
+// which matters when the privacy notice promises we do not.
+//
+// Set TURNSTILE_SITE_KEY (public, sent to the browser) and TURNSTILE_SECRET.
+// While the secret is unset every check passes: a half-configured CAPTCHA that
+// silently rejects real customers is worse than no CAPTCHA at all. Once the
+// secret exists it is enforced everywhere.
+async function turnstileOk(env, request, body) {
+  if (!env.TURNSTILE_SECRET) return true;
+  const tokenValue = body && (body.turnstileToken || body["cf-turnstile-response"]);
+  if (!tokenValue) return false;
+  try {
+    const form = new FormData();
+    form.append("secret", env.TURNSTILE_SECRET);
+    form.append("response", String(tokenValue));
+    form.append("remoteip", clientIp(request));
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form });
+    const d = await r.json().catch(() => ({}));
+    if (!d.success) console.error("[turnstile] rejected", JSON.stringify(d["error-codes"] || []));
+    return !!d.success;
+  } catch (err) {
+    // Never let an outage at the CAPTCHA provider stop somebody booking a
+    // breakdown recovery. The rate limiters are still in front of everything.
+    console.error("[turnstile] verify failed, allowing through:", err && err.message);
+    return true;
+  }
 }
 
 // ---------- Email verification ----------
@@ -1279,7 +1313,8 @@ async function api(request, env, url, ctx) {
 
   // --- AUTH ---
   if (p === "/auth/signup" && request.method === "POST") {
-    const { name, email, phone, password, marketing, smsUpdates, consent } = await request.json().catch(() => ({}));
+    const signupBody = await request.json().catch(() => ({}));
+    const { name, email, phone, password, marketing, smsUpdates, consent } = signupBody;
     const em = (email || "").trim().toLowerCase();
     // 10 per 15 minutes was too tight — a family or a small office shares one
     // address, and every signup now costs a confirmation email, so the burst
@@ -1289,6 +1324,7 @@ async function api(request, env, url, ctx) {
       return bad("Too many attempts — try again later.", 429);
     }
     await noteFailure(env, "signup:" + clientIp(request));
+    if (!(await turnstileOk(env, request, signupBody))) return bad("Please complete the check that proves you are not a robot.", 400);
     if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || (password || "").length < 6) return bad("Invalid details");
     if (!consent) return bad("Please accept the privacy notice to create an account."); // GDPR: no account without lawful basis
     const existingRaw = await env.CMS_KV.get("user:" + em);
@@ -1374,8 +1410,10 @@ async function api(request, env, url, ctx) {
   }
 
   if (p === "/auth/login" && request.method === "POST") {
-    const { email, password } = await request.json().catch(() => ({}));
+    const loginBody = await request.json().catch(() => ({}));
+    const { email, password } = loginBody;
     const em = (email || "").trim().toLowerCase();
+    if (!(await turnstileOk(env, request, loginBody))) return bad("Please complete the check that proves you are not a robot.", 400);
     // Brute-force protection: limit by email *and* by source IP, so an attacker
     // cannot spread guesses across many accounts from one machine.
     // Edge limiter first (accurate, per-location), KV second (per-account, so
@@ -1912,6 +1950,8 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/service-requests" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
 
+    if (!(await turnstileOk(env, request, b))) return bad("Please complete the check that proves you are not a robot.", 400);
+
     // A booking with no way to contact the customer back is worse than no booking.
     if (!b.name || !b.phone) return bad("Name and mobile number are required.");
 
@@ -2233,15 +2273,19 @@ async function processTyreStockForOrder(env, order) {
   // Driver page needs the active job list without a 2FA session — gated by the admin token in the body.
   if (p === "/driver/register" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
-    const username = String(b.username || "").trim().toLowerCase();
-    const email = String(b.email || "").trim().toLowerCase();
+    if (!(await turnstileOk(env, request, b))) return bad("Please complete the check that proves you are not a robot.", 400);
+    // The email IS the username. Two separate identifiers was one thing too
+    // many to remember and to type at the roadside, and it made the sign-up
+    // form look like it was asking for the same thing twice.
+    const email = String(b.email || b.username || "").trim().toLowerCase();
+    const username = email;
     if (await edgeLimited(env, "RL_AUTH", "drvreg:" + clientIp(request))) {
       return bad("Too many attempts — try again shortly.", 429);
     }
-    if (!username || !b.password) return bad("Missing username or password", 400);
-    // An email address is now required. A driver account grants access to every
-    // active customer's name, address and phone number, so we need a way to
-    // prove the person is who they say and a way to reach them.
+    if (!b.password) return bad("Missing password", 400);
+    // A driver account grants access to every active customer's name, address
+    // and phone number, so we need a way to prove the person is who they say
+    // and a way to reach them.
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad("A valid email address is required", 400);
     if (String(b.password).length < 10) return bad("Password must be at least 10 characters", 400);
     const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
@@ -2253,7 +2297,9 @@ async function processTyreStockForOrder(env, order) {
     const id = "DRV-" + token().slice(0, 8).toUpperCase();
     drivers.push({
       id, username, email, salt, hash,
-      name: b.name || username, vanReg: b.vanReg || "", phone: b.phone || "",
+      // vanReg and phone are deliberately NOT taken from the sign-up form —
+      // which van somebody drives is Cousins' decision, not the applicant's.
+      name: b.name || email.split("@")[0], vanReg: "", phone: "",
       // TWO independent gates. Confirming the email proves the person owns the
       // inbox; approval is Cousins deciding this person may see customer jobs.
       // Neither alone is enough, and the account does nothing until both pass.
@@ -2327,6 +2373,7 @@ async function processTyreStockForOrder(env, order) {
 
   if (p === "/driver/login" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
+    if (!(await turnstileOk(env, request, b))) return bad("Please complete the check that proves you are not a robot.", 400);
     const username = String(b.username || "").trim().toLowerCase();
     const rlKey = "drv:" + clientIp(request);
     // The most important limiters in the file: these guard the staff password,
@@ -2416,6 +2463,13 @@ async function processTyreStockForOrder(env, order) {
   // Public Firebase web config for the "Sign in with Google" button. Firebase
   // web config is client-side by design (not a secret); 404 when unset lets
   // the login screen hide the button entirely.
+  // Public site key so the browser can render the widget. 404 when unset, which
+  // is how the front end knows not to show one.
+  if (p === "/turnstile-config" && request.method === "GET") {
+    if (!env.TURNSTILE_SITE_KEY) return bad("Turnstile is not configured", 404);
+    return json({ siteKey: env.TURNSTILE_SITE_KEY });
+  }
+
   if (p === "/firebase-config" && request.method === "GET") {
     if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 404);
     return new Response(env.FIREBASE_WEB_CONFIG, {
@@ -2467,6 +2521,7 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/admin-login" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const rlKey = "admin:" + clientIp(request);
+    if (!(await turnstileOk(env, request, b))) return bad("Please complete the check that proves you are not a robot.", 400);
     // The most important limiters in the file: these guard the staff password,
     // the owner's break-glass token and 2FA enrolment. The KV counter alone was
     // close to useless because KV reads are edge-cached for up to a minute.
@@ -2634,6 +2689,39 @@ async function processTyreStockForOrder(env, order) {
       const uraw = await env.CMS_KV.get("user:" + email);
       if (uraw) { const u = JSON.parse(uraw); if (u.smsUpdates !== false && b.sms) ctx.waitUntil(sendSMS(env, u.phone, b.sms)); }
       return json({ job: arr[i] });
+    }
+
+    // Permanently remove a job.
+    //
+    // Cancelling sets a status and keeps the record; this erases it. Needed for
+    // test bookings and duplicates that would otherwise sit in the dashboard
+    // and the customer's own list forever. Everything attached to the job goes
+    // with it, or the leftovers keep a deleted job half-alive.
+    const jdel = p.match(/^\/admin\/jobs\/([\w-]+)$/);
+    if (jdel && request.method === "DELETE") {
+      const b = await request.json().catch(() => ({}));
+      const ref = jdel[1];
+      const email = String(b.customerEmail || "").toLowerCase() || (await findBookingOwner(env, ref));
+      if (!email) return bad("Job not found", 404);
+
+      const key = "bookings:" + email;
+      const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+      const job = arr.find(o => o.ref === ref);
+      if (!job) return bad("Job not found", 404);
+
+      // Refuse to erase a job that has money against it. Deleting the record
+      // would destroy the only trace of a payment or refund, and that is an
+      // accounting record, not clutter.
+      const paid = (job.payments || []).length;
+      if (paid && !b.force) {
+        return bad("That job has " + paid + " payment record(s) against it. Deleting it would erase them.", 409);
+      }
+
+      await env.CMS_KV.put(key, JSON.stringify(arr.filter(o => o.ref !== ref)));
+      await env.CMS_KV.delete("loc:" + ref);
+      await env.CMS_KV.delete("jobdrv:" + ref);
+      await audit(env, email, "job_deleted", ref + " by " + ((await whoAmI(env, request)) || "admin"));
+      return json({ ok: true, ref });
     }
 
     // Record a payment or a refund against a job, and send the receipt.
@@ -3362,13 +3450,27 @@ async function processTyreStockForOrder(env, order) {
         const b = await request.json().catch(() => ({}));
         if (!b.id) return bad("Missing driver id");
         const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
+        const gone = drivers.find(d => d.id === b.id);
+        if (!gone) return bad("Driver not found", 404);
         const kept = drivers.filter(d => d.id !== b.id);
         await env.CMS_KV.put("drivers", JSON.stringify(kept));
+
         // Revoke any live session for that driver so removal takes effect at once.
         const sessions = await env.CMS_KV.list({ prefix: "dsess:" });
         for (const k of sessions.keys) {
           if ((await env.CMS_KV.get(k.name)) === b.id) await env.CMS_KV.delete(k.name);
         }
+
+        // Leave nothing behind that would let the account half-exist: a pending
+        // confirmation code would otherwise sit there, and the job claims would
+        // keep a deleted driver's id attached to live jobs.
+        if (gone.email) await env.CMS_KV.delete("dverify:" + String(gone.email).toLowerCase());
+        const claims = await env.CMS_KV.list({ prefix: "jobdrv:" });
+        for (const k of claims.keys) {
+          if ((await env.CMS_KV.get(k.name)) === b.id) await env.CMS_KV.delete(k.name);
+        }
+
+        await audit(env, "admin", "driver_deleted", (gone.username || gone.id) + " by " + ((await whoAmI(env, request)) || "admin"));
         return json({ drivers: publicView(kept) });
       }
     }

@@ -1056,6 +1056,41 @@ class Component extends DCLogic {
   sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
   hasServer(){ return this.apiBase()!==null; }
   authToken(){ try{ return localStorage.getItem('cms_token')||''; }catch(e){ return ''; } }
+
+  // ---------- Turnstile ----------
+  // Loads Cloudflare's CAPTCHA only if the server says one is configured, and
+  // returns a token to send with the request. If it is not configured, or the
+  // script fails to load, this resolves to null and the server (which is the
+  // thing that actually enforces it) simply sees no token — it is inert until
+  // TURNSTILE_SECRET exists, so a broken widget can never lock anyone out.
+  async turnstileToken(){
+    try{
+      if(this._tsSiteKey === undefined){
+        const r = await fetch('/api/turnstile-config');
+        this._tsSiteKey = r.ok ? (await r.json()).siteKey : null;
+      }
+      if(!this._tsSiteKey) return null;
+      if(!window.turnstile){
+        await new Promise((res, rej)=>{
+          const sc=document.createElement('script');
+          sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+          sc.async=true; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc);
+        });
+      }
+      if(!this._tsWidget){
+        const host=document.createElement('div');
+        host.style.cssText='position:fixed;left:-9999px;top:0';
+        document.body.appendChild(host);
+        this._tsWidget = window.turnstile.render(host, { sitekey:this._tsSiteKey, size:'invisible' });
+      } else {
+        window.turnstile.reset(this._tsWidget);
+      }
+      return await window.turnstile.getResponsePromise
+        ? window.turnstile.getResponsePromise(this._tsWidget)
+        : window.turnstile.getResponse(this._tsWidget);
+    }catch(e){ return null; }
+  }
+
   async apiFetch(path, opts){
     opts = opts||{};
     const h = Object.assign({}, opts.headers||{});
@@ -1367,7 +1402,8 @@ class Component extends DCLogic {
     if(!this.state.authConsent) return this.setState({authErr:'Please accept the privacy notice to create your account.'});
     this.setState({authBusy:true, authErr:''});
     if(this.hasServer()){
-      this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms})})
+      this.turnstileToken().then(turnstileToken =>
+      this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms,turnstileToken})}))
         .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Sign up failed');
           // No session yet — the account is inert until the emailed code is
           // entered. That code is the only thing proving this person owns the
@@ -1421,7 +1457,8 @@ class Component extends DCLogic {
     const email=(authEmail||'').trim().toLowerCase();
     this.setState({authBusy:true, authErr:''});
     if(this.hasServer()){
-      this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass})})
+      this.turnstileToken().then(turnstileToken =>
+      this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass,turnstileToken})}))
         .then(async r=>{ const d=await r.json().catch(()=>({}));
           // Right password, unconfirmed address: send them to the code step
           // rather than showing a dead end. The server has already re-sent it.

@@ -214,7 +214,12 @@
                         <button onClick="{{ j.openPay }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px" style-hover="border-color:#e8791a;color:#f4a04a">{{ j.payLabel }}</button>
                       </div>
                     </td>
-                    <td class="adm-td"><button onClick="{{ j.toggleGps }}" style="{{ j.gpsStyle }}">{{ j.gpsLabel }}</button></td>
+                    <td class="adm-td">
+                      <div style="display:flex;gap:6px;align-items:center;white-space:nowrap">
+                        <button onClick="{{ j.toggleGps }}" style="{{ j.gpsStyle }}">{{ j.gpsLabel }}</button>
+                        <button onClick="{{ j.remove }}" style="{{ j.deleteStyle }}">{{ j.deleteLabel }}</button>
+                      </div>
+                    </td>
                   </tr>
                 </sc-for>
               </tbody>
@@ -453,6 +458,7 @@
                           <sc-if value="{{ d.approved }}" hint-placeholder-val="{{ false }}"><button onClick="{{ d.revoke }}" style="background:#a5401a;color:#fff;border:0;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:bold;font-size:12px">Revoke</button></sc-if>
                           <sc-if value="{{ d.canApprove }}" hint-placeholder-val="{{ true }}"><button onClick="{{ d.approve }}" style="background:#39a854;color:#fff;border:0;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:bold;font-size:12px">Approve</button></sc-if>
                           <sc-if value="{{ d.blockedByEmail }}" hint-placeholder-val="{{ false }}"><span style="color:#8a817b;font-size:11px;line-height:1.35;max-width:120px;display:block">Cannot approve until they confirm their email</span></sc-if>
+                          <button onClick="{{ d.remove }}" style="{{ d.deleteStyle }}">{{ d.deleteLabel }}</button>
                         </div>
                       </td>
                     </tr>
@@ -954,7 +960,7 @@ class Component extends DCLogic {
     custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
     // Record-a-payment modal. payJob holds the whole job, not just the ref,
     // because the modal shows that job's existing payment history.
-    catErr:'', tyreCount:0, driverEdits:{}, drvMsg:'',
+    catErr:'', tyreCount:0, driverEdits:{}, drvMsg:'', driverDeleteArm:'', jobDeleteArm:'',
     payJob:null, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payBusy:false, payMsg:'', payErr:'',
     pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'', pSupplierApiUrl:'', pAutoReorder:false,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
@@ -1593,6 +1599,25 @@ class Component extends DCLogic {
       .catch(()=>this.setState({drvMsg:'Could not add that note.'}));
   }
 
+  // First press arms, second press deletes. confirm() would block the whole
+  // extension bridge, and a bare one-tap delete on a table row is asking for
+  // an accident.
+  deleteDriver(id){
+    if(this.state.driverDeleteArm !== id){
+      this.setState({driverDeleteArm:id, drvMsg:'Press Delete again to permanently remove that driver.'});
+      clearTimeout(this._delArm);
+      this._delArm = setTimeout(()=>this.setState({driverDeleteArm:'', drvMsg:''}), 6000);
+      return;
+    }
+    clearTimeout(this._delArm);
+    this.setState({driverDeleteArm:''});
+    if(this.state.demoMode){ this.setState({drvMsg:'Demo mode — nothing deleted.'}); return; }
+    this.af('/admin/drivers',{method:'DELETE',body:JSON.stringify({id})})
+      .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Could not delete that driver.'); return d; })
+      .then(d=>{ if(d.drivers) this.setState({drivers:d.drivers, drvMsg:'Driver deleted.'}); })
+      .catch(e=>this.setState({drvMsg:e.message}));
+  }
+
   approveDriver = (id) => {
     this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"approve", id})})
       .then(async r=>{ const d=await r.json().catch(()=>({}));
@@ -1784,6 +1809,32 @@ class Component extends DCLogic {
     if(!this.state.demoMode){ this.af('/admin/jobs/'+job.ref,{method:'PATCH',body:JSON.stringify({customerEmail:job.customerEmail,status,label:labels[status],note:notes[status],sms})}).catch(()=>{}); }
   }
 
+  deleteJob(job){
+    if(this.state.jobDeleteArm !== job.ref){
+      this.setState({jobDeleteArm:job.ref});
+      clearTimeout(this._jobArm);
+      this._jobArm = setTimeout(()=>this.setState({jobDeleteArm:''}), 6000);
+      return;
+    }
+    clearTimeout(this._jobArm);
+    this.setState({jobDeleteArm:''});
+    if(this.state.demoMode) return;
+    this.af('/admin/jobs/'+job.ref,{method:'DELETE',body:JSON.stringify({customerEmail:job.customerEmail})})
+      .then(async r=>{ const d=await r.json().catch(()=>({}));
+        // 409 means the job carries payment records. Ask before erasing an
+        // accounting trail rather than silently doing it.
+        if(r.status===409){
+          if(!window.confirm(d.error+'\n\nDelete it anyway?')) return null;
+          const f=await this.af('/admin/jobs/'+job.ref,{method:'DELETE',body:JSON.stringify({customerEmail:job.customerEmail, force:true})});
+          if(!f.ok) throw new Error('Could not delete that job.');
+          return { ok:true };
+        }
+        if(!r.ok) throw new Error(d.error||'Could not delete that job.');
+        return d; })
+      .then(d=>{ if(d) this.setState(st=>({jobs:st.jobs.filter(x=>x.ref!==job.ref)})); })
+      .catch(()=>{});
+  }
+
   toggleGps(job){
     if(this.state.gpsRef===job.ref){ // stop
       if(this._watch!=null && navigator.geolocation) navigator.geolocation.clearWatch(this._watch);
@@ -1876,6 +1927,13 @@ class Component extends DCLogic {
         ? 'background:rgba(57,168,84,.16);border:1px solid rgba(57,168,84,.45);color:#8ee6a0;border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px'
         : 'color:#6f6862;font-size:12px',
       payLabel: j.paidPence>0 ? 'Edit' : 'Mark paid',
+      // Two presses, same as deleting a driver. One mis-click on a table row
+      // should not erase a customer's job.
+      remove: () => this.deleteJob(j),
+      deleteLabel: s.jobDeleteArm === j.ref ? 'Tap again' : 'Delete',
+      deleteStyle: s.jobDeleteArm === j.ref
+        ? 'background:#a5401a;color:#fff;border:0;border-radius:8px;padding:8px 11px;cursor:pointer;font-weight:700;font-size:12.5px'
+        : 'border:1px solid #3a322d;background:#14100e;color:#6f6862;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px',
     }));
     const custRows=s.customers.map(c=>({ ...c,
       sms:c.smsUpdates?'On':'Off', marketing:c.marketing?'Yes':'No', joined:this.fmtDate(c.createdAt),
@@ -1918,6 +1976,13 @@ class Component extends DCLogic {
         addNote: () => this.addDriverNote(d.id),
         approve: () => this.approveDriver(d.id),
         revoke:  () => this.revokeDriver(d.id),
+        // Two presses to delete. A single mis-click here permanently removes a
+        // person's account and signs them out mid-job.
+        remove:  () => this.deleteDriver(d.id),
+        deleteLabel: s.driverDeleteArm === d.id ? 'Tap again to delete' : 'Delete',
+        deleteStyle: s.driverDeleteArm === d.id
+          ? 'background:#a5401a;color:#fff;border:0;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:700;font-size:11.5px'
+          : 'background:none;border:1px solid #3a322d;color:#6f6862;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:600;font-size:11.5px',
       };
     });
     const poRows=s.supplierOrders.map(po=>({ ...po }));
