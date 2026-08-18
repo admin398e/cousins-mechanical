@@ -1237,18 +1237,25 @@ class Component extends DCLogic {
       const r = await this.af('/admin/pricing', {method:'POST', body:JSON.stringify(body)});
       const d = await r.json();
       if(!r.ok) throw new Error(d.error || 'Save failed');
-      this.setState({pricing:d.pricing, pSaving:false, pMsg:'Saved — every price on the website has updated.'});
+      // Do not claim the website has already changed. Customer pages cache the
+      // price list briefly, so it is true within about a minute, not instantly.
+      this.setState({pricing:d.pricing, pSaving:false, pMsg:'Saved. Customer prices update within about a minute.'});
       setTimeout(()=>this.setState({pMsg:''}), 4000);
       if(this.state.pSize) this.loadSizeTyres();
     }catch(e){ this.setState({pSaving:false, pErr:e.message}); }
   };
 
   loadSizeTyres = async () => {
+    // Always bypass the cache here. This screen exists to show what the markup
+    // actually did; showing a 30-second-old price makes it look like saving had
+    // no effect, which is exactly how this was reported.
     const size = (this.state.pSize||'').trim();
     if(!size){ this.setState({pErr:'Type a tyre size first, e.g. 195/65R15'}); return; }
     this.setState({pLoading:true, pErr:''});
     try{
-      const r = await this.af('/admin/tyres?size='+encodeURIComponent(size));
+      // &v= makes every request a distinct URL, so neither the browser nor the
+      // edge can hand back a cached price list on this screen.
+      const r = await this.af('/admin/tyres?size='+encodeURIComponent(size)+'&v='+Date.now());
       const d = await r.json();
       if(!r.ok) throw new Error(d.error || 'Lookup failed');
       if(!d.tyres || !d.tyres.length){

@@ -639,6 +639,39 @@ try {
     }
   });
 
+  await check('a markup change reaches the customer price list', async () => {
+    // Reported live: saving a markup appeared to do nothing, because the value
+    // was cached in the Worker isolate AND in the HTTP response. The maths was
+    // always right; the customer just could not see it.
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    const before = await (await api('/api/admin/pricing', { headers: h })).json();
+    const orig = before.pricing.markupPct;
+
+    const set = async (M) => {
+      const r = await api('/api/admin/pricing', {
+        method: 'POST', headers: h,
+        body: JSON.stringify({ markupPct: { ...orig, M }, fittingFee: before.pricing.fittingFee, roundTo: 1 }),
+      });
+      assert.equal(r.status, 200, `saving markup ${M} failed`);
+    };
+
+    const priceOf = async () => {
+      const d = await (await api('/api/tyres/lookup?size=195/65R15&cb=' + Date.now())).json();
+      const t = d.tyres.find(x => x.tier === 'M');
+      assert.ok(t, 'no mid-range tyre in the result');
+      return t.price;
+    };
+
+    await set(50);
+    const low = await priceOf();
+    await set(200);
+    const high = await priceOf();
+    assert.ok(high > low, `markup 50% gave £${low} and 200% gave £${high} — the change did not reach the customer list`);
+
+    await set(orig.M); // leave the business's real pricing alone
+  });
+
   // ---- Inventory / ordering regressions --------------------------------------
 
   await check('a fresh inventory is empty, not seeded with invented tyres', async () => {

@@ -225,7 +225,12 @@ let _pricingCache = null;
 let _pricingStamp = 0;
 async function getPricing(env) {
   const now = Date.now();
-  if (_pricingCache && now - _pricingStamp < 30000) return _pricingCache;
+  // 5s, not 30s. savePricing() only refreshes the cache in the ONE isolate that
+  // handled the save; every other isolate keeps serving the old markup until its
+  // own copy expires. Stacked on top of the HTTP cache below, a price change
+  // took well over a minute to reach customers and looked like it had not saved
+  // at all. KV reads are cheap — this is not a hot path.
+  if (_pricingCache && now - _pricingStamp < 5000) return _pricingCache;
   const raw = await env.CMS_KV.get("pricing");
   _pricingCache = normalisePricing(raw ? JSON.parse(raw) : null);
   _pricingStamp = now;
@@ -995,9 +1000,15 @@ async function api(request, env, url, ctx) {
       const tyres = result.tyres.filter(t => t.inStock);
       result = { ...result, tyres, total: tyres.length };
     }
-    // Short cache only: prices change the moment the admin saves a markup.
-    return new Response(JSON.stringify(result), {
-      headers: { ...CORS, ...SECURITY_HEADERS, "content-type": "application/json", "cache-control": "public, max-age=60" },
+    // Short cache, and it carries the pricing version so the admin can bust it
+    // deliberately. stale-while-revalidate keeps the page fast without letting a
+    // stale price sit there once the markup has moved.
+    return new Response(JSON.stringify({ ...result, pricingUpdatedAt: pricing.updatedAt || 0 }), {
+      headers: {
+        ...CORS, ...SECURITY_HEADERS,
+        "content-type": "application/json",
+        "cache-control": "public, max-age=30, stale-while-revalidate=30",
+      },
     });
   }
   if (p === "/tyres/search" && request.method === "GET") {
