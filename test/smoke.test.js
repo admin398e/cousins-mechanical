@@ -18,6 +18,23 @@ const OVERRIDE_TOKEN = crypto.randomBytes(24).toString('hex');
 let passed = 0, failed = 0;
 const results = [];
 
+/**
+ * Create a customer account AND clear email verification, returning the session
+ * token. Signup alone no longer returns one: the account is inert until the
+ * emailed code is entered. The suite has no inbox, so server.js hands the code
+ * back in the response under ALLOW_TEST_VERIFY_CODE (test only).
+ */
+async function signupVerified(fields) {
+  const su = await postJson('/api/auth/signup', { consent: true, ...fields });
+  const d = await su.json();
+  if (d.token) return d;                       // legacy path, should not happen
+  assert.ok(d.devCode, 'signup did not return a verification code: ' + JSON.stringify(d));
+  const v = await postJson('/api/auth/verify', { email: fields.email, code: d.devCode });
+  const vd = await v.json();
+  assert.ok(vd.token, 'verification did not return a session: ' + JSON.stringify(vd));
+  return vd;
+}
+
 async function check(name, fn) {
   try {
     await fn();
@@ -280,15 +297,45 @@ try {
   const password = 'customer-password-123';
   let customerToken = null;
 
-  await check('customer can sign up', async () => {
+  await check('signing up does NOT sign you in until the email is confirmed', async () => {
+    // Anyone could previously register an address they did not own and start
+    // receiving that person's booking mail. Signup now returns no session.
     const r = await postJson('/api/auth/signup', {
       email, password, name: 'Test Customer', phone: '07900000000', consent: true,
     });
     assert.equal(r.status, 200);
     const d = await r.json();
-    customerToken = d.token;
-    assert.ok(customerToken, 'no session token returned on signup');
-    assert.equal(d.user.hash, undefined, 'signup response leaked password hash');
+    assert.equal(d.token, undefined, 'signup handed out a session before the address was confirmed');
+    assert.equal(d.verifyRequired, true, 'signup did not ask for confirmation');
+
+    // A wrong code must not get in.
+    const wrong = await postJson('/api/auth/verify', { email, code: '000000' });
+    assert.ok(wrong.status >= 400, 'a wrong confirmation code was accepted');
+
+    const v = await postJson('/api/auth/verify', { email, code: d.devCode });
+    assert.equal(v.status, 200);
+    const vd = await v.json();
+    customerToken = vd.token;
+    assert.ok(customerToken, 'confirming the code did not return a session');
+    assert.equal(vd.user.hash, undefined, 'response leaked password hash');
+  });
+
+  await check('an unconfirmed account cannot log in', async () => {
+    const em2 = `unconfirmed-${Date.now()}@example.com`;
+    await postJson('/api/auth/signup', { email: em2, password, name: 'Not Confirmed', phone: '07900000010', consent: true });
+    const r = await postJson('/api/auth/login', { email: em2, password });
+    assert.equal(r.status, 403, `an unconfirmed account logged in (status ${r.status})`);
+    assert.equal((await r.json()).verifyRequired, true);
+  });
+
+  await check('the confirmation code is never returned in production mode', async () => {
+    // server.js only sets ALLOW_TEST_VERIFY_CODE outside production, and it is
+    // not a Worker secret — so a deployed Worker cannot leak a code. Assert the
+    // response shape carries nothing else that would work as one.
+    const em3 = `shape-${Date.now()}@example.com`;
+    const d = await (await postJson('/api/auth/signup', { email: em3, password, name: 'Shape', phone: '07900000011', consent: true })).json();
+    assert.deepEqual(Object.keys(d).sort(), ['devCode', 'email', 'verifyRequired'],
+      'signup response shape changed — check nothing new leaks in production: ' + JSON.stringify(Object.keys(d)));
   });
 
   await check('customer login rejects a wrong password', async () => {
@@ -734,7 +781,7 @@ try {
     // already stored with the old wording are covered too.
     const em = `timeline-${Date.now()}@example.com`;
     const pw = 'aVeryLongPassword1';
-    const { token } = await (await postJson('/api/auth/signup', { name: 'Timeline', email: em, phone: '07900000123', password: pw, consent: true })).json();
+    const { token } = await signupVerified({ name: 'Timeline', email: em, phone: '07900000123', password: pw });
     const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
 
     const mk = await api('/api/bookings', { method: 'POST', headers: h, body: JSON.stringify({ service: 'tyres', svcLabel: 'Tyre fitting — 195/65R15' }) });
@@ -789,8 +836,7 @@ try {
   await check('a customer cannot mark their own booking paid', async () => {
     const em = `selfpay-${Date.now()}@example.com`;
     const pw = 'aVeryLongPassword1';
-    const su = await postJson('/api/auth/signup', { name: 'Self Pay', email: em, phone: '07900000002', password: pw, consent: true });
-    const { token } = await su.json();
+    const { token } = await signupVerified({ name: 'Self Pay', email: em, phone: '07900000002', password: pw });
     const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
 
     const mk = await api('/api/bookings', { method: 'POST', headers: h, body: JSON.stringify({ service: 'diagnostics', svcLabel: 'Diagnostics', reg: 'SE11LF' }) });
@@ -843,7 +889,7 @@ try {
   await check('GDPR erasure removes every record about the person', async () => {
     const em = `erase-${Date.now()}@example.com`;
     const pw = 'aVeryLongPassword1';
-    const { token } = await (await postJson('/api/auth/signup', { name: 'Erase Me', email: em, phone: '07900000003', password: pw, consent: true })).json();
+    const { token } = await signupVerified({ name: 'Erase Me', email: em, phone: '07900000003', password: pw });
     const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
     await api('/api/messages', { method: 'POST', headers: h, body: JSON.stringify({ text: 'hello' }) });
     await postJson('/api/service-requests', { name: 'Erase Me', phone: '07900000003', email: em, service: 'diagnostics', svcLabel: 'Diagnostics' });
@@ -1146,7 +1192,7 @@ try {
 
   await check('CRM: new customer starts with no discount and no notes', async () => {
     const em = `crm-${Date.now()}@example.com`;
-    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Person', phone: '07900111222', consent: true });
+    await signupVerified({ email: em, password: 'crm-password-123', name: 'CRM Person', phone: '07900111222' });
     const tok = await adminTok();
     const r = await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } });
     assert.equal(r.status, 200);
@@ -1158,7 +1204,7 @@ try {
 
   await check('CRM: setting a discount is recorded and clamped to 0-100', async () => {
     const em = `crm2-${Date.now()}@example.com`;
-    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Two', phone: '07900111333', consent: true });
+    await signupVerified({ email: em, password: 'crm-password-123', name: 'CRM Two', phone: '07900111333' });
     const tok = await adminTok();
     const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
     let r = await api('/api/admin/customers/' + encodeURIComponent(em), { method: 'PATCH', headers: auth, body: JSON.stringify({ discount: 10, discountReason: 'Loyal customer' }) });
@@ -1170,7 +1216,7 @@ try {
 
   await check('CRM: notes append and read back on the detail record', async () => {
     const em = `crm3-${Date.now()}@example.com`;
-    await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Three', phone: '07900111444', consent: true });
+    await signupVerified({ email: em, password: 'crm-password-123', name: 'CRM Three', phone: '07900111444' });
     const tok = await adminTok();
     const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
     const empty = await api('/api/admin/customers/' + encodeURIComponent(em) + '/notes', { method: 'POST', headers: auth, body: JSON.stringify({ text: '   ' }) });
@@ -1193,7 +1239,7 @@ try {
 
   await check('CRM: discount and notes never leak to the customer profile', async () => {
     const em = `crm4-${Date.now()}@example.com`;
-    const signup = await postJson('/api/auth/signup', { email: em, password: 'crm-password-123', name: 'CRM Four', phone: '07900111555', consent: true });
+    const signup = { json: async () => await signupVerified({ email: em, password: 'crm-password-123', name: 'CRM Four', phone: '07900111555' }) };
     const custTok = (await signup.json()).token;
     const tok = await adminTok();
     const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };

@@ -708,6 +708,22 @@
             <button onClick="{{ gotoSignup }}" style="{{ signupSegStyle }}">Create account</button>
           </div>
 
+          <!-- CONFIRM YOUR EMAIL — shown after signup, and on login if never confirmed -->
+          <sc-if value="{{ onVerifyView }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .2s ease">
+              <div style="font-weight:700;color:#1c1817;font-size:16px">Confirm your email</div>
+              <div style="color:#5c534d;font-size:13.5px;line-height:1.5">{{ verifyMsg }}</div>
+              <input value="{{ verifyCode }}" onInput="{{ setVerifyCode }}" onKeyDown="{{ authOnKey }}" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:14px;font-size:24px;letter-spacing:.4em;text-align:center;font-weight:700"/>
+              <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdf0eb;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px">{{ authErr }}</div></sc-if>
+              <button onClick="{{ submitVerify }}" style="background:#e8791a;color:#fff;font-weight:800;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ verifyBtnLabel }}</button>
+              <div style="display:flex;gap:10px;justify-content:space-between;align-items:center">
+                <button onClick="{{ resendVerify }}" style="background:none;border:0;color:#e8791a;font-weight:700;cursor:pointer;font-size:13.5px;padding:4px 0">Send me a new code</button>
+                <button onClick="{{ backToLogin }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;font-size:13.5px;padding:4px 0">Back to sign in</button>
+              </div>
+              <div style="color:#8a817b;font-size:12px;line-height:1.5">Didn't get it? Check your spam folder. The code lasts 30 minutes.</div>
+            </div>
+          </sc-if>
+
           <sc-if value="{{ onSignupView }}" hint-placeholder-val="{{ false }}">
             <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .2s ease">
               <div style="font-weight:700;color:#1c1817;font-size:16px">Create your account</div>
@@ -905,6 +921,7 @@
                 <button onClick="{{ exportData }}" style="flex:1;min-width:130px;background:#fff;border:1.5px solid #ddd4cb;color:#1c1817;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Download my data</button>
                 <button onClick="{{ deleteAccount }}" style="flex:1;min-width:130px;background:#fdeee7;border:1.5px solid #f3c6ae;color:#a5401a;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Delete my account</button>
               </div>
+              <sc-if value="{{ hasExportErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdf0eb;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13px;margin-top:10px">{{ exportErr }}</div></sc-if>
             </div>
             <button onClick="{{ logout }}" style="background:none;border:1.5px solid #e2dbd3;color:#8a817b;font-weight:700;border-radius:10px;padding:12px;cursor:pointer;font-size:14px;margin-top:2px" style-hover="border-color:#f3c6ae;color:#a5401a">Log out</button>
           </div>
@@ -938,6 +955,7 @@ class Component extends DCLogic {
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
     messages: [], msgInput:'', msgBusy:false,
     profile: { name:'', phone:'', email:'', marketing:true }, profileSaved:false,
+    verifyEmail:'', verifyCode:'', verifyMsg:'', exportErr:'',
     auth: null, authView:'login', authName:'', authEmail:'', authPhone:'', authPass:'', authPass2:'', authErr:'', authBusy:false,
     authConsent:false, authSms:true, authMarketing:false,
     resetToken:'', resetPass:'', resetMsg:'', forgotMsg:'',
@@ -1308,7 +1326,37 @@ class Component extends DCLogic {
         }).catch(e=>this.setState({resetMsg:e.message}));
     } else { this.setState({resetToken:'', resetMsg:'', authView:'login'}); }
   };
-  authOnKey = e => { if(e.key==='Enter'){ this.state.authView==='signup'?this.doSignup():this.doLogin(); } };
+  authOnKey = e => { if(e.key==='Enter'){
+    if(this.state.authView==='verify') return this.submitVerify();
+    return this.state.authView==='signup' ? this.doSignup() : this.doLogin();
+  } };
+
+  // --- Email confirmation ----------------------------------------------------
+  setVerifyCode = e => this.setState({verifyCode:e.target.value.replace(/\D/g,'').slice(0,6), authErr:''});
+
+  submitVerify = () => {
+    const code=(this.state.verifyCode||'').trim();
+    if(code.length!==6) return this.setState({authErr:'Enter the 6-digit code from your email.'});
+    this.setState({authBusy:true, authErr:''});
+    this.apiFetch('/auth/verify',{method:'POST',body:JSON.stringify({email:this.state.verifyEmail, code})})
+      .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'That code did not work.'); return d; })
+      .then(d=>{
+        try{ localStorage.setItem('cms_token', d.token); }catch(e){}
+        this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false},
+          authBusy:false, authView:'login', verifyCode:'', verifyMsg:'', portalTab:'bookings'});
+        this.pullBookings();
+      })
+      .catch(e=>this.setState({authBusy:false, authErr:e.message}));
+  };
+
+  resendVerify = () => {
+    this.setState({verifyMsg:'Sending a new code…'});
+    this.apiFetch('/auth/resend-code',{method:'POST',body:JSON.stringify({email:this.state.verifyEmail})})
+      .catch(()=>{})
+      .finally(()=>this.setState({verifyMsg:'If that address needs confirming, a new code is on its way.'}));
+  };
+
+  backToLogin = () => this.setState({authView:'login', authErr:'', verifyMsg:'', verifyCode:''});
   doSignup = () => {
     const {authName,authEmail,authPhone,authPass,authPass2}=this.state;
     const email=(authEmail||'').trim().toLowerCase();
@@ -1321,9 +1369,12 @@ class Component extends DCLogic {
     if(this.hasServer()){
       this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms})})
         .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Sign up failed');
-          try{ localStorage.setItem('cms_token', d.token); }catch(e){}
-          this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', authPass2:'', portalTab:'bookings'});
-          this.pullBookings();
+          // No session yet — the account is inert until the emailed code is
+          // entered. That code is the only thing proving this person owns the
+          // address they typed.
+          this.setState({authView:'verify', verifyEmail:d.email||email, verifyCode:'',
+            authBusy:false, authPass:'', authPass2:'', authErr:'',
+            verifyMsg:'We have emailed a 6-digit code to '+(d.email||email)+'. Enter it below to finish.'});
         }).catch(e=>this.setState({authBusy:false, authErr:e.message}));
       return;
     }
@@ -1371,7 +1422,20 @@ class Component extends DCLogic {
     this.setState({authBusy:true, authErr:''});
     if(this.hasServer()){
       this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass})})
-        .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Login failed');
+        .then(async r=>{ const d=await r.json().catch(()=>({}));
+          // Right password, unconfirmed address: send them to the code step
+          // rather than showing a dead end. The server has already re-sent it.
+          if(r.status===403 && d.verifyRequired){
+            this.setState({authView:'verify', verifyEmail:d.email||email, verifyCode:'',
+              authBusy:false, authPass:'', authErr:'',
+              verifyMsg:d.error||'Please confirm your email address.'});
+            return null;
+          }
+          if(!r.ok) throw new Error(d.error||'Login failed');
+          try{ localStorage.setItem('cms_token', d.token); }catch(e){}
+          return d;
+        })
+        .then(d=>{ if(!d) return;
           try{ localStorage.setItem('cms_token', d.token); }catch(e){}
           this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', portalTab:'bookings'});
           this.pullBookings();
@@ -1412,11 +1476,31 @@ class Component extends DCLogic {
   setProfEmail = e => this.setState(s=>({profile:{...s.profile,email:e.target.value},profileSaved:false}));
   toggleMarketing = e => this.setState(s=>({profile:{...s.profile,marketing:e.target.checked},profileSaved:false}));
   toggleSmsUpdates = e => this.setState(s=>({profile:{...s.profile,smsUpdates:e.target.checked},profileSaved:false}));
-  exportData = () => {
-    if(this.hasServer()){ window.open(this.apiBase()+'/api/gdpr/export'); return; }
-    const data={ account:this.state.profile, bookings:this.state.orders };
-    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='cousins-my-data.json'; a.click();
+  exportData = async () => {
+    const save = (obj, name) => {
+      const blob = new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    };
+
+    if(this.hasServer()){
+      // window.open() cannot carry the Authorization header, so the export
+      // endpoint saw an anonymous request and returned {"error":"Not signed
+      // in"} — which is what the customer downloaded instead of their data.
+      // Fetch it properly, then hand the browser a Blob.
+      try{
+        this.setState({profileSaved:false, exportErr:''});
+        const r = await this.apiFetch('/gdpr/export');
+        if(r.status===401){ this.setState({exportErr:'Please sign in again, then download.'}); return; }
+        if(!r.ok) throw new Error('Export failed');
+        save(await r.json(), 'cousins-my-data.json');
+      }catch(e){
+        this.setState({exportErr:'Could not build your download just then — please try again, or email help@cousinsmechanicalservices.co.uk.'});
+      }
+      return;
+    }
+    save({ account:this.state.profile, bookings:this.state.orders }, 'cousins-my-data.json');
   };
   deleteAccount = () => {
     if(!confirm('Permanently delete your account and all your data? This cannot be undone.')) return;
@@ -1742,7 +1826,16 @@ class Component extends DCLogic {
       acctBtnLabel: s.auth ? ((s.profile.name||s.auth.name||'Account').split(/\s+/)[0]) : 'Log in',
       // auth
       isAuthed: !!s.auth, needsAuth: !s.auth,
-      authView:s.authView, onLoginView:s.authView==='login', onSignupView:s.authView==='signup',
+      authView:s.authView,
+      // The verify step is its own view, so neither the login nor the signup
+      // panel should render while it is up.
+      onLoginView:s.authView==='login', onSignupView:s.authView==='signup', onVerifyView:s.authView==='verify',
+      verifyCode:s.verifyCode||'', verifyMsg:s.verifyMsg||'', verifyEmail:s.verifyEmail||'',
+      setVerifyCode:this.setVerifyCode, submitVerify:this.submitVerify,
+      resendVerify:this.resendVerify, backToLogin:this.backToLogin,
+      verifyBtnLabel: s.authBusy ? 'Checking…' : 'Confirm and sign in',
+      hasAuthErr: !!s.authErr,
+      exportErr: s.exportErr||'', hasExportErr: !!s.exportErr,
       authName:s.authName, authEmail:s.authEmail, authPhone:s.authPhone, authPass:s.authPass, authPass2:s.authPass2,
       authErr:s.authErr, hasAuthErr:!!s.authErr, authBusy:s.authBusy,
       setAuthView:this.setAuthView, gotoLogin:()=>this.setAuthView('login'), gotoSignup:()=>this.setAuthView('signup'),

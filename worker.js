@@ -195,6 +195,75 @@ function customerUpdates(updates) {
   });
 }
 
+// ---------- Email verification ----------
+// A signup used to hand out a 30-day session immediately, so anyone could
+// register somebody else's address and start receiving their booking mail.
+// Now the account exists but is inert until a code sent to that inbox is
+// entered — which is the only thing that proves the person owns it.
+
+const VERIFY_TTL_SEC = 30 * 60;   // 30 minutes
+const VERIFY_MAX_TRIES = 5;       // a 6-digit code is guessable without this
+
+function verifyCode() {
+  // Six digits, uniformly distributed. Math.random() is not acceptable for
+  // anything that grants account access.
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  return String(n).padStart(6, "0");
+}
+
+/**
+ * Issue a fresh code for an address and email it.
+ *
+ * The code is stored hashed. A KV dump — or the backup endpoint — should never
+ * hand somebody a working key to every pending account.
+ */
+async function sendVerifyCode(env, ctx, em, name) {
+  const code = verifyCode();
+  // pbkdf2() takes a BASE64 salt, and a fresh one per code — passing the email
+  // both fed it a non-base64 string (which threw) and would have made the same
+  // code hash identically every time for a given address.
+  const salt = newSalt();
+  const hash = await pbkdf2(code, salt, env.SESSION_PEPPER);
+  await env.CMS_KV.put("verify:" + em, JSON.stringify({ hash, salt, tries: 0, sentAt: Date.now() }),
+    { expirationTtl: VERIFY_TTL_SEC });
+
+  const subject = "Your Cousins Mechanical confirmation code: " + code;
+  const text = `Hi ${name || "there"},\n\n`
+    + `Your confirmation code is ${code}\n\n`
+    + `Enter it on the site to finish setting up your account. It expires in 30 minutes.\n\n`
+    + `If you did not try to create an account with Cousins Mechanical Services, you can ignore this email — `
+    + `nothing has been set up and nobody can use your address without this code.\n\n`
+    + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`;
+
+  ctx.waitUntil(sendEmail(env, em, subject, text));
+  return code;
+}
+
+/**
+ * Expose the code in the API response — TEST ONLY.
+ *
+ * The automated suite has no inbox, so without this it cannot complete a
+ * signup. Gated on an explicit environment variable that ONLY test/server.js
+ * sets: it is not a Worker secret and does not exist in production, so a
+ * deployed Worker can never return a code. Deliberately not keyed off
+ * "is email configured", because that would start leaking codes the moment
+ * RESEND_API_KEY went missing.
+ */
+function testCode(env, code) {
+  return env.ALLOW_TEST_VERIFY_CODE === "yes" ? { devCode: code } : {};
+}
+
+/**
+ * Has this account cleared email verification?
+ *
+ * Accounts created before verification existed have no flag at all. Treating
+ * those as unverified would lock out every existing customer, so absent means
+ * legacy-verified; only an explicit false blocks.
+ */
+function isVerified(user) {
+  return user && user.emailVerified !== false;
+}
+
 async function findBookingOwner(env, ref) {
   const list = await env.CMS_KV.list({ prefix: "bookings:" });
   for (const k of list.keys) {
@@ -1212,14 +1281,25 @@ async function api(request, env, url, ctx) {
   if (p === "/auth/signup" && request.method === "POST") {
     const { name, email, phone, password, marketing, smsUpdates, consent } = await request.json().catch(() => ({}));
     const em = (email || "").trim().toLowerCase();
+    // 10 per 15 minutes was too tight — a family or a small office shares one
+    // address, and every signup now costs a confirmation email, so the burst
+    // ceiling that matters is the per-minute edge limiter above.
     if (await edgeLimited(env, "RL_AUTH", "signup:" + clientIp(request))
-        || await rateLimited(env, "signup:" + clientIp(request), 10)) {
+        || await rateLimited(env, "signup:" + clientIp(request), 30)) {
       return bad("Too many attempts — try again later.", 429);
     }
     await noteFailure(env, "signup:" + clientIp(request));
     if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || (password || "").length < 6) return bad("Invalid details");
     if (!consent) return bad("Please accept the privacy notice to create an account."); // GDPR: no account without lawful basis
-    if (await env.CMS_KV.get("user:" + em)) return bad("Account already exists", 409);
+    const existingRaw = await env.CMS_KV.get("user:" + em);
+    if (existingRaw) {
+      // If the previous attempt was never confirmed, the address is not really
+      // taken — somebody may simply have lost the email. Re-send rather than
+      // telling them the account exists, which would also be an enumeration
+      // oracle. The old record is replaced below.
+      const existing = JSON.parse(existingRaw);
+      if (isVerified(existing)) return bad("Account already exists", 409);
+    }
     const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
     const hash = await pbkdf2(password, salt, env.SESSION_PEPPER);
     const user = {
@@ -1228,11 +1308,69 @@ async function api(request, env, url, ctx) {
       smsUpdates: smsUpdates !== false,  // service texts for a job they booked
       consentAt: Date.now(), privacyVersion: PRIVACY_VERSION, createdAt: Date.now(),
     };
+    user.emailVerified = false;
     await env.CMS_KV.put("user:" + em, JSON.stringify(user));
-    await audit(env, em, "account_created", "consent v" + PRIVACY_VERSION);
+    await audit(env, em, "account_created", "consent v" + PRIVACY_VERSION + " (pending verification)");
+
+    // NO session token here. The account is inert until the code is entered.
+    const code = await sendVerifyCode(env, ctx, em, user.name);
+    return json({ verifyRequired: true, email: em, ...testCode(env, code) });
+  }
+
+  // Confirm the code that was emailed at signup.
+  if (p === "/auth/verify" && request.method === "POST") {
+    const { email, code } = await request.json().catch(() => ({}));
+    const em = (email || "").trim().toLowerCase();
+    if (await edgeLimited(env, "RL_AUTH", "verify:" + clientIp(request))) {
+      return bad("Too many attempts — try again shortly.", 429);
+    }
+
+    const raw = await env.CMS_KV.get("verify:" + em);
+    const uraw = await env.CMS_KV.get("user:" + em);
+    if (!raw || !uraw) return bad("That code has expired. Ask for a new one.", 400);
+
+    const rec = JSON.parse(raw);
+    // Bound the guesses. Six digits is only a million combinations, which is
+    // nothing to a script if it can keep trying.
+    if (rec.tries >= VERIFY_MAX_TRIES) {
+      await env.CMS_KV.delete("verify:" + em);
+      return bad("Too many wrong codes. Ask for a new one.", 429);
+    }
+
+    const attempt = await pbkdf2(String(code || "").trim(), rec.salt, env.SESSION_PEPPER);
+    if (!safeEqual(attempt, rec.hash)) {
+      rec.tries += 1;
+      await env.CMS_KV.put("verify:" + em, JSON.stringify(rec), { expirationTtl: VERIFY_TTL_SEC });
+      return bad("That code is not right. " + (VERIFY_MAX_TRIES - rec.tries) + " attempts left.", 400);
+    }
+
+    const user = JSON.parse(uraw);
+    user.emailVerified = true;
+    user.emailVerifiedAt = Date.now();
+    await env.CMS_KV.put("user:" + em, JSON.stringify(user));
+    await env.CMS_KV.delete("verify:" + em);
+    await audit(env, em, "email_verified", "");
+
     const t = token();
     await env.CMS_KV.put("sess:" + t, em, { expirationTtl: 60 * 60 * 24 * 30 });
     return json({ token: t, user: publicUser(user) });
+  }
+
+  // Send another code.
+  if (p === "/auth/resend-code" && request.method === "POST") {
+    const { email } = await request.json().catch(() => ({}));
+    const em = (email || "").trim().toLowerCase();
+    if (await edgeLimited(env, "RL_AUTH", "resend:" + clientIp(request))
+        || await rateLimited(env, "resend:" + em, 5)) {
+      return json({ ok: true }); // never reveal whether the address exists
+    }
+    await noteFailure(env, "resend:" + em);
+    const uraw = await env.CMS_KV.get("user:" + em);
+    if (uraw) {
+      const u = JSON.parse(uraw);
+      if (!isVerified(u)) await sendVerifyCode(env, ctx, em, u.name);
+    }
+    return json({ ok: true });
   }
 
   if (p === "/auth/login" && request.method === "POST") {
@@ -1256,6 +1394,15 @@ async function api(request, env, url, ctx) {
       await noteFailure(env, "ip:" + clientIp(request));
       return bad("Email or password not recognised", 401);
     }
+    // Correct password, but the address was never confirmed. Checked AFTER the
+    // password so this cannot be used to enumerate which addresses are
+    // registered — a stranger still just sees "not recognised".
+    if (!isVerified(user)) {
+      const code = await sendVerifyCode(env, ctx, em, user.name);
+      return json({ verifyRequired: true, email: em, ...testCode(env, code),
+        error: "Please confirm your email address. We have sent you a new code." }, 403);
+    }
+
     await clearFailures(env, em);
     await clearFailures(env, "ip:" + clientIp(request));
     const t = token();
@@ -1295,8 +1442,14 @@ async function api(request, env, url, ctx) {
     const user = JSON.parse(raw);
     const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
     user.salt = salt; user.hash = await pbkdf2(password, salt, env.SESSION_PEPPER);
+    // Completing a reset means they read a link sent to that inbox, which is
+    // exactly what verification proves. Marking it verified here stops a
+    // customer who resets first from being stuck in a loop.
+    user.emailVerified = true;
+    user.emailVerifiedAt = user.emailVerifiedAt || Date.now();
     await env.CMS_KV.put("user:" + em, JSON.stringify(user));
     await env.CMS_KV.delete("reset:" + resetToken);
+    await env.CMS_KV.delete("verify:" + em);
     await audit(env, em, "password_reset_completed", "");
     return json({ ok: true });
   }
@@ -2613,7 +2766,10 @@ async function processTyreStockForOrder(env, order) {
       // of this list is credential material: exporting it turns "download a
       // backup" into "download every password hash and the owner's 2FA seed",
       // which any staff-level account could then use to log in as the owner.
-      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "admin_totp"];
+      // "verify:" holds a hashed email-confirmation code and its salt. It is
+      // transient credential material like a session or a reset token, and the
+      // backup test caught it leaking the moment verification was added.
+      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "verify:", "admin_totp"];
       const data = {};
       let cursor;
       do {

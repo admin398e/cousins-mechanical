@@ -114,6 +114,10 @@ const ASSETS = {
 const env = {
   CMS_KV,
   ASSETS,
+  // Lets the test suite read the email confirmation code back from the API,
+  // because it has no inbox. NEVER set in production — it is a local dev/test
+  // variable, not a Worker secret, so a deployed Worker cannot have it.
+  ALLOW_TEST_VERIFY_CODE: isProd ? '' : (process.env.NODE_ENV === 'test' ? 'yes' : ''),
   SESSION_PEPPER: requiredSecret('SESSION_PEPPER'),
   ADMIN_TOKEN: requiredSecret('ADMIN_TOKEN'),
   OVERRIDE_TOKEN: requiredSecret('OVERRIDE_TOKEN'),
