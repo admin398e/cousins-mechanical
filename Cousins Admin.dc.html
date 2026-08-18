@@ -955,7 +955,36 @@ class Component extends DCLogic {
 
   componentDidMount(){
     this.probeAuthMode();
-    try{ const sess=localStorage.getItem('cms_admin_sess'); const a=localStorage.getItem('cms_admin_api')||''; if(sess){ this.setState({token:sess, apiBase:a, apiInput:a}, ()=>this.enter()); } }catch(e){}
+    // The admin session lives in sessionStorage, NOT localStorage.
+    //
+    // It used to persist in localStorage, so opening the dashboard on a shared
+    // or office machine signed you straight in — no password — for as long as
+    // the 12-hour server session lasted. This screen holds every customer's
+    // name, address and phone number; it should not open itself.
+    //
+    // sessionStorage keeps a refresh or a tab navigation from throwing the work
+    // away, but closing the browser requires the password again.
+    try{
+      // Clear the old persistent copy so anyone carrying one stops being
+      // auto-signed-in from here on.
+      localStorage.removeItem('cms_admin_sess');
+      const sess=sessionStorage.getItem('cms_admin_sess');
+      const a=localStorage.getItem('cms_admin_api')||'';
+      if(sess){ this.setState({token:sess, apiBase:a, apiInput:a}, ()=>this.enter()); }
+    }catch(e){}
+    this.armIdleTimer();
+  }
+
+  // Sign out after 30 minutes untouched. A dashboard left open on a laptop in a
+  // van is the realistic way this leaks, not someone guessing the password.
+  armIdleTimer(){
+    const reset = () => {
+      clearTimeout(this._idle);
+      this._idle = setTimeout(()=>{ if(this.state.loggedIn) this.logout(); }, 30*60*1000);
+    };
+    ['click','keydown','touchstart','mousemove'].forEach(ev =>
+      window.addEventListener(ev, reset, { passive:true }));
+    reset();
   }
 
   googleSignIn = async () => {
@@ -1044,7 +1073,8 @@ class Component extends DCLogic {
       if(r.status===401 && /code/i.test(d.error||'')){ this.setState({busy:false, needCode:true, loginErr:this.state.codeInput?'Code incorrect — try the current 6 digits.':''}); return; }
       if(!r.ok){ this.setState({busy:false, loginErr:d.error||'Login failed.'}); return; }
       // success — d.token is a 2FA-verified admin session
-      try{ localStorage.setItem('cms_admin_sess', d.token); }catch(e){}
+      // sessionStorage: gone when the browser closes. See componentDidMount.
+      try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
       this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', passwordInput:'',
                       loggedIn:true, demoMode:false, busy:false, who:d.who||'',
                       mustCreateAccount:!!d.mustCreateAccount, tab:d.mustCreateAccount?'staff':this.state.tab });
@@ -1055,7 +1085,9 @@ class Component extends DCLogic {
     // Releases the phone's high-accuracy GPS watch. Logging out used to leave
     // it running: it only stopped transmitting because the token was dead.
     if(this._watch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._watch); this._watch=null; }
-    this.setState({gpsRef:''}); try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
+    this.setState({gpsRef:''});
+    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
+    this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
 
   // --- Record a payment or refund -------------------------------------------
@@ -1342,7 +1374,7 @@ class Component extends DCLogic {
     // This previously set loggedIn:true, so a stale or expired token in
     // localStorage produced a full dashboard shell with no password — it looked
     // signed in even though every API call was being refused with 403.
-    try{ localStorage.removeItem('cms_admin_sess'); }catch(e){}
+    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
     this.setState({
       loggedIn:false, busy:false, token:'', tokenInput:'', passwordInput:'',
       ...this.emptyState(),

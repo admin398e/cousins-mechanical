@@ -46,7 +46,7 @@
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
-        <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Sign in</button>
+        <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ signInLabel }}</button>
       </sc-if>
 
       <sc-if value="{{ isRegMode }}" hint-placeholder-val="{{ false }}">
@@ -57,12 +57,8 @@
         <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Full Name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
-        <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Register</button>
+        <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ registerLabel }}</button>
       </sc-if>
-    </div>
-  </sc-if>
-
-      <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">Sign in</button>
     </div>
   </sc-if>
 
@@ -131,6 +127,11 @@
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:760}}">
 class Component extends DCLogic {
   state = {
+    // authView drives which half of the login card shows. It was referenced by
+    // the template but never set here, so isLoginMode and isRegMode were both
+    // false and the card rendered with no fields in it at all.
+    authView:'login',
+    usernameInput:'', passwordInput:'', regName:'', busy:false,
     token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'',
     view:'login', jobs:[], activeRef:'', activeSvc:'', activeWho:'',
     on:false, lastFix:'—', accuracy:'—', shareErr:'', destPostcode:''
@@ -147,17 +148,68 @@ class Component extends DCLogic {
 
   setToken = e => this.setState({tokenInput:e.target.value});
   setApi = e => this.setState({apiInput:e.target.value});
-  login = () => {
-    const t=this.state.tokenInput.trim(); if(!t){ this.setState({loginErr:'Enter the access code.'}); return; }
-    const a=this.state.apiInput.trim().replace(/\/+$/,'');
-    try{ localStorage.setItem('cms_driver_token',t); localStorage.setItem('cms_driver_api',a); }catch(e){}
-    this.setState({token:t, apiBase:a, loginErr:''}, ()=>this.loadJobs());
+  setUsername = e => this.setState({usernameInput:e.target.value, loginErr:''});
+  setPassword = e => this.setState({passwordInput:e.target.value, loginErr:''});
+  setRegName  = e => this.setState({regName:e.target.value, loginErr:''});
+  gotoLogin    = () => this.setState({authView:'login', loginErr:''});
+  gotoRegister = () => this.setState({authView:'register', loginErr:''});
+
+  // A base URL with no scheme is resolved by fetch() RELATIVE to the current
+  // page, which silently sends every call to <site>/<whatever>/api/... — the
+  // same fault that broke signup on the public site. Blank means same origin,
+  // which is correct in production.
+  cleanApi(){
+    const v=(this.state.apiInput||'').trim().replace(/\/+$/,'');
+    if(!v) return '';
+    return /^https?:\/\//i.test(v) ? v : 'https://'+v;
+  }
+
+  /**
+   * Sign in with the driver's own username and password.
+   *
+   * This used to take a shared "access code" typed into one box and simply
+   * believe it — the page stored whatever was entered and went straight to the
+   * job list without asking the server anything. The server has had proper
+   * per-driver accounts for a while; the page was left half-migrated, binding
+   * to handlers that were never written.
+   */
+  login = async () => {
+    const username=(this.state.usernameInput||'').trim();
+    const password=this.state.passwordInput||'';
+    if(!username || !password){ this.setState({loginErr:'Enter your username and password.'}); return; }
+    this.setState({busy:true, loginErr:''});
+    const a=this.cleanApi();
+    try{
+      const r=await fetch(a+'/api/driver/login',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({username,password})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok || !d.token) throw new Error(d.error||'Username or password not recognised.');
+      try{ localStorage.setItem('cms_driver_token',d.token); localStorage.setItem('cms_driver_api',a); }catch(e){}
+      this.setState({token:d.token, apiBase:a, busy:false, passwordInput:'', loginErr:''}, ()=>this.loadJobs());
+    }catch(e){ this.setState({busy:false, loginErr:e.message||'Could not sign in.'}); }
+  };
+
+  register = async () => {
+    const username=(this.state.usernameInput||'').trim();
+    const password=this.state.passwordInput||'';
+    const name=(this.state.regName||'').trim();
+    if(!username || password.length<8){ this.setState({loginErr:'Choose a username and a password of at least 8 characters.'}); return; }
+    this.setState({busy:true, loginErr:''});
+    const a=this.cleanApi();
+    try{
+      const r=await fetch(a+'/api/driver/register',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({username,password,name})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.error||'Could not register.');
+      this.setState({busy:false, authView:'login', passwordInput:'',
+        loginErr:'Account created. An admin has to approve you before you can see jobs.'});
+    }catch(e){ this.setState({busy:false, loginErr:e.message||'Could not register.'}); }
   };
   logout = () => { this.stopShare(); try{ localStorage.removeItem('cms_driver_token'); }catch(e){} this.setState({token:'', view:'login', jobs:[], activeRef:''}); };
 
   async loadJobs(){
     if(!(this.base()||this.sameOrigin())){ this.setState({view:'pick', jobs:this.demo()}); return; }
-    try{ const r=await this.api('/driver/jobs'); if(r.status===403){ this.setState({loginErr:'Access code rejected.', view:'login'}); return; }
+    try{ const r=await this.api('/driver/jobs'); if(r.status===403){ this.setState({loginErr:'Your account is not approved yet, or your session has expired. Sign in again.', view:'login', token:''}); return; }
       const d=await r.json(); this.setState({view:'pick', jobs:d.jobs||[]});
     }catch(e){ this.setState({view:'pick', jobs:this.demo()}); }
   }
@@ -216,6 +268,7 @@ class Component extends DCLogic {
       usernameInput:s.usernameInput, passwordInput:s.passwordInput, regName:s.regName, apiInput:s.apiInput, loginErr:s.loginErr,
       setUsername:this.setUsername, setPassword:this.setPassword, setRegName:this.setRegName, setApi:this.setApi,
       gotoLogin:this.gotoLogin, gotoRegister:this.gotoRegister, login:this.login, register:this.register,
+      busy:s.busy, signInLabel: s.busy ? 'Signing in…' : 'Sign in', registerLabel: s.busy ? 'Creating…' : 'Register',
       logout:this.logout, refreshJobs:this.refreshJobs, backToJobs:this.backToJobs,
       loginSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='login'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),
       regSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='register'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),

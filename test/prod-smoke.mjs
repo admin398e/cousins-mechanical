@@ -123,7 +123,12 @@ await check('the deployed site handles the #track= deep link from the email', as
 // They are safe to run against the real site: nothing here creates a customer
 // record, sends mail to a stranger, or moves money.
 
-await check('an anonymous booking cannot inject a payment into a victim job', async () => {
+// Opt-in: this is the only probe that writes anything, and every run leaves a
+// booking in the live dashboard for the owner to clear.
+//   SMOKE_WRITE=1 npm run smoke:prod
+await check(process.env.SMOKE_WRITE ? 'an anonymous booking cannot inject a payment into a victim job'
+                                    : 'booking injection probe (skipped — set SMOKE_WRITE=1)', async () => {
+  if (!process.env.SMOKE_WRITE) return;
   // The booking handler used to spread the whole request body into the stored
   // job, so this wrote a £50,000 "payment" into someone else's booking list —
   // which the refund ceiling then trusts.
