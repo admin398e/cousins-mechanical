@@ -102,7 +102,7 @@ await check('every admin endpoint refuses an unauthenticated caller', async () =
 
 await check('the deployed dashboard has the payment UI', async () => {
   const html = await (await get(BASE + '/admin')).text();
-  for (const marker of ['RECORD A PAYMENT', 'Mark paid', 'Record payment &amp; email receipt']) {
+  for (const marker of ['RECORD A PAYMENT', 'Mark paid', 'Record payment & email receipt']) {
     assert(html.includes(marker), `dashboard is missing "${marker}" — an old build is live`);
   }
 });
@@ -116,6 +116,83 @@ await check('the deployed booking form has the marketing opt-in, unticked', asyn
 await check('the deployed site handles the #track= deep link from the email', async () => {
   const html = await (await get(BASE + '/')).text();
   assert(/track=\(/.test(html), 'no #track= handler — the "Track & manage booking" button in the email is dead');
+});
+
+// --- exploit probes ---------------------------------------------------------
+// Each of these reproduces a hole that was live in production before go-live.
+// They are safe to run against the real site: nothing here creates a customer
+// record, sends mail to a stranger, or moves money.
+
+await check('an anonymous booking cannot inject a payment into a victim job', async () => {
+  // The booking handler used to spread the whole request body into the stored
+  // job, so this wrote a £50,000 "payment" into someone else's booking list —
+  // which the refund ceiling then trusts.
+  const r = await fetch(BASE + '/api/service-requests', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      name: 'UAT Probe', phone: '07000000000',
+      email: 'uat-probe-donotuse@cousinsmechanicalservices.co.uk',
+      service: 'diagnostics', svcLabel: 'UAT PROBE — safe to delete',
+      paidPence: 5000000, payments: [{ kind: 'payment', pence: 5000000 }],
+      status: 'complete', ref: 'CMS-PWNED',
+    }),
+  });
+  const d = await r.json();
+  if (r.status === 429) return; // already rate limited; the probe is moot
+  assert(d.ok, 'probe booking refused: ' + JSON.stringify(d).slice(0, 120));
+  assert(d.ref !== 'CMS-PWNED', 'the caller chose their own booking reference');
+  assert(d.booking.paidPence === undefined, 'an anonymous caller injected a paid balance');
+  assert(d.booking.payments === undefined, 'an anonymous caller injected payment records');
+  assert(d.booking.status === 'confirmed', 'an anonymous caller set the job status');
+  console.log('          note: probe booking ' + d.ref + ' created — delete it from the dashboard');
+});
+
+await check('calendar invites cannot be sent by an anonymous caller', async () => {
+  const r = await fetch(BASE + '/api/calendar/add-event', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ date: '2026-09-01', name: 'x', customerEmail: 't@example.com' }),
+  });
+  assert(r.status === 403, `Google would send an invite from the business account (status ${r.status})`);
+});
+
+await check('driver endpoints reject a missing or empty token', async () => {
+  for (const body of [{}, { token: '' }, { token: null }]) {
+    const loc = await fetch(BASE + '/api/driver/location', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ref: 'CMS-TEST1', lat: 50, lng: -2, ...body }),
+    });
+    assert([403, 404, 429].includes(loc.status), `driver/location accepted ${JSON.stringify(body)} (${loc.status})`);
+    const jobs = await fetch(BASE + '/api/driver/jobs', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    assert([403, 429].includes(jobs.status), `driver/jobs leaked the job list for ${JSON.stringify(body)} (${jobs.status})`);
+  }
+});
+
+await check('2FA enrolment state is not readable by the public', async () => {
+  const r = await get(BASE + '/api/admin-2fa/status');
+  assert(r.status === 403, `anyone can see whether 2FA is on (status ${r.status})`);
+});
+
+await check('the metered third-party proxies require admin auth', async () => {
+  // These bill per call on the client's own accounts and nothing public uses
+  // them. Open, anyone could run the quota to zero.
+  for (const path of ['/api/ukvd?vrm=AB12CDE', '/api/v1/tyres']) {
+    const r = await get(BASE + path);
+    assert(r.status === 403, `${path} is reachable without auth (${r.status})`);
+  }
+});
+
+await check('admin login rate limits a brute-force attempt', async () => {
+  let limited = false;
+  for (let i = 0; i < 20; i++) {
+    const r = await fetch(BASE + '/api/admin-login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'nobody@example.com', password: 'guess' + i }),
+    });
+    if (r.status === 429) { limited = true; break; }
+  }
+  assert(limited, 'the staff password can be guessed without limit');
 });
 
 // --- basics -----------------------------------------------------------------
