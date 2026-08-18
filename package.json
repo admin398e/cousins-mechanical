@@ -1,7 +1,7 @@
 {
   "name": "cousins-mechanical",
   "version": "1.0.0",
-  "description": "Cousins Mechanical Services — mobile mechanic & tyre fitting site, admin portal, driver app and Cloudflare Worker backend.",
+  "description": "Cousins Mechanical Services \u2014 mobile mechanic & tyre fitting site, admin portal, driver app and Cloudflare Worker backend.",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -17,7 +17,8 @@
     "test": "node --env-file-if-exists=.env test/smoke.test.js",
     "verify": "npm run check && npm run build && npm test",
     "predeploy": "npm run verify",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "smoke:prod": "node test/prod-smoke.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
