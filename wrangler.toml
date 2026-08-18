@@ -85,7 +85,12 @@ name = "RL_AUTH"          # login, signup, password reset — credential guessin
 namespace_id = "1001"
 
   [ratelimits.simple]
-  limit = 12
+  # 12/min was too tight: it locked the owner out of his own dashboard for a
+  # minute after ordinary testing, and `npm run smoke:prod` (which deliberately
+  # fires 20 bad logins to prove the limiter works) burned the whole budget for
+  # the runner's IP. 30/min still makes password guessing hopeless, and the
+  # per-account KV counter (8 per 15 min) is the tighter of the two anyway.
+  limit = 30
   period = 60
 
 [[ratelimits]]

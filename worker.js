@@ -171,6 +171,30 @@ async function rateLimited(env, key, max) {
  * Endpoints that take a ref from the caller need this: a ref that names nothing
  * used to be accepted and written to KV anyway, so any string created a new key.
  */
+/**
+ * The job timeline as the CUSTOMER should see it.
+ *
+ * Stock and supplier lines are internal. A customer who books tyres has no
+ * business being told "Purchase order PO-… raised with <supplier> for next
+ * morning delivery" — it exposes who supplies the business and what it does or
+ * does not have on the van, and it reads as a problem rather than progress.
+ *
+ * Filtering happens on READ, not just on write, because bookings already in KV
+ * carry the old wording and would otherwise keep showing it forever. The two
+ * rules:
+ *   - anything explicitly flagged internal
+ *   - anything that mentions stock, a supplier or a purchase order (legacy
+ *     records written before the flag existed)
+ */
+const INTERNAL_UPDATE = /supplier|purchase order|\bPO-|wholesale|stock allocated|reorder|local inventory|in stock|out of stock/i;
+
+function customerUpdates(updates) {
+  return (Array.isArray(updates) ? updates : []).filter(u => {
+    if (!u || u.internal) return false;
+    return !INTERNAL_UPDATE.test(String(u.s || "") + " " + String(u.d || ""));
+  });
+}
+
 async function findBookingOwner(env, ref) {
   const list = await env.CMS_KV.list({ prefix: "bookings:" });
   for (const k of list.keys) {
@@ -1633,6 +1657,7 @@ async function processTyreStockForOrder(env, order) {
       order.updates = order.updates || [];
       order.updates.push({
         t: Date.now(),
+        internal: true,                    // admin timeline only — never the customer's
         s: "Stock Allocated",
         d: `Allocated ${qtyNeeded}x ${stock[matchedIndex].name} from local inventory. Remaining stock: ${stock[matchedIndex].qty}.`
       });
@@ -1688,6 +1713,7 @@ async function processTyreStockForOrder(env, order) {
       order.updates = order.updates || [];
       order.updates.push({
         t: Date.now(),
+        internal: true,                    // admin timeline only — never the customer's
         s: "Supplier Auto-Ordered",
         // Customer-facing. Do not name a supplier here at all: it told customers
         // their tyres were ordered from "C-Tyres Wholesale", a company that does
@@ -1718,6 +1744,7 @@ async function processTyreStockForOrder(env, order) {
     order.updates = order.updates || [];
     order.updates.push({
       t: Date.now(),
+      internal: true,                      // admin timeline only — never the customer's
       s: "Added to reorder list",
       d: `${qtyNeeded} x ${order.svcLabel || "tyre"} added to the reorder list for ordering.`,
     });
@@ -1904,7 +1931,11 @@ async function processTyreStockForOrder(env, order) {
     const kvKey = "bookings:" + u.email;
     const list = JSON.parse((await env.CMS_KV.get(kvKey)) || "[]");
 
-    if (request.method === "GET") return json({ bookings: list });
+    // Same filter as /track: the customer's own booking list shows their job,
+    // not the business's stock and supplier movements.
+    if (request.method === "GET") {
+      return json({ bookings: list.map(o => ({ ...o, updates: customerUpdates(o.updates) })) });
+    }
 
     if (request.method === "POST") {
       const b = await request.json().catch(() => ({}));
@@ -2137,7 +2168,7 @@ async function processTyreStockForOrder(env, order) {
     const job = arr.find(o => o.ref === tm[1]);
     if (!job) return bad("Not found", 404); // customers can only track their own jobs
     const loc = JSON.parse((await env.CMS_KV.get("loc:" + tm[1])) || "null");
-    return json({ status: job.status, updates: job.updates || [], location: loc });
+    return json({ status: job.status, updates: customerUpdates(job.updates), location: loc });
   }
 
   // --- ADMIN LOGIN + 2FA ---

@@ -726,6 +726,42 @@ try {
     }
   });
 
+  await check('customers never see stock or supplier movements on their job', async () => {
+    // Reported live: a customer's timeline read "Supplier Auto-Ordered — …
+    // Purchase Order PO-… with C-Tyres Wholesale for next morning delivery".
+    // That exposes who supplies the business and what is on the van, and reads
+    // as a problem rather than progress. Filtering happens on READ so bookings
+    // already stored with the old wording are covered too.
+    const em = `timeline-${Date.now()}@example.com`;
+    const pw = 'aVeryLongPassword1';
+    const { token } = await (await postJson('/api/auth/signup', { name: 'Timeline', email: em, phone: '07900000123', password: pw, consent: true })).json();
+    const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
+
+    const mk = await api('/api/bookings', { method: 'POST', headers: h, body: JSON.stringify({ service: 'tyres', svcLabel: 'Tyre fitting — 195/65R15' }) });
+    const ref = (await mk.json()).booking.ref;
+
+    // Plant the exact legacy wording straight into KV via the admin path.
+    const tok = await adminTok();
+    await api(`/api/admin/jobs/${ref}`, {
+      method: 'PATCH', headers: { authorization: 'Bearer ' + tok, 'content-type': 'application/json' },
+      body: JSON.stringify({ customerEmail: em, label: 'Supplier Auto-Ordered',
+        note: 'Purchase Order PO-CTYRES-H5VRV with C-Tyres Wholesale for next morning delivery.' }),
+    });
+
+    const seen = JSON.stringify([
+      (await (await api(`/api/track/${ref}`, { headers: h })).json()).updates,
+      (await (await api('/api/bookings', { headers: h })).json()).bookings,
+    ]);
+    for (const leak of ['Supplier', 'Purchase Order', 'PO-CTYRES', 'Wholesale', 'inventory']) {
+      assert.ok(!seen.includes(leak), `the customer can see "${leak}" on their job`);
+    }
+
+    // The admin must still see the full picture.
+    const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
+    const adminView = JSON.stringify(jobs.find(j => j.ref === ref));
+    assert.ok(adminView.includes('Supplier'), 'the internal note vanished from the admin view too');
+  });
+
   // ---- Security regressions --------------------------------------------------
   // Each of these reproduces a real hole found in the pre-go-live audit. They
   // are here so the hole cannot quietly come back.

@@ -183,9 +183,15 @@ await check('the metered third-party proxies require admin auth', async () => {
   }
 });
 
-await check('admin login rate limits a brute-force attempt', async () => {
+// Runs LAST on purpose, and only when asked. Firing 20 bad logins consumes the
+// auth rate-limit budget for THIS machine's IP for the next minute — which
+// locked the owner out of his own dashboard straight after a routine smoke run.
+//   SMOKE_BRUTE=1 npm run smoke:prod
+await check(process.env.SMOKE_BRUTE ? 'admin login rate limits a brute-force attempt'
+                                    : 'admin login brute-force check (skipped — set SMOKE_BRUTE=1)', async () => {
+  if (!process.env.SMOKE_BRUTE) return;
   let limited = false;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 40; i++) {
     const r = await fetch(BASE + '/api/admin-login', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'nobody@example.com', password: 'guess' + i }),
