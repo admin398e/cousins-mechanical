@@ -195,6 +195,20 @@ await check('admin login rate limits a brute-force attempt', async () => {
   assert(limited, 'the staff password can be guessed without limit');
 });
 
+await check('the site never builds an API URL without a scheme', async () => {
+  // A stored config value with no scheme ("host.workers.dev") was being
+  // concatenated straight into fetch(), so the browser resolved it RELATIVE to
+  // the page and every call went to
+  //   https://cousinsmechanicalservices.co.uk/host.workers.dev/api/...
+  // Signup, login and job tracking were all broken on the live site by this.
+  const html = await (await get(BASE + '/')).text();
+  assert(/ignoring apiBase without a scheme/.test(html),
+    'the apiBase scheme guard is not in the deployed page — an old build is live');
+  // And the relative form must 404 rather than quietly serving something.
+  const r = await get(BASE + '/cousins-mechanical.example.workers.dev/api/auth/me');
+  assert(r.status === 404, `a schemeless API path returned ${r.status}, expected 404`);
+});
+
 // --- basics -----------------------------------------------------------------
 
 await check('public pages are all served', async () => {

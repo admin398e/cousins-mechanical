@@ -976,6 +976,13 @@ class Component extends DCLogic {
   loadConfig(){
     try{
       const c = JSON.parse(localStorage.getItem('cms_config')||'null');
+      // Repair a stored endpoint that has no scheme. Browsers that saved one
+      // before this fix would otherwise keep sending every API call to a
+      // relative path off the current origin.
+      if(c && c.tireProxy && !/^https?:\/\//i.test(c.tireProxy)){
+        c.tireProxy = 'https://' + c.tireProxy;
+        try{ localStorage.setItem('cms_config', JSON.stringify(c)); }catch(e){}
+      }
       if(c){ window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
         this.setState({ cfgEndpoint:c.tireProxy||'' });
       }
@@ -987,7 +994,10 @@ class Component extends DCLogic {
   setCfgKey = e => this.setState({cfgKey:e.target.value});
   setCfgProvider = e => this.setState({cfgProvider:e.target.value});
   saveConfig = () => {
-    const base = this.state.cfgEndpoint.trim().replace(/\/+$/,'');
+    let base = this.state.cfgEndpoint.trim().replace(/\/+$/,'');
+    // Require a scheme, or the value becomes a relative path the moment it is
+    // concatenated onto a fetch(). This is what broke the live site.
+    if (base && !/^https?:\/\//i.test(base)) base = 'https://' + base;
     const c = { tireProxy: base };
     try{ localStorage.setItem('cms_config', JSON.stringify(c)); }catch(e){}
     window.CMS_CONFIG = Object.assign(window.CMS_CONFIG||{}, c);
@@ -1000,7 +1010,31 @@ class Component extends DCLogic {
   };
 
   // ---------- BACKEND (Cloudflare Worker) ----------
-  apiBase(){ const c=window.CMS_CONFIG||{}; const b=(c.apiBase||c.tireProxy); if(b) return b.replace(/\/+$/,''); return this.sameOrigin()?'':null; }
+  // The backend base URL.
+  //
+  // Two bugs lived here and between them they broke signup, login and tracking
+  // on the live site:
+  //
+  //   1. It fell back to `tireProxy`, which is the TYRE DATA proxy setting —
+  //      a different thing entirely. Anyone who had ever saved a tyre endpoint
+  //      in the config panel had that value silently hijack every API call,
+  //      including auth.
+  //   2. It did not require a scheme. The saved value was a bare hostname
+  //      ("cousins-mechanical.<id>.workers.dev"), so fetch() resolved it
+  //      RELATIVE to the current page and produced
+  //      https://cousinsmechanicalservices.co.uk/cousins-mechanical.<id>
+  //      .workers.dev/api/auth/signup  → 404, or 405 on POST.
+  //
+  // Same-origin is the correct answer in production: the Worker serves both the
+  // site and the API. An explicit override is honoured only if it is an
+  // absolute http(s) URL.
+  apiBase(){
+    const c = window.CMS_CONFIG || {};
+    const b = c.apiBase;
+    if (b && /^https?:\/\//i.test(b)) return String(b).replace(/\/+$/, '');
+    if (b) console.warn('[cms] ignoring apiBase without a scheme:', b);
+    return this.sameOrigin() ? '' : null;
+  }
   sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
   hasServer(){ return this.apiBase()!==null; }
   authToken(){ try{ return localStorage.getItem('cms_token')||''; }catch(e){ return ''; } }

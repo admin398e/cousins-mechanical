@@ -1005,7 +1005,18 @@ class Component extends DCLogic {
   toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
   toggleReset2fa = e => this.setState({reset2fa:e.target.checked});
   onKey = e => { if(e.key==='Enter') this.login(); };
-  apiBaseUrl(){ return (this.state.apiInput||'').trim().replace(/\/+$/,''); }
+  // Same trap as the public site had: a base URL with no scheme is treated by
+  // fetch() as a path relative to the current page, so every API call silently
+  // goes to <this site>/<whatever was typed>/api/... and 404s. Anything without
+  // http(s):// is ignored in favour of same-origin, which is correct in
+  // production anyway — the Worker serves the dashboard and the API together.
+  apiBaseUrl(){
+    const v = (this.state.apiInput||'').trim().replace(/\/+$/,'');
+    if (!v) return '';
+    if (/^https?:\/\//i.test(v)) return v;
+    console.warn('[cms-admin] ignoring API base without a scheme:', v);
+    return '';
+  }
   async raw(path, opts){ opts=opts||{}; const h=Object.assign({'content-type':'application/json'}, opts.headers||{}); return fetch(this.apiBaseUrl()+'/api'+path, {...opts, headers:h}); }
 
   login = async () => {
@@ -1308,7 +1319,8 @@ class Component extends DCLogic {
     opts=opts||{}; const h=Object.assign({}, opts.headers||{});
     if(opts.body && !h['content-type']) h['content-type']='application/json';
     h['authorization']='Bearer '+this.state.token;
-    return fetch((this.state.apiBase||'')+'/api'+path, {...opts, headers:h});
+    const base = /^https?:\/\//i.test(this.state.apiBase||'') ? this.state.apiBase : '';
+    return fetch(base+'/api'+path, {...opts, headers:h});
   }
   hasServer(){ return !!this.state.apiBase || this.sameOrigin(); }
 
