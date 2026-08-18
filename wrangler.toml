@@ -66,6 +66,45 @@ pattern = "admin.cousinsmechanicalservices.co.uk"
 custom_domain = true
 
 # ---------------------------------------------------------------------------
+# Rate limiting
+#
+# The KV counters this code also keeps are NOT sufficient on their own: KV reads
+# are cached at the edge for up to 60 seconds, so a counter incremented on
+# request 1 still reads as zero on request 50. Production UAT confirmed it — 70
+# rapid calls to the metered vehicle-lookup proxy never tripped the KV limit.
+# That means the brute-force protection on the login routes was far weaker than
+# it looked.
+#
+# This binding is backed by the same infrastructure as WAF rate limiting rules
+# and counts accurately. It is per-Cloudflare-location rather than global, so
+# the KV counters are kept as a second, account-scoped layer (an attacker
+# spreading guesses across PoPs still hits the per-email limit).
+# ---------------------------------------------------------------------------
+[[ratelimits]]
+name = "RL_AUTH"          # login, signup, password reset — credential guessing
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 12
+  period = 60
+
+[[ratelimits]]
+name = "RL_LOOKUP"        # the metered UKVD / tyre-fitment proxies
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[ratelimits]]
+name = "RL_WRITE"         # bookings, messages, driver GPS — outbound email/spam
+namespace_id = "1003"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# ---------------------------------------------------------------------------
 # KV — customer accounts, sessions, bookings, drivers, inventory, live driver
 # GPS, rate-limit counters and the GDPR audit log all live here.
 #

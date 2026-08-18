@@ -141,6 +141,25 @@ function safeEqual(a, b) {
  * locks out once the limit is hit; the KV TTL handles expiry so nothing to sweep.
  */
 const RATE_LIMIT = { max: 8, windowSec: 900 }; // 8 attempts per 15 minutes
+/**
+ * Edge rate limit, using Cloudflare's rate-limiting binding.
+ *
+ * Returns true when the caller should be refused. Falls through to `false` if
+ * the binding is absent (local dev via server.js has no such binding), so the
+ * KV counters below remain the fallback there.
+ */
+async function edgeLimited(env, binding, key) {
+  const rl = env[binding];
+  if (!rl || typeof rl.limit !== "function") return false;
+  try {
+    const { success } = await rl.limit({ key });
+    return !success;
+  } catch (err) {
+    console.error("[ratelimit]", binding, err && err.message);
+    return false; // never let the limiter itself take the site down
+  }
+}
+
 async function rateLimited(env, key, max) {
   const n = Number((await env.CMS_KV.get("rl:" + key)) || 0);
   return n >= (max || RATE_LIMIT.max);
@@ -1154,7 +1173,10 @@ async function api(request, env, url, ctx) {
   if (p === "/auth/signup" && request.method === "POST") {
     const { name, email, phone, password, marketing, smsUpdates, consent } = await request.json().catch(() => ({}));
     const em = (email || "").trim().toLowerCase();
-    if (await rateLimited(env, "signup:" + clientIp(request), 10)) return bad("Too many attempts — try again later.", 429);
+    if (await edgeLimited(env, "RL_AUTH", "signup:" + clientIp(request))
+        || await rateLimited(env, "signup:" + clientIp(request), 10)) {
+      return bad("Too many attempts — try again later.", 429);
+    }
     await noteFailure(env, "signup:" + clientIp(request));
     if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || (password || "").length < 6) return bad("Invalid details");
     if (!consent) return bad("Please accept the privacy notice to create an account."); // GDPR: no account without lawful basis
@@ -1179,7 +1201,10 @@ async function api(request, env, url, ctx) {
     const em = (email || "").trim().toLowerCase();
     // Brute-force protection: limit by email *and* by source IP, so an attacker
     // cannot spread guesses across many accounts from one machine.
-    if (await rateLimited(env, em) || await rateLimited(env, "ip:" + clientIp(request))) {
+    // Edge limiter first (accurate, per-location), KV second (per-account, so
+    // spreading guesses across locations still gets caught).
+    if (await edgeLimited(env, "RL_AUTH", "login:" + clientIp(request))
+        || await rateLimited(env, em) || await rateLimited(env, "ip:" + clientIp(request))) {
       return bad("Too many attempts — try again in 15 minutes.", 429);
     }
     const raw = await env.CMS_KV.get("user:" + em);
@@ -1207,7 +1232,8 @@ async function api(request, env, url, ctx) {
     // Every call here sends a real email. Unlimited, it is a free outbound
     // amplifier pointed at anyone's inbox from our domain — the exact
     // reputation damage the bounce handling exists to prevent.
-    if (await rateLimited(env, "ip:" + clientIp(request))) return json({ ok: true });
+    if (await edgeLimited(env, "RL_AUTH", "forgot:" + clientIp(request))
+        || await rateLimited(env, "ip:" + clientIp(request))) return json({ ok: true });
     await noteFailure(env, "ip:" + clientIp(request));
     const raw = await env.CMS_KV.get("user:" + em);
     if (raw) {
@@ -1696,7 +1722,8 @@ async function processTyreStockForOrder(env, order) {
 
     // Public endpoint — no login. It must not send email without limit, or it
     // is an open relay for our own domain's reputation.
-    if (await rateLimited(env, "book:" + clientIp(request), 20)) {
+    if (await edgeLimited(env, "RL_WRITE", "book:" + clientIp(request))
+        || await rateLimited(env, "book:" + clientIp(request), 20)) {
       return bad("Too many booking attempts — please call 07925 340977.", 429);
     }
     await noteFailure(env, "book:" + clientIp(request));
@@ -1951,7 +1978,9 @@ async function processTyreStockForOrder(env, order) {
       await noteFailure(env, "ip:" + clientIp(request));
       return bad("Forbidden", 403);
     }
-    if (await rateLimited(env, "loc:" + clientIp(request), 240)) return bad("Too many updates", 429);
+    // A sharing driver posts a fix every few seconds, so this ceiling is high;
+    // the point is to stop an unbounded flood, not to throttle normal use.
+    if (await rateLimited(env, "loc:" + clientIp(request), 600)) return bad("Too many updates", 429);
 
     const { ref: r, lat, lng, eta, arrived } = body;
     if (!r || !/^[\w-]{1,32}$/.test(String(r))) return bad("Missing or invalid ref");
@@ -2027,7 +2056,12 @@ async function processTyreStockForOrder(env, order) {
     const b = await request.json().catch(() => ({}));
     const username = String(b.username || "").trim().toLowerCase();
     const rlKey = "drv:" + clientIp(request);
-    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    // The most important limiters in the file: these guard the staff password,
+    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
+    // close to useless because KV reads are edge-cached for up to a minute.
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
 
     const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
     const d = drivers.find(x => x.username === username);
@@ -2110,7 +2144,12 @@ async function processTyreStockForOrder(env, order) {
   // the Google button 404'd.
   if (p === "/admin-login-firebase" && request.method === "POST") {
     const rlKey = "admin:" + clientIp(request);
-    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    // The most important limiters in the file: these guard the staff password,
+    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
+    // close to useless because KV reads are edge-cached for up to a minute.
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
     if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 503);
     const admins = String(env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
     if (!admins.length) return bad("ADMIN_EMAILS is not set — refusing to grant admin access", 503);
@@ -2142,7 +2181,12 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/admin-login" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const rlKey = "admin:" + clientIp(request);
-    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    // The most important limiters in the file: these guard the staff password,
+    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
+    // close to useless because KV reads are edge-cached for up to a minute.
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
     if (!env.ADMIN_TOKEN) return bad("Admin login is not configured — set the ADMIN_TOKEN secret", 503);
 
     const issue = async (who, extra) => {
@@ -2221,7 +2265,12 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/admin-2fa/new" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const rlKey = "admin2fa:" + clientIp(request);
-    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    // The most important limiters in the file: these guard the staff password,
+    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
+    // close to useless because KV reads are edge-cached for up to a minute.
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
     if (!safeEqual(b.token, env.ADMIN_TOKEN)) { await noteFailure(env, rlKey); return bad("Invalid admin token", 401); }
     // Refuse to hand out a new secret once 2FA is live — otherwise anyone holding
     // the admin token could silently re-enrol their own authenticator.
@@ -2237,7 +2286,12 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/admin-2fa/enable" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const rlKey = "admin2fa:" + clientIp(request);
-    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    // The most important limiters in the file: these guard the staff password,
+    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
+    // close to useless because KV reads are edge-cached for up to a minute.
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
     if (!safeEqual(b.token, env.ADMIN_TOKEN)) { await noteFailure(env, rlKey); return bad("Invalid admin token", 401); }
     if (await env.CMS_KV.get("admin_totp")) return bad("2FA is already enrolled.", 409);
     if (!b.secret || !(await totpValid(b.secret, b.code))) return bad("That code didn't match — check the app and try again.", 400);
@@ -3189,10 +3243,13 @@ async function processTyreStockForOrder(env, order) {
   // world with no limit, a script can burn the whole vehicle-lookup quota — the
   // bill and the outage are the client's. CORS does not help: it restrains
   // browsers, not curl.
-  if ((p === "/ukvd" || p.startsWith("/v1/")) && await rateLimited(env, "lookup:" + clientIp(request), 60)) {
-    return bad("Too many lookups — slow down.", 429);
+  if (p === "/ukvd" || p.startsWith("/v1/")) {
+    if (await edgeLimited(env, "RL_LOOKUP", "lookup:" + clientIp(request))
+        || await rateLimited(env, "lookup:" + clientIp(request), 60)) {
+      return bad("Too many lookups — slow down.", 429);
+    }
+    await noteFailure(env, "lookup:" + clientIp(request));
   }
-  if (p === "/ukvd" || p.startsWith("/v1/")) await noteFailure(env, "lookup:" + clientIp(request));
 
   if (p === "/ukvd" && request.method === "GET") {
     const vrm = (url.searchParams.get("vrm") || "").toUpperCase().replace(/\s+/g, "");
