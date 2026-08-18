@@ -603,6 +603,10 @@
               <input type="checkbox" checked="{{ book.calendar }}" onChange="{{ toggleCalendar }}" style="margin-top:3px;width:18px;height:18px;accent-color:#e8791a"/>
               <span style="font-size:13.5px;color:#5c534d;line-height:1.4">Email me a confirmation &amp; a calendar invite, and text me live updates on the day.</span>
             </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;background:#faf7f3;border:1px solid #eee3d8;border-radius:10px;padding:12px;cursor:pointer">
+              <input type="checkbox" checked="{{ book.marketing }}" onChange="{{ toggleBookMarketing }}" style="margin-top:3px;width:18px;height:18px;accent-color:#e8791a"/>
+              <span style="font-size:13.5px;color:#5c534d;line-height:1.4">Optional — send me servicing reminders and occasional tyre offers by email. Unticked means we only ever email you about jobs you have booked. You can unsubscribe from any message.</span>
+            </label>
           </div>
         </sc-if>
 
@@ -929,7 +933,7 @@ class Component extends DCLogic {
     inStockOnly: false, tyreLoading: false, tyreErr: '', noStockMatch: false,
     tyreOptions: [],
     bookOpen: false, bookStep: 1, bookDone: false, lastRef: '', bookBusy: false, bookErr: '', svcPricing: {},
-    book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true },
+    book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
     locHint: 'We use this to route the van straight to you.',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
     messages: [], msgInput:'', msgBusy:false,
@@ -1103,6 +1107,11 @@ class Component extends DCLogic {
   setBookName = e => this.setState(s=>({book:{...s.book,name:e.target.value}}));
   setBookPhone = e => this.setState(s=>({book:{...s.book,phone:e.target.value}}));
   setBookEmail = e => this.setState(s=>({book:{...s.book,email:e.target.value}}));
+  // Marketing consent for the booking form. Starts false and can only be turned
+  // on by the customer ticking it — never pre-ticked, never inferred from the
+  // fact that they booked. That tick is the only thing that puts them on the
+  // mailing list.
+  toggleBookMarketing = e => { const v=!!e.target.checked; this.setState(s=>({book:{...s.book,marketing:v}})); };
   setBookNotes = e => this.setState(s=>({book:{...s.book,notes:e.target.value}}));
   toggleCalendar = e => this.setState(s=>({book:{...s.book,calendar:e.target.checked}}));
 
@@ -1110,8 +1119,24 @@ class Component extends DCLogic {
     this.setState({locHint:'Getting your location…'});
     if(!navigator.geolocation){ this.setState({locHint:'Location not available — please type your postcode.'}); return; }
     navigator.geolocation.getCurrentPosition(
-      pos=>{ const la=pos.coords.latitude, lo=pos.coords.longitude;
-        this.setState(s=>({ book:{...s.book, postcode:'📍 '+la.toFixed(5)+', '+lo.toFixed(5), lat:la, lng:lo}, locHint:'Location captured — the van will be routed to you.' })); },
+      async pos => {
+        const la = pos.coords.latitude, lo = pos.coords.longitude;
+        // Keep the exact coordinates for routing, but show the customer (and
+        // put on the job sheet) a real postcode — "50.73044, -2.73899" tells
+        // the mechanic nothing he can act on.
+        this.setState(s => ({ book:{...s.book, lat:la, lng:lo}, locHint:'Finding your postcode…' }));
+        let pc = '';
+        try {
+          const r = await fetch('https://api.postcodes.io/postcodes?lat=' + la + '&lon=' + lo + '&limit=1&radius=2000');
+          if (r.ok) { const d = await r.json(); pc = (d && d.result && d.result[0] && d.result[0].postcode) || ''; }
+        } catch (e) { /* offline or lookup down — fall back to coordinates */ }
+        this.setState(s => ({
+          book: { ...s.book, postcode: pc || (la.toFixed(5) + ', ' + lo.toFixed(5)), lat: la, lng: lo },
+          locHint: pc
+            ? 'Location captured — ' + pc + '. The van is routed to your exact position.'
+            : 'Location captured — we have your exact position for the van.'
+        }));
+      },
       err=>{ const m = err.code===1 ? 'Location permission denied — allow location for this site in your browser, or type your postcode.' : err.code===2 ? 'Location unavailable right now — please type your postcode.' : 'Location timed out — please type your postcode.'; this.setState({locHint:m}); },
       { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
     );
@@ -1515,9 +1540,15 @@ class Component extends DCLogic {
 
   fmtTime(t){ const d=new Date(t); return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }
   fmtPostcode(pc){
-    const raw = String(pc||'').toUpperCase().replace(/\s+/g,'');
+    const raw = String(pc||'').trim();
     if(!raw) return 'your location';
-    return raw.length>3 ? raw.slice(0,-3)+' '+raw.slice(-3) : raw;   // dt64lb -> DT6 4LB
+    const compact = raw.toUpperCase().replace(/\s+/g,'');
+    // Only reformat things that are actually UK postcodes. This used to space
+    // the last three characters of ANY string, which turned GPS coordinates
+    // like "-2.73899" into "-2.73 899".
+    return /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(compact)
+      ? compact.slice(0, -3) + ' ' + compact.slice(-3)
+      : raw;
   }
   fmtDate(s){ if(!s) return 'TBC'; try{ return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return s; } }
 

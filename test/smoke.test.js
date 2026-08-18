@@ -523,6 +523,71 @@ try {
     assert.ok(jobs.some(j => j.ref === d.ref), `booking ${d.ref} confirmed to the customer but missing from the dashboard`);
   });
 
+  await check('a guest booking creates a CRM contact without creating a login account', async () => {
+    const em = `guest-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Guest Booker', phone: '07900555333', email: em,
+      reg: 'GU11EST', service: 'diagnostics', svcLabel: 'Diagnostics',
+    });
+    assert.ok((await r.json()).ok, 'guest booking was not accepted');
+
+    const tok = await adminTok();
+    const list = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
+    const row = list.find(c => c.email === em);
+    assert.ok(row, 'a guest who booked without an account is missing from the CRM');
+    assert.equal(row.hasAccount, false, 'a booking must not silently create a login account');
+    assert.equal(row.jobCount, 1);
+
+    // The booking must not have made them signup-blocked: /auth/signup answers
+    // 409 "already exists" off the presence of a user: record, so a contact
+    // record must be a different key entirely.
+    const su = await postJson('/api/auth/signup', {
+      name: 'Guest Booker', email: em, phone: '07900555333', password: 'aVeryLongPassword1', consent: true,
+    });
+    assert.equal(su.status, 200, 'booking as a guest locked that email out of ever signing up');
+  });
+
+  await check('booking without ticking the optional box records no marketing consent', async () => {
+    const em = `nomkt-${Date.now()}@example.com`;
+    await postJson('/api/service-requests', {
+      name: 'No Marketing', phone: '07900555444', email: em,
+      reg: 'NO11MKT', service: 'recovery', svcLabel: 'Breakdown / recovery',
+    });
+    const tok = await adminTok();
+    const list = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
+    const row = list.find(c => c.email === em);
+    assert.ok(row, 'contact not recorded');
+    assert.equal(row.marketing, false, 'marketing consent was inferred from a booking — it must need an explicit tick');
+  });
+
+  await check('ticking the optional box records marketing consent', async () => {
+    const em = `mkt-${Date.now()}@example.com`;
+    await postJson('/api/service-requests', {
+      name: 'Yes Marketing', phone: '07900555555', email: em, marketing: true,
+      reg: 'YE11MKT', service: 'recovery', svcLabel: 'Breakdown / recovery',
+    });
+    const tok = await adminTok();
+    const list = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
+    assert.equal(list.find(c => c.email === em).marketing, true, 'an explicit opt-in was not recorded');
+  });
+
+  await check('CRM notes work on a guest contact, not just account holders', async () => {
+    const em = `gnote-${Date.now()}@example.com`;
+    await postJson('/api/service-requests', {
+      name: 'Note Me', phone: '07900555666', email: em, reg: 'NO11TES', service: 'diagnostics', svcLabel: 'Diagnostics',
+    });
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    const n = await api(`/api/admin/customers/${encodeURIComponent(em)}/notes`, {
+      method: 'POST', headers: h, body: JSON.stringify({ text: 'Paid cash, wants a callback about tyres.' }),
+    });
+    assert.equal(n.status, 200, 'could not add a note to a guest customer');
+    const rec = await (await api(`/api/admin/customers/${encodeURIComponent(em)}`, { headers: h })).json();
+    assert.equal(rec.customer.hasAccount, false);
+    assert.equal(rec.notes.length, 1);
+    assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
+  });
+
   await check('a booking with no contact details is rejected, not silently accepted', async () => {
     const r = await postJson('/api/service-requests', { reg: 'AB12CDE', service: 'recovery' });
     assert.equal(r.status, 400, 'a booking with no name or phone should be refused');

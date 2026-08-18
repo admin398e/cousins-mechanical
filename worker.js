@@ -38,6 +38,8 @@ import {
  *      GCAL_CALENDAR_ID      calendar id the invites land on (share it with the service account)
  *      RESEND_API_KEY        Resend API key (resend.com — free 3,000 emails/mo)
  *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
+ *      RESEND_AUDIENCE_ID    Resend Audience id — optional. Only consented contacts are pushed to it;
+ *                            leave unset and the marketing tick is still recorded in KV but nothing is synced.
  *      OWNER_PHONE           the business owner's number (E.164, e.g. 447925340977) — gets WhatsApp/SMS on new customer messages
  *      SITE_URL              your live site URL, e.g. https://cousinsmechanicalservices.co.uk (used in reset links)
  *      ADMIN_TOKEN           long random string — the admin dashboard password + status-text auth
@@ -498,6 +500,78 @@ async function sendEmail(env, to, subject, text, ics) {
   return { ok: true };
 }
 
+// ---------- Contacts (own database) + Resend Audience (marketing only) ----------
+/**
+ * Record every person who books, in our own store, under "contact:<email>".
+ *
+ * Deliberately a SEPARATE key prefix from "user:". A "user:" record is a login
+ * account and carries a password salt+hash; writing a passwordless one here
+ * would (a) put a credential-shaped record with no credential into the auth
+ * path and (b) make /auth/signup answer "Account already exists" to a customer
+ * who has never signed up. Contacts are CRM data, not accounts.
+ *
+ * This is contract/legitimate-interest data — it is created for every booking
+ * because we need it to do the job. Marketing consent is tracked separately in
+ * `marketing` and is the ONLY thing that gates the Resend audience sync below.
+ */
+async function upsertContact(env, order) {
+  const em = String(order.email || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return { skipped: true, reason: "no usable email" };
+
+  const prev = JSON.parse((await env.CMS_KV.get("contact:" + em)) || "null") || {};
+  const now = Date.now();
+  const contact = {
+    email: em,
+    name: (order.name || prev.name || "").trim(),
+    phone: (order.phone || prev.phone || "").trim(),
+    postcode: order.postcode || prev.postcode || "",
+    source: prev.source || "booking",
+    firstSeenAt: prev.firstSeenAt || now,
+    lastSeenAt: now,
+    lastRef: order.ref || prev.lastRef || "",
+    // Consent is only ever raised by an explicit tick on the form. It is never
+    // inferred from "they booked, so they must want emails" — that is exactly
+    // the soft-opt-in overreach the ICO takes issue with.
+    marketing: order.marketing === true ? true : !!prev.marketing,
+    marketingAt: order.marketing === true ? now : (prev.marketingAt || null),
+    privacyVersion: PRIVACY_VERSION,
+  };
+  await env.CMS_KV.put("contact:" + em, JSON.stringify(contact));
+  return { ok: true, contact, newlyConsented: order.marketing === true && !prev.marketing };
+}
+
+/**
+ * Push a contact into a Resend Audience.
+ *
+ * Only called when `contact.marketing` is true. An audience is a marketing
+ * mailing list, so putting a customer in it without a tick is an unsolicited
+ * marketing list under PECR — no amount of "but they were a customer" fixes
+ * that once they are in the list. Transactional booking confirmations do not
+ * go through here at all; they are sent direct and need no consent.
+ */
+async function syncResendAudience(env, contact) {
+  if (!env.RESEND_API_KEY || !env.RESEND_AUDIENCE_ID) return { skipped: true, reason: "audience not configured" };
+  if (!contact || !contact.marketing) return { skipped: true, reason: "no marketing consent" };
+  const parts = String(contact.name || "").trim().split(/\s+/);
+  const r = await fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
+    body: JSON.stringify({
+      email: contact.email,
+      first_name: parts[0] || "",
+      last_name: parts.slice(1).join(" "),
+      unsubscribed: false,
+    }),
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error" };
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    console.error("[audience] Resend rejected the contact", r.status, detail.slice(0, 300));
+    return { ok: false, status: r.status, detail };
+  }
+  return { ok: true };
+}
+
 // Fire all booking automations (best-effort, never blocks the response)
 async function runAutomations(env, u, o) {
   const jobs = [];
@@ -792,13 +866,19 @@ async function checkAndTriggerReorders(env, opts = {}) {
       await env.CMS_KV.put("stock", JSON.stringify(stock));
     }
 
+    // Defaults are deliberately inert. The previous defaults pointed at
+    // ctyreswholesale.co.uk (which bounces / delays every message) and copied
+    // inventory@ (which has no mailbox, so it bounced and Resend then
+    // SUPPRESSED the address). Both were quietly destroying sender reputation,
+    // which is a large part of why genuine booking emails were landing in spam.
+    // Nothing is emailed to a supplier until a real address is entered in admin.
     const defaultSettings = {
-      masterAutoReorder: true,
+      masterAutoReorder: false,          // off until a real supplier is configured
       defaultMinStock: 3,
       defaultReorderQty: 10,
-      supplierEmail: "orders@ctyreswholesale.co.uk",
-      supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders",
-      notifyEmail: "inventory@cousinsmechanicalservices.co.uk",
+      supplierEmail: "",                 // no fictional supplier
+      supplierApiUrl: "",                // no fictional API
+      notifyEmail: env.OWNER_EMAIL || env.MAIL_FROM || "",  // a mailbox that exists
       reorderCooldownHours: 12
     };
 
@@ -861,7 +941,7 @@ Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
 
         // Dispatch Email Notification
         let emailRes = { skipped: true };
-        if (supplierEmail) {
+        if (supplierEmail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(supplierEmail)) {
           emailRes = await sendEmail(env, supplierEmail, emailSubject, emailBody);
           if (settings.notifyEmail && settings.notifyEmail !== supplierEmail) {
             await sendEmail(env, settings.notifyEmail, `[COPY] ${emailSubject}`, emailBody);
@@ -1024,34 +1104,66 @@ async function processTyreStockForOrder(env, order) {
       estDelivery: "Next Business Day (8:00 AM)"
     };
     
-    supplierOrders.unshift(autoPO);
-    await env.CMS_KV.put("supplier_orders", JSON.stringify(supplierOrders.slice(0, 200)));
+    const settings = JSON.parse((await env.CMS_KV.get("inventory_settings")) || "{}");
+    const autoOrderOn = settings.masterAutoReorder !== false;
 
-    // Ensure item exists in local stock catalog marked as pending delivery
-    if (matchedIndex < 0) {
-      stock.push({
-        id: "P" + Date.now().toString(36).toUpperCase().slice(-5),
-        name: order.svcLabel || "Requested Tyre",
-        sku: "AUTO-" + (order.reg || "TYRE"),
-        qty: qtyNeeded,
-        price: 65,
-        status: "Auto-Ordered from Supplier"
-      });
-    } else {
-      stock[matchedIndex].qty += qtyNeeded;
-      stock[matchedIndex].status = "Supplier Delivery Pending";
+    // Only ever touch stock for work that actually consumes stock. Recovery,
+    // diagnostics and callouts do not. This used to run for every booking, which
+    // is how a recovery job created a "stock item" called "Breakdown / recovery"
+    // with SKU AUTO-<registration> and raised a purchase order for it.
+    const consumesStock = /tyre|tire/i.test(order.svcLabel || order.service || "");
+    if (!consumesStock) {
+      return { inStock: null, skipped: true, reason: "This service does not consume stock" };
     }
-    await env.CMS_KV.put("stock", JSON.stringify(stock));
 
-    order.stockStatus = `Auto-Ordered (${poRef})`;
+    if (autoOrderOn) {
+      supplierOrders.unshift(autoPO);
+      await env.CMS_KV.put("supplier_orders", JSON.stringify(supplierOrders.slice(0, 200)));
+
+      if (matchedIndex >= 0) {
+        stock[matchedIndex].qty += qtyNeeded;
+        stock[matchedIndex].status = "Supplier Delivery Pending";
+        await env.CMS_KV.put("stock", JSON.stringify(stock));
+      }
+      // Deliberately does NOT invent a catalogue item any more. If it is not in
+      // the catalogue the shortfall goes on the reorder list below, where a human
+      // decides what to actually buy.
+
+      order.stockStatus = `Auto-Ordered (${poRef})`;
+      order.updates = order.updates || [];
+      order.updates.push({
+        t: Date.now(),
+        s: "Supplier Auto-Ordered",
+        d: `Not in local stock. Purchase order ${poRef} raised automatically with C-Tyres Wholesale.`,
+      });
+      return { inStock: false, autoPO };
+    }
+
+    // Automation is switched off: record what is needed on the reorder list so
+    // the owner can review it and either email the supplier or just work from it.
+    const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
+    list.unshift({
+      id: "RL-" + Date.now().toString(36).toUpperCase().slice(-6),
+      addedAt: Date.now(),
+      status: "pending",
+      description: order.svcLabel || order.service || "Tyre",
+      sku: matchedIndex >= 0 ? stock[matchedIndex].sku : null,
+      qty: qtyNeeded,
+      jobRef: order.ref,
+      vehicleReg: order.reg || "-",
+      customerName: order.name || "-",
+      note: matchedIndex >= 0 ? "Below minimum stock" : "Not held in stock",
+    });
+    await env.CMS_KV.put("reorder_list", JSON.stringify(list.slice(0, 500)));
+
+    order.stockStatus = "Added to reorder list";
     order.updates = order.updates || [];
     order.updates.push({
       t: Date.now(),
-      s: "Supplier Auto-Ordered",
-      d: `Tyres not in local stock. Automatically generated Supplier Purchase Order ${poRef} with C-Tyres Wholesale for next morning delivery.`
+      s: "Added to reorder list",
+      d: `${qtyNeeded} x ${order.svcLabel || "tyre"} added to the reorder list for ordering.`,
     });
-
-    return { inStock: false, autoPO };
+    return { inStock: false, queued: true };
   } catch (err) {
     console.error("processTyreStockForOrder error:", err);
     return { inStock: false, error: err.message };
@@ -1094,6 +1206,19 @@ async function processTyreStockForOrder(env, order) {
     };
 
     await safe("stock", () => processTyreStockForOrder(env, order));
+
+    // Our own contact record — always. This is how a guest booking (someone who
+    // never created an account) shows up in the CRM at all; before this, the
+    // customer list was built only from "user:" records, so anyone who booked
+    // without signing up was invisible to the admin.
+    const contactRes = (await safe("contact", () => upsertContact(env, order))) || {};
+
+    // Resend audience — only on an explicit marketing tick, and only the first
+    // time it goes from off to on, so a repeat customer is not re-POSTed on
+    // every job.
+    if (contactRes.newlyConsented) {
+      await safe("audience", () => syncResendAudience(env, contactRes.contact));
+    }
 
     // Re-persist so any enrichment (stock status, extra updates) is kept. Best
     // effort only — the booking is already safely stored above.
@@ -1548,6 +1673,81 @@ async function processTyreStockForOrder(env, order) {
       }
     }
 
+    // --- REORDER LIST (used when auto-ordering is switched off) ---
+    if (p === "/admin/reorder-list") {
+      if (request.method === "GET") {
+        const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
+        return json({ list, pending: list.filter(i => i.status === "pending").length });
+      }
+
+      // Add a line by hand, mark lines ordered, or clear what is done.
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
+
+        if (b.action === "add") {
+          if (!b.description) return bad("Describe what needs ordering.");
+          list.unshift({
+            id: "RL-" + Date.now().toString(36).toUpperCase().slice(-6),
+            addedAt: Date.now(), status: "pending",
+            description: String(b.description).slice(0, 200),
+            sku: b.sku || null, qty: Math.max(1, Number(b.qty) || 1),
+            jobRef: b.jobRef || null, vehicleReg: b.vehicleReg || "-",
+            customerName: b.customerName || "-", note: b.note || "Added by hand",
+          });
+        } else if (b.action === "mark_ordered") {
+          for (const i of list) if (!b.ids || b.ids.includes(i.id)) {
+            if (i.status === "pending") { i.status = "ordered"; i.orderedAt = Date.now(); }
+          }
+        } else if (b.action === "remove") {
+          const keep = list.filter(i => !(b.ids || []).includes(i.id));
+          await env.CMS_KV.put("reorder_list", JSON.stringify(keep));
+          return json({ list: keep });
+        } else if (b.action === "clear_ordered") {
+          const keep = list.filter(i => i.status !== "ordered");
+          await env.CMS_KV.put("reorder_list", JSON.stringify(keep));
+          return json({ list: keep });
+        } else {
+          return bad("Unknown action");
+        }
+
+        await env.CMS_KV.put("reorder_list", JSON.stringify(list.slice(0, 500)));
+        return json({ list });
+      }
+    }
+
+    // Email the pending list to the supplier. Explicit action — nothing is sent
+    // to a supplier without someone pressing the button.
+    if (p === "/admin/reorder-list/send" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const settings = JSON.parse((await env.CMS_KV.get("inventory_settings")) || "{}");
+      const to = (b.to || settings.supplierEmail || "").trim();
+      if (!to) return bad("No supplier email set — add one in the automation settings.");
+
+      const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
+      const pending = list.filter(i => i.status === "pending");
+      if (!pending.length) return bad("Nothing on the list to order.");
+
+      const body = [
+        "Please supply the following:",
+        "",
+        ...pending.map(i => `  ${i.qty} x ${i.description}${i.sku ? " (" + i.sku + ")" : ""}${i.vehicleReg && i.vehicleReg !== "-" ? "  [veh " + i.vehicleReg + "]" : ""}`),
+        "",
+        "Delivery to: Cousins Mechanical Services Ltd, 7 Watton Park, Bridport, DT6 5NJ",
+        "Contact: " + (env.MAIL_FROM || "help@cousinsmechanicalservices.co.uk") + " / 07925 340977",
+        "",
+        "Cousins Mechanical Services Ltd — registered in England & Wales no. 16045339",
+      ].join("\n");
+
+      const sent = await sendEmail(env, to, `Tyre order — Cousins Mechanical (${pending.length} line${pending.length === 1 ? "" : "s"})`, body);
+      if (!sent || sent.ok === false) return bad("Could not send the order email — check the email settings.", 502);
+
+      for (const i of list) if (i.status === "pending") { i.status = "ordered"; i.orderedAt = Date.now(); }
+      await env.CMS_KV.put("reorder_list", JSON.stringify(list));
+      await audit(env, "admin", "reorder_list_emailed", to + " (" + pending.length + " lines)");
+      return json({ ok: true, sentTo: to, lines: pending.length, list });
+    }
+
     // --- BACKUP: full export of everything durable in KV ---
     // The one real weakness of KV vs a hosted database is that there is no
     // queryable copy outside Cloudflare. This closes it: one click in admin
@@ -1657,21 +1857,45 @@ async function processTyreStockForOrder(env, order) {
 
     // Customers (CRM list) — profile + job count + discount + notes count
     if (p === "/admin/customers" && request.method === "GET") {
-      const out = [];
+      // Two sources, merged: "user:" = someone who created a login account,
+      // "contact:" = someone who booked as a guest. This list used to read
+      // "user:" only, so every guest booking — most of them — was missing from
+      // the CRM entirely. An account record wins on conflict because it has the
+      // richer profile (SMS preference, consent version).
+      const byEmail = new Map();
+
+      const contacts = await env.CMS_KV.list({ prefix: "contact:" });
+      for (const k of contacts.keys) {
+        const c = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
+        if (!c.email) continue;
+        byEmail.set(c.email, {
+          name: c.name, email: c.email, phone: c.phone,
+          marketing: !!c.marketing, smsUpdates: true,
+          createdAt: c.firstSeenAt || 0, hasAccount: false,
+        });
+      }
+
       const list = await env.CMS_KV.list({ prefix: "user:" });
       for (const k of list.keys) {
         const u = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
         if (!u.email) continue;
-        const jobs = JSON.parse((await env.CMS_KV.get("bookings:" + u.email)) || "[]");
-        const crm = JSON.parse((await env.CMS_KV.get("crm:" + u.email)) || "{}");
-        const lastJobAt = jobs.reduce((m, j) => Math.max(m, j.createdAt || j.t || 0), 0);
-        out.push({
+        byEmail.set(u.email, {
           name: u.name, email: u.email, phone: u.phone,
           marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false,
-          createdAt: u.createdAt, jobCount: jobs.length,
+          createdAt: u.createdAt, hasAccount: true,
+        });
+      }
+
+      const out = [];
+      for (const base of byEmail.values()) {
+        const jobs = JSON.parse((await env.CMS_KV.get("bookings:" + base.email)) || "[]");
+        const crm = JSON.parse((await env.CMS_KV.get("crm:" + base.email)) || "{}");
+        out.push({
+          ...base,
+          jobCount: jobs.length,
           discount: Number(crm.discount) || 0, discountReason: crm.discountReason || "",
           notesCount: Array.isArray(crm.notes) ? crm.notes.length : 0,
-          lastJobAt,
+          lastJobAt: jobs.reduce((m, j) => Math.max(m, j.createdAt || j.t || 0), 0),
         });
       }
       out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -1683,7 +1907,11 @@ async function processTyreStockForOrder(env, order) {
     const custNotes = p.match(/^\/admin\/customers\/(.+)\/notes$/);
     if (custNotes && request.method === "POST") {
       const email = decodeURIComponent(custNotes[1]).toLowerCase();
-      if (!(await env.CMS_KV.get("user:" + email))) return bad("Customer not found", 404);
+      // A guest who booked without an account is still a customer you need to
+      // keep notes on, so accept either record type.
+      if (!(await env.CMS_KV.get("user:" + email)) && !(await env.CMS_KV.get("contact:" + email))) {
+        return bad("Customer not found", 404);
+      }
       const b = await request.json().catch(() => ({}));
       const text = String(b.text || "").slice(0, 2000).trim();
       if (!text) return bad("Note is empty");
@@ -1701,8 +1929,15 @@ async function processTyreStockForOrder(env, order) {
     if (custRec) {
       const email = decodeURIComponent(custRec[1]).toLowerCase();
       const uraw = await env.CMS_KV.get("user:" + email);
-      if (!uraw) return bad("Customer not found", 404);
-      const u = JSON.parse(uraw);
+      const craw = uraw ? null : await env.CMS_KV.get("contact:" + email);
+      if (!uraw && !craw) return bad("Customer not found", 404);
+      const rec = JSON.parse(uraw || craw);
+      // Normalise the two shapes so the admin UI does not have to care which
+      // kind of record it is looking at.
+      const u = uraw ? rec : {
+        name: rec.name, email: rec.email, phone: rec.phone,
+        marketing: !!rec.marketing, smsUpdates: true, createdAt: rec.firstSeenAt,
+      };
       const crm = JSON.parse((await env.CMS_KV.get("crm:" + email)) || "{}");
 
       if (request.method === "GET") {
@@ -1711,6 +1946,7 @@ async function processTyreStockForOrder(env, order) {
           customer: {
             name: u.name, email: u.email, phone: u.phone,
             marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false, createdAt: u.createdAt,
+            hasAccount: !!uraw,
           },
           discount: Number(crm.discount) || 0,
           discountReason: crm.discountReason || "",
