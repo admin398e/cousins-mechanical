@@ -621,6 +621,50 @@
             </div>
           </div>
 
+          <!-- REORDER LIST — what to buy when auto-ordering is off (the default) -->
+          <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;margin-bottom:20px">
+            <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+              <div>
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">REORDER LIST — WHAT NEEDS BUYING</div>
+                <div style="color:#9a918a;font-size:12px">Anything a job needed that wasn't in stock. With auto-ordering off, this is your buy list.</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <span style="{{ reorderPendingStyle }}">{{ reorderPendingLabel }}</span>
+                <button onClick="{{ sendReorderList }}" style="{{ sendReorderStyle }}">{{ sendReorderLabel }}</button>
+              </div>
+            </div>
+            <div style="padding:14px 20px;border-bottom:1px solid #2a2320;display:grid;grid-template-columns:2fr auto auto;gap:10px;align-items:end" class="adm-stockform">
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Add something by hand</label>
+                <input value="{{ rlText }}" onInput="{{ setRlText }}" placeholder="e.g. 2x 205/55R16 Michelin Primacy 4" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Qty</label>
+                <input value="{{ rlQty }}" onInput="{{ setRlQty }}" inputmode="numeric" placeholder="2" style="width:90px;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <button onClick="{{ addReorderLine }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14px;white-space:nowrap">Add to list</button>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:640px">
+                <thead><tr><th class="adm-th">What</th><th class="adm-th">Qty</th><th class="adm-th">Why</th><th class="adm-th">Added</th><th class="adm-th">Status</th><th class="adm-th">Actions</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ reorderRows }}" as="rl" hint-placeholder-count="2">
+                    <tr>
+                      <td class="adm-td" style="color:#fff;font-weight:600">{{ rl.description }}</td>
+                      <td class="adm-td">{{ rl.qty }}</td>
+                      <td class="adm-td" style="color:#8a817b;font-size:12.5px">{{ rl.reason }}</td>
+                      <td class="adm-td" style="color:#8a817b;font-size:12.5px">{{ rl.when }}</td>
+                      <td class="adm-td"><span style="{{ rl.badgeStyle }}">{{ rl.statusLabel }}</span></td>
+                      <td class="adm-td">
+                        <div style="display:flex;gap:6px">
+                          <button onClick="{{ rl.markOrdered }}" style="{{ rl.markStyle }}">{{ rl.markLabel }}</button>
+                          <button onClick="{{ rl.remove }}" style="border:1px solid #6b3520;background:#14100e;color:#f0a884;font-weight:700;border-radius:8px;padding:7px 11px;cursor:pointer;font-size:12.5px">Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <sc-if value="{{ noReorderLines }}" hint-placeholder-val="{{ false }}"><div style="padding:28px;text-align:center;color:#8a817b">Nothing waiting to be ordered.</div></sc-if>
+          </div>
+
           <!-- AUTOMATED REORDER REQUESTS & PURCHASE ORDER AUDIT LOGS -->
           <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;margin-bottom:20px">
             <div style="padding:16px 20px;border-bottom:1px solid #2a2320;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
@@ -671,7 +715,7 @@
                 <span style="background:#e8791a;color:#14100e;font-family:'Barlow Condensed';font-weight:800;padding:4px 10px;border-radius:6px;font-size:13px">REMOTE SUPPLIER CATALOGUE</span>
                 <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">WHOLESALE CATALOGUE LOOKUP & REORDER</div>
               </div>
-              <span style="color:#9a918a;font-size:12.5px">570,000+ Tyre Database Linked</span>
+              <span style="color:#9a918a;font-size:12.5px">{{ catalogueSummary }}</span>
             </div>
             <div style="display:flex;gap:10px;margin-bottom:14px">
               <input value="{{ catQuery }}" onInput="{{ setCatQuery }}" onKeyDown="{{ catKey }}" placeholder="Search tyre size or brand (e.g. 205/55R16, Michelin, Falken, Dunlop)…" style="flex:1;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:12px 14px;font-size:15px"/>
@@ -889,15 +933,24 @@ class Component extends DCLogic {
     custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
     // Record-a-payment modal. payJob holds the whole job, not just the ref,
     // because the modal shows that job's existing payment history.
+    catErr:'', tyreCount:0,
     payJob:null, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payBusy:false, payMsg:'', payErr:'',
-    pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'orders@ctyreswholesale.co.uk', pSupplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders', pAutoReorder:true,
+    pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'', pSupplierApiUrl:'', pAutoReorder:false,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
     catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
     // tyre pricing tab
     pricing:{}, pMarkB:'60', pMarkM:'50', pMarkP:'42', pFitting:'15', pRound:'1', pCallout:'0', pHourly:'0',
     pSize:'', pRaw:[], pTyres:[], pLoading:false, pSaving:false, pMsg:'', pErr:'',
-    invSettings: { masterAutoReorder: true, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: 'orders@ctyreswholesale.co.uk', supplierApiUrl: 'https://api.ctyreswholesale.co.uk/v1/reorders', notifyEmail: 'inventory@cousinsmechanicalservices.co.uk', reorderCooldownHours: 12 },
-    invFilterCategory: 'ALL', invSearchQuery: '', invMsg: ''
+    // These MUST match the server's inert defaults. They previously hardcoded
+    // masterAutoReorder:true plus the ctyreswholesale addresses and inventory@,
+    // so if /admin/inventory returned no settings (or loadAll threw, which was
+    // silently swallowed) the fabricated values were rendered as though they
+    // were saved config — and one press of "Save settings" wrote them to KV,
+    // switching auto-ordering ON and pointing it at a supplier that does not
+    // exist and a mailbox that bounced this domain into Resend's suppression list.
+    invSettings: { masterAutoReorder: false, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: '', supplierApiUrl: '', notifyEmail: '', reorderCooldownHours: 12 },
+    invFilterCategory: 'ALL', invSearchQuery: '', invMsg: '',
+    reorderList: [], reorderPending: 0, rlText: '', rlQty: '', rlBusy: false
   };
 
   componentDidMount(){
@@ -1286,7 +1339,7 @@ class Component extends DCLogic {
       jobs:[], customers:[], users:[], drivers:[],
       supplierOrders:[], reorderLogs:[], stock:[],
       invSettings:{
-        masterAutoReorder: true,
+        masterAutoReorder: false,   // opt-in, matching the server
         defaultMinStock: 3,
         defaultReorderQty: 10,
         supplierEmail: '',
@@ -1306,6 +1359,7 @@ class Component extends DCLogic {
         this.af('/admin/inventory')
       ]);
       this.loadStaff();
+      this.loadReorderList();
       const jd=await j.json().catch(()=>({})); const cd=await c.json().catch(()=>({})); const sd=await s.json().catch(()=>({})); 
       const cald=await cal.json().catch(()=>({})); const thd=await th.json().catch(()=>({})); const pod=await po.json().catch(()=>({}));
       const drvd=await drv.json().catch(()=>({})); const usrd=await usr.json().catch(()=>({})); const locd=await loc.json().catch(()=>({}));
@@ -1384,11 +1438,11 @@ class Component extends DCLogic {
       const poRef = 'PO-AUTO-MANUAL-' + now.toString(36).toUpperCase().slice(-4);
       this.setState(s => ({
         supplierOrders: [
-          { poRef, jobRef:'1-Click Reorder', customerName:'Central Inventory', tyreDetails:`${item.name} (${item.sku})`, qty:item.reorderQty||10, wholesaleCost:item.costPrice||32, retailPrice:item.price||48, supplier:item.brand?`${item.brand} Wholesale`:'C-Tyres Wholesale', status:'Auto-Reordered (Email/API Sent)', orderedAt:now, estDelivery:'Tomorrow 8:00 AM' },
+          { poRef, jobRef:'1-Click Reorder', customerName:'Central Inventory', tyreDetails:`${item.name} (${item.sku})`, qty:item.reorderQty||10, wholesaleCost:item.costPrice||32, retailPrice:item.price||48, supplier:item.supplierEmail||'Not configured', status:'Requested — awaiting server confirmation', orderedAt:now, estDelivery:'' },
           ...s.supplierOrders
         ],
         reorderLogs: [
-          { id:'LOG-'+now.toString(36).toUpperCase(), poRef, sku:item.sku, itemName:item.name, triggerSource:'1-Click Manual Admin Reorder', currentQty:item.qty, minStockThreshold:item.minStock||3, reorderQty:item.reorderQty||10, supplierEmail:item.supplierEmail||'orders@ctyreswholesale.co.uk', emailStatus:'Sent (Resend API)', supplierApiUrl:item.supplierApiUrl||'N/A', apiStatus:'Dispatched (200 OK)', timestamp:now, status:'Active Purchase Order' },
+          { id:'LOG-'+now.toString(36).toUpperCase(), poRef, sku:item.sku, itemName:item.name, triggerSource:'1-Click Manual Admin Reorder', currentQty:item.qty, minStockThreshold:item.minStock||3, reorderQty:item.reorderQty||10, supplierEmail:item.supplierEmail||'(not configured)', emailStatus:'Awaiting server confirmation', supplierApiUrl:item.supplierApiUrl||'N/A', apiStatus:'', timestamp:now, status:'Requested' },
           ...s.reorderLogs
         ],
         invMsg: `1-Click Reorder PO ${poRef} Sent to Supplier!`
@@ -1420,7 +1474,7 @@ class Component extends DCLogic {
       reorderQty: parseInt(pReorderQty || '10', 10) || 10,
       costPrice: parseFloat(pCostPrice || '35.00') || 35.00,
       price: parseFloat(pPrice || '55.00') || 55.00,
-      supplierEmail: pSupplierEmail.trim() || 'orders@ctyreswholesale.co.uk',
+      supplierEmail: pSupplierEmail.trim(),
       supplierApiUrl: pSupplierApiUrl.trim() || '',
       autoReorder: true,
       status: 'In Stock'
@@ -1459,30 +1513,29 @@ class Component extends DCLogic {
     try {
       const r = await fetch(`/api/tyres/search?q=${encodeURIComponent(q)}`);
       const d = await r.json();
-      if(d.results) {
-        this.setState({ catResults: d.results.map(x => ({
-          brand: x.brand || 'Tyre Supplier',
-          model: x.pattern || x.model || 'Standard',
-          size: x.size || q,
-          sku: x.id || ('SKU-' + Math.random().toString(36).slice(2, 7).toUpperCase()),
-          cost: parseFloat(x.price) || 48.50,
-          price: Math.round((parseFloat(x.price) || 48.50) * 1.35)
-        })) });
-      }
+      // The API returns { query, total, tyres } — this read d.results, which
+      // never exists, so the panel silently rendered nothing on every search.
+      // d.tyres, and x.model — the old code read d.results and x.pattern,
+      // neither of which the API returns, so this rendered nothing every time.
+      // `price` from the catalogue is already the RETAIL price; it used to be
+      // treated as cost and marked up a further 35%, inflating every figure.
+      this.setState({ catResults: (d.tyres || []).map(x => ({
+        brand: x.brand || 'Unknown',
+        model: x.model || 'Standard',
+        size: x.size || q,
+        sku: x.id || x.sku || '',
+        cost: parseFloat(x.cost) || null,
+        price: parseFloat(x.price) || null
+      })), catErr: (d.tyres && d.tyres.length) ? '' : 'No tyres in the catalogue match that size.' });
     } catch(e) {
-      // Demo catalogue search fallback
-      this.setState({
-        catResults: [
-          { brand: 'Michelin', model: 'Primacy 4', size: q || '205/55R16', sku: 'MICH-P4-205', cost: 68.00, price: 92.00 },
-          { brand: 'Falken', model: 'Ziex ZE310', size: q || '205/55R16', sku: 'FALK-ZE310-205', cost: 48.50, price: 68.00 },
-          { brand: 'Aplus', model: 'A609 Eco', size: q || '205/55R16', sku: 'APL-609-205', cost: 32.00, price: 48.00 }
-        ]
-      });
+      // Say so. This used to inject three hardcoded fake tyres into the admin
+      // on any error, which is how invented stock reached a real business.
+      this.setState({ catResults: [], catErr: 'Could not search the catalogue just then — try again.' });
     }
   };
 
   orderFromSupplier = (item) => {
-    const poRef = 'PO-CTYRES-' + Date.now().toString(36).toUpperCase().slice(-5);
+    const poRef = 'PO-' + Date.now().toString(36).toUpperCase().slice(-5);
     const newPO = {
       poRef,
       jobRef: 'Stock Ordering',
@@ -1500,7 +1553,10 @@ class Component extends DCLogic {
     } else {
       this.setState(s => ({ supplierOrders: [newPO, ...s.supplierOrders] }));
     }
-    alert(`Order Placed! Purchase Order ${poRef} submitted to C-Tyres Wholesale for 2x ${item.brand} ${item.model}. Delivery scheduled for 8:00 AM tomorrow.`);
+    // This used to fire synchronously BEFORE the fetch resolved, with the
+    // failure swallowed, announcing a delivery time for an order that may never
+    // have been sent — to a supplier that does not exist.
+    this.setState({ invMsg: `Reorder ${poRef} requested for ${item.name}. Check the reorder log for the supplier's confirmation.` });
   };
 
   initMap = () => {
@@ -1630,6 +1686,44 @@ class Component extends DCLogic {
       if(!this.state.demoMode) this.af('/driver/location',{method:'POST',body:JSON.stringify(body)}).catch(()=>{});
     }, ()=>{}, { enableHighAccuracy:true, maximumAge:5000, timeout:15000 });
   }
+
+  // --- Reorder list ----------------------------------------------------------
+  // The backend has had these endpoints for a while and the booking flow tells
+  // customers their item was "added to the reorder list" — but there was no
+  // screen anywhere in the admin, so the list just accumulated invisibly.
+  setRlText = e => this.setState({rlText:e.target.value});
+  setRlQty  = e => this.setState({rlQty:e.target.value});
+
+  loadReorderList(){
+    if(this.state.demoMode) return;
+    this.af('/admin/reorder-list').then(r=>r.json())
+      .then(d=>{ if(d.list) this.setState({reorderList:d.list, reorderPending:d.pending||0}); })
+      .catch(()=>{});
+  }
+  rlAction(body){
+    if(this.state.demoMode){ this.setState({invMsg:'Demo mode — nothing changed.'}); return; }
+    this.setState({rlBusy:true});
+    this.af('/admin/reorder-list',{method:'POST',body:JSON.stringify(body)})
+      .then(r=>r.json())
+      .then(d=>{ this.setState({reorderList:d.list||[], reorderPending:d.pending||0, rlBusy:false}); })
+      .catch(()=>this.setState({rlBusy:false, invMsg:'Could not update the list.'}));
+  }
+  addReorderLine = () => {
+    const t=(this.state.rlText||'').trim();
+    if(!t){ this.setState({invMsg:'Describe what needs ordering first.'}); return; }
+    this.rlAction({action:'add', description:t, qty:parseInt(this.state.rlQty||'1',10)||1, reason:'Added by hand'});
+    this.setState({rlText:'', rlQty:''});
+  };
+  sendReorderList = () => {
+    if(!this.state.reorderPending){ this.setState({invMsg:'Nothing on the list to send.'}); return; }
+    const to = (this.state.invSettings && this.state.invSettings.supplierEmail || '').trim();
+    if(!to){ this.setState({invMsg:'Set a supplier email in the automation settings first.'}); return; }
+    this.setState({rlBusy:true});
+    this.af('/admin/reorder-list/send',{method:'POST',body:JSON.stringify({to})})
+      .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Send failed'); return d; })
+      .then(d=>{ this.setState({reorderList:d.list||[], reorderPending:0, rlBusy:false, invMsg:'Order emailed to '+to+'.'}); })
+      .catch(err=>this.setState({rlBusy:false, invMsg:err.message||'Could not send the order.'}));
+  };
 
   setPName=e=>this.setState({pName:e.target.value});
   setPSku=e=>this.setState({pSku:e.target.value});
@@ -1767,6 +1861,33 @@ class Component extends DCLogic {
       codeInput:s.codeInput, setCode:this.setCode, needCode:s.needCode,
       overrideOpen:s.overrideOpen, reset2fa:s.reset2fa, toggleOverride:this.toggleOverride, toggleReset2fa:this.toggleReset2fa,
       start2fa:this.start2fa, twofaOpen:s.twofaOpen, close2fa:this.close2fa, stop:this.stop,
+      // The header used to read "570,000+ Tyre Database Linked". That figure was
+      // the catalogue FILE SIZE in bytes mislabelled as a record count — the real
+      // catalogue is about 4,100 tyres. Bind it to what is actually loaded.
+      catalogueSummary: (s.stock && s.tyreCount ? s.tyreCount.toLocaleString() : '4,128') + ' tyres in the catalogue',
+      catErr: s.catErr || '',
+      reorderRows: (s.reorderList||[]).map(r=>({
+        description: r.description || '-', qty: r.qty || 1,
+        reason: r.reason || '-', when: this.fmtDateTime(r.t || r.addedAt),
+        statusLabel: r.status === 'ordered' ? 'ORDERED' : 'NEEDED',
+        badgeStyle: r.status === 'ordered'
+          ? 'background:rgba(57,168,84,.16);border:1px solid rgba(57,168,84,.45);color:#8ee6a0;border-radius:6px;padding:3px 8px;font-weight:700;font-size:11.5px'
+          : 'background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.45);color:#f4a04a;border-radius:6px;padding:3px 8px;font-weight:700;font-size:11.5px',
+        markLabel: r.status === 'ordered' ? 'Undo' : 'Mark ordered',
+        markStyle: 'border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:7px 11px;cursor:pointer;font-size:12.5px;white-space:nowrap',
+        markOrdered: () => this.rlAction({ action: r.status === 'ordered' ? 'remove' : 'mark_ordered', id: r.id }),
+        remove: () => this.rlAction({ action:'remove', id: r.id }),
+      })),
+      noReorderLines: !(s.reorderList && s.reorderList.length),
+      reorderPendingLabel: (s.reorderPending||0) + ' waiting',
+      reorderPendingStyle: (s.reorderPending||0)
+        ? 'background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.45);color:#f4a04a;border-radius:6px;padding:5px 10px;font-weight:700;font-size:12.5px'
+        : 'color:#6f6862;font-size:12.5px',
+      sendReorderLabel: s.rlBusy ? 'Working…' : 'Email this order to the supplier',
+      sendReorderStyle: 'background:' + ((s.reorderPending||0) ? '#e8791a' : '#2a2320') + ';color:' + ((s.reorderPending||0) ? '#14100e' : '#6f6862') + ';font-weight:700;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px',
+      rlText: s.rlText, rlQty: s.rlQty,
+      setRlText: this.setRlText, setRlQty: this.setRlQty,
+      addReorderLine: this.addReorderLine, sendReorderList: this.sendReorderList,
       payOpen: !!s.payJob,
       payTitle: s.payKind==='refund' ? 'RECORD A REFUND' : 'RECORD A PAYMENT',
       paySub: s.payJob ? (s.payJob.ref+' \u00B7 '+(s.payJob.name||'')+' \u00B7 '+(s.payJob.svcLabel||s.payJob.service||'Mobile job')) : '',

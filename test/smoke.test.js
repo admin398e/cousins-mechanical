@@ -349,16 +349,35 @@ try {
     await postJson('/api/admin/drivers', { action: 'approve', id: driverId }, { authorization: 'Bearer ' + adminTok });
     const { token: drvTok } = await (await postJson('/api/driver/login', { username: 'TestDriver', password: driverPass })).json();
 
-    const post = await postJson('/api/driver/location', { ref: 'CMS-TEST1', lat: 50.7333, lng: -2.7581, eta: '12 mins', token: drvTok });
+    // The ref must name a REAL booking now, so make one. Previously any string
+    // was accepted and became a new KV key.
+    const bk = await postJson('/api/service-requests', {
+      name: 'GPS Job', phone: '07900556111', reg: 'GP11SXX', service: 'diagnostics', svcLabel: 'Diagnostics',
+    });
+    const gpsRef = (await bk.json()).ref;
+
+    const post = await postJson('/api/driver/location', { ref: gpsRef, lat: 50.7333, lng: -2.7581, eta: 12, token: drvTok });
     assert.equal(post.status, 200, `location post failed: ${await post.text()}`);
 
     const r = await api('/api/admin/locations', { headers: { authorization: 'Bearer ' + adminTok } });
     assert.equal(r.status, 200);
     const { locations } = await r.json();
-    const hit = locations.find(l => l.jobRef === 'CMS-TEST1');
+    const hit = locations.find(l => l.jobRef === gpsRef);
     assert.ok(hit, 'driver location did not reach the admin map');
     assert.equal(hit.lat, 50.7333);
     assert.ok(hit.t > 0, 'location has no timestamp');
+
+    // Junk coordinates must be refused, not written. They used to go straight
+    // into KV and on to the customer's map, where Leaflet throws on an invalid
+    // LatLng and the tracker dies.
+    for (const bad of [{ lat: 'north', lng: 1 }, { lat: 999, lng: 1 }, { lat: 50, lng: -400 }, { lat: NaN, lng: 0 }]) {
+      const res = await postJson('/api/driver/location', { ref: gpsRef, ...bad, token: drvTok });
+      assert.equal(res.status, 400, `bad coordinates ${JSON.stringify(bad)} were accepted`);
+    }
+
+    // A ref that names no booking must 404 rather than create a KV key.
+    const ghost = await postJson('/api/driver/location', { ref: 'CMS-NOPE1', lat: 50, lng: -2, token: drvTok });
+    assert.equal(ghost.status, 404, 'posting GPS for a non-existent job was accepted');
   });
 
   await check('job tracking requires sign-in and is scoped to the owner', async () => {
@@ -590,6 +609,158 @@ try {
     assert.equal(rec.customer.hasAccount, false);
     assert.equal(rec.notes.length, 1);
     assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
+  });
+
+  // ---- Inventory / ordering regressions --------------------------------------
+
+  await check('a fresh inventory is empty, not seeded with invented tyres', async () => {
+    // This used to write 5 fabricated tyres into a live business's stock the
+    // moment anyone opened the Inventory tab — and then told real customers
+    // "Allocated 2x Michelin Primacy 4 ... Remaining stock: 1" for tyres the
+    // business had never owned.
+    const tok = await adminTok();
+    const inv = await (await api('/api/admin/inventory', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const names = (inv.stock || []).map(i => (i.name || '') + ' ' + (i.supplierEmail || '')).join(' | ');
+    for (const ghost of ['Michelin Primacy 4 225/45 R17', 'Falken Ziex', 'Aplus', 'ctyreswholesale']) {
+      assert.ok(!names.includes(ghost), `inventory was seeded with invented data: ${ghost}`);
+    }
+  });
+
+  await check('auto-ordering defaults to off and names no supplier', async () => {
+    const tok = await adminTok();
+    const d = await (await api('/api/admin/inventory/settings', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const st = d.settings || d;
+    assert.notEqual(st.masterAutoReorder, true, 'auto-ordering is ON by default — it can email a supplier unprompted');
+    assert.ok(!/ctyres/i.test(st.supplierEmail || ''), 'the default supplier is a domain that does not exist');
+    assert.ok(!/ctyres/i.test(st.supplierApiUrl || ''), 'the default supplier API is a host that does not exist');
+  });
+
+  await check('a non-tyre job never touches stock', async () => {
+    // The guard used to sit AFTER the stock decrement, so it only protected one
+    // branch. And the match key included free-text notes, on a public endpoint.
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    await api('/api/admin/stock', { method: 'POST', headers: h, body: JSON.stringify({ name: 'Michelin Primacy 4 Test', sku: 'TEST-MICH', qty: 10, price: 100 }) });
+
+    const before = (await (await api('/api/admin/stock', { headers: h })).json()).stock.find(i => i.sku === 'TEST-MICH');
+    await postJson('/api/service-requests', {
+      name: 'Notes Attacker', phone: '07900000009', reg: 'NO11TES',
+      service: 'recovery', svcLabel: 'Breakdown / recovery',
+      notes: 'michelin primacy 4 test tyres please, lots of them',
+    });
+    const after = (await (await api('/api/admin/stock', { headers: h })).json()).stock.find(i => i.sku === 'TEST-MICH');
+    assert.equal(after.qty, before.qty, 'a recovery job drained tyre stock via the free-text notes box');
+  });
+
+  await check('the reorder list is reachable and sending validates the address', async () => {
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    const add = await api('/api/admin/reorder-list', { method: 'POST', headers: h, body: JSON.stringify({ action: 'add', description: '2x 205/55R16', qty: 2, reason: 'test' }) });
+    assert.equal(add.status, 200);
+    assert.ok((await add.json()).pending >= 1, 'the line did not reach the list');
+
+    for (const to of ['tbc', 'none', 'not an email']) {
+      const r = await api('/api/admin/reorder-list/send', { method: 'POST', headers: h, body: JSON.stringify({ to }) });
+      assert.equal(r.status, 400, `"${to}" was accepted as a supplier address`);
+    }
+  });
+
+  // ---- Security regressions --------------------------------------------------
+  // Each of these reproduces a real hole found in the pre-go-live audit. They
+  // are here so the hole cannot quietly come back.
+
+  await check('a booking cannot inject payment records into someone elses job', async () => {
+    // The handler used to spread the whole request body into the stored job, so
+    // an anonymous POST could write a fake payment into a victim's booking list
+    // — which the refund ceiling then trusts, authorising a refund of money
+    // that was never taken.
+    const victim = `victim-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Attacker', phone: '07900000001', email: victim,
+      service: 'diagnostics', svcLabel: 'Diagnostics',
+      payments: [{ kind: 'payment', pence: 5000000 }], paidPence: 5000000,
+      status: 'complete', ref: 'CMS-CHOSEN',
+    });
+    const d = await r.json();
+    assert.ok(d.ok, 'booking rejected');
+    assert.notEqual(d.ref, 'CMS-CHOSEN', 'the caller was allowed to choose the booking reference');
+    assert.equal(d.booking.paidPence, undefined, 'an anonymous caller injected a paid balance');
+    assert.equal(d.booking.payments, undefined, 'an anonymous caller injected payment records');
+    assert.equal(d.booking.status, 'confirmed', 'an anonymous caller set the job status');
+  });
+
+  await check('a customer cannot mark their own booking paid', async () => {
+    const em = `selfpay-${Date.now()}@example.com`;
+    const pw = 'aVeryLongPassword1';
+    const su = await postJson('/api/auth/signup', { name: 'Self Pay', email: em, phone: '07900000002', password: pw, consent: true });
+    const { token } = await su.json();
+    const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
+
+    const mk = await api('/api/bookings', { method: 'POST', headers: h, body: JSON.stringify({ service: 'diagnostics', svcLabel: 'Diagnostics', reg: 'SE11LF' }) });
+    const ref = (await mk.json()).booking.ref;
+
+    const patched = await api(`/api/bookings/${ref}`, {
+      method: 'PATCH', headers: h,
+      body: JSON.stringify({ date: '2026-09-01', paidPence: 20000, payments: [{ kind: 'payment', pence: 20000 }], status: 'complete' }),
+    });
+    const job = (await patched.json()).booking;
+    assert.equal(job.date, '2026-09-01', 'a legitimate amendment was refused');
+    assert.equal(job.paidPence, undefined, 'a customer marked their own job paid');
+    assert.equal(job.payments, undefined, 'a customer wrote their own payment records');
+    assert.notEqual(job.status, 'complete', 'a customer set their own job status');
+  });
+
+  await check('calendar invites cannot be sent by an anonymous caller', async () => {
+    // Ungated, this sent a real Google invite FROM the business account to any
+    // address the caller chose.
+    const r = await postJson('/api/calendar/add-event', { date: '2026-09-01', name: 'Spam', customerEmail: 'target@example.com' });
+    assert.equal(r.status, 403, `calendar event creation is open to the world (status ${r.status})`);
+  });
+
+  await check('driver endpoints reject a missing or wrong token', async () => {
+    // These compared with raw === against ADMIN_TOKEN. With the token unset,
+    // omitting it gave undefined === undefined, i.e. open access.
+    for (const body of [{}, { token: '' }, { token: 'wrong' }, { token: null }]) {
+      const loc = await postJson('/api/driver/location', { ref: 'CMS-TEST1', lat: 50, lng: -2, ...body });
+      assert.ok(loc.status === 403 || loc.status === 429, `driver/location accepted ${JSON.stringify(body)} (${loc.status})`);
+      const jobs = await postJson('/api/driver/jobs', body);
+      assert.ok(jobs.status === 403 || jobs.status === 429, `driver/jobs leaked the job list for ${JSON.stringify(body)} (${jobs.status})`);
+    }
+  });
+
+  await check('the backup carries no password material or 2FA seed', async () => {
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const raw = JSON.stringify(dump);
+    assert.ok(!/"hash"/.test(raw), 'the backup exports password hashes');
+    assert.ok(!/"salt"/.test(raw), 'the backup exports password salts');
+    assert.ok(!Object.keys(dump.data).includes('admin_totp'), 'the backup exports the owner 2FA secret');
+    assert.ok(!Object.keys(dump.data).some(k => k.startsWith('asess:') || k.startsWith('sess:')), 'the backup exports live sessions');
+  });
+
+  await check('2FA enrolment state is not readable by the public', async () => {
+    const r = await api('/api/admin-2fa/status');
+    assert.equal(r.status, 403, 'anyone can see whether 2FA is on, which tells them when a bare token still works');
+  });
+
+  await check('GDPR erasure removes every record about the person', async () => {
+    const em = `erase-${Date.now()}@example.com`;
+    const pw = 'aVeryLongPassword1';
+    const { token } = await (await postJson('/api/auth/signup', { name: 'Erase Me', email: em, phone: '07900000003', password: pw, consent: true })).json();
+    const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
+    await api('/api/messages', { method: 'POST', headers: h, body: JSON.stringify({ text: 'hello' }) });
+    await postJson('/api/service-requests', { name: 'Erase Me', phone: '07900000003', email: em, service: 'diagnostics', svcLabel: 'Diagnostics' });
+
+    const tok = await adminTok();
+    const ah = { authorization: 'Bearer ' + tok };
+    assert.ok((await (await api('/api/admin/customers', { headers: ah })).json()).customers.some(c => c.email === em), 'setup failed');
+
+    await api('/api/gdpr/delete', { method: 'POST', headers: h });
+
+    const after = (await (await api('/api/admin/customers', { headers: ah })).json()).customers;
+    assert.ok(!after.some(c => c.email === em), 'the contact record survived erasure');
+    const threads = (await (await api('/api/admin/threads', { headers: ah })).json()).threads;
+    assert.ok(!threads.some(t => t.email === em), 'the message thread survived erasure');
   });
 
   // ---- Recording money -------------------------------------------------------

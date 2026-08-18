@@ -1013,7 +1013,10 @@ class Component extends DCLogic {
     return r;
   }
 
-  loadOrders(){ try{ const o=JSON.parse(localStorage.getItem('cms_orders')||'[]'); this.setState({orders:o}); const act=o.find(x=>x.status!=='cancelled'&&x.status!=='complete'); if(act){ this.startTracking(act.ref); } }catch(e){} }
+  loadOrders(){ try{ const o=JSON.parse(localStorage.getItem('cms_orders')||'[]'); this.setState({orders:o}); // 'arrived' means the mechanic is there — the job is over for tracking
+      // purposes. Leaving it out of this filter is what made a finished job
+      // restart the poll on every page load, on every device, indefinitely.
+      const act=o.find(x=>x.status!=='cancelled'&&x.status!=='complete'&&x.status!=='arrived'); if(act){ this.startTracking(act.ref); } }catch(e){} }
   saveOrders(o){ try{ localStorage.setItem('cms_orders', JSON.stringify(o)); }catch(e){} this.setState({orders:o}); }
 
   // ---------- TYRE SIZE PICKER ----------
@@ -1111,7 +1114,10 @@ class Component extends DCLogic {
   stop = (e) => e.stopPropagation();
   pickService(id, label, icon){ this.setState(s=>({ book:{...s.book, service:id, svcLabel:label}, bookStep:2 })); }
   setBookReg = e => this.setState(s=>({book:{...s.book,reg:e.target.value.toUpperCase()}}));
-  setBookPostcode = e => this.setState(s=>({book:{...s.book,postcode:e.target.value}}));
+  // Clear lat/lng when the postcode is typed by hand. applyOrderLocation
+  // prefers coordinates over the postcode, so pressing "use my location" and
+  // then correcting the address sent the van to the abandoned GPS fix.
+  setBookPostcode = e => { const v=e.target.value; this.setState(s=>({book:{...s.book,postcode:v,lat:null,lng:null}})); };
   setBookDate = e => this.setState(s=>({book:{...s.book,date:e.target.value}}));
   setBookTime = e => this.setState(s=>({book:{...s.book,time:e.target.value}}));
   setBookName = e => this.setState(s=>({book:{...s.book,name:e.target.value}}));
@@ -1404,7 +1410,7 @@ class Component extends DCLogic {
       updates:[...(o.updates||[]), { t:Date.now(), s:'Booking cancelled', d:'This job was cancelled.' }] } : o);
     this.saveOrders(orders);
     if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings/'+ref,{method:'DELETE'}).catch(()=>{}); }
-    if(this.state.trackRef===ref){ if(this._trackTimer) clearInterval(this._trackTimer); this.setState({trackRef:''}); }
+    if(this.state.trackRef===ref){ this.stopTracking(); this.setState({trackRef:''}); }
   }
   rebook(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return;
     this.setState({portalOpen:false, bookOpen:true, bookStep:2, bookDone:false, book:{ ...o, calendar:true }}); }
@@ -1484,7 +1490,10 @@ class Component extends DCLogic {
     const poll = async () => {
       try{
         const r = await this.apiFetch('/track/'+ref);
-        if(!r.ok) return;
+        // A guest booking or a signed-out session 401s on every poll. This
+        // used to retry every 8 seconds forever with nothing surfaced.
+        if(!r.ok){ this._pollFails = (this._pollFails||0) + 1; return; }
+        this._pollFails = 0;
         const d = await r.json();
         if(d.location && d.location.lat!=null){
           // real driver GPS is live — stop the simulation and follow it
@@ -1498,8 +1507,28 @@ class Component extends DCLogic {
         if(d.updates){ this.setState(s=>({orders:s.orders.map(o=>o.ref===ref?{...o,status:d.status||o.status,updates:d.updates}:o)})); }
       }catch(e){}
     };
-    poll(); this._liveTimer = setInterval(poll, 8000);
+    poll();
+    // Stop once the job is done. Nothing used to clear this except unmounting,
+    // so a finished job kept an 8-second request loop running for the whole
+    // session — and because loadOrders() re-tracks any job not marked
+    // complete, it restarted on every future page load, forever.
+    this._liveTimer = setInterval(async () => {
+      const o = this.state.orders.find(x => x.ref === ref);
+      if(o && (o.status === 'complete' || o.status === 'cancelled')){ this.stopTracking(); return; }
+      if(this._pollFails > 5){ this.stopTracking(); return; }
+      await poll();
+    }, 8000);
   }
+  // One teardown for every timer and sensor the tracker starts. The customer's
+  // GPS watch in particular had no stop path at all: it ran at high accuracy
+  // for the entire session, long after the mechanic had arrived.
+  stopTracking(){
+    if(this._liveTimer){ clearInterval(this._liveTimer); this._liveTimer=null; }
+    if(this._trackTimer){ clearInterval(this._trackTimer); this._trackTimer=null; }
+    if(this._geoWatch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._geoWatch); this._geoWatch=null; }
+    this._pollFails = 0;
+  }
+
   runVan(){
     if(!this._route){ setTimeout(()=>{ if(this.state.trackRef) this.runVan(); }, 400); return; }
     if(this._trackTimer) clearInterval(this._trackTimer);

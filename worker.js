@@ -141,9 +141,24 @@ function safeEqual(a, b) {
  * locks out once the limit is hit; the KV TTL handles expiry so nothing to sweep.
  */
 const RATE_LIMIT = { max: 8, windowSec: 900 }; // 8 attempts per 15 minutes
-async function rateLimited(env, key) {
+async function rateLimited(env, key, max) {
   const n = Number((await env.CMS_KV.get("rl:" + key)) || 0);
-  return n >= RATE_LIMIT.max;
+  return n >= (max || RATE_LIMIT.max);
+}
+
+/**
+ * Which customer a booking ref belongs to, or null if no such booking exists.
+ *
+ * Endpoints that take a ref from the caller need this: a ref that names nothing
+ * used to be accepted and written to KV anyway, so any string created a new key.
+ */
+async function findBookingOwner(env, ref) {
+  const list = await env.CMS_KV.list({ prefix: "bookings:" });
+  for (const k of list.keys) {
+    const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
+    if (arr.some(o => o.ref === ref)) return k.name.slice("bookings:".length);
+  }
+  return null;
 }
 async function noteFailure(env, key) {
   const k = "rl:" + key;
@@ -232,6 +247,28 @@ async function totpValid(secret, code) {
   for (let w = -1; w <= 1; w++) if (await totpAt(secret, now + w) === c) return true;
   return false;
 }
+/**
+ * Revoke every live admin session belonging to one staff email.
+ *
+ * Disabling or deleting a staff account used to leave their 12-hour `asess:`
+ * token working, because isAdmin() only checks that the session key exists and
+ * never re-reads the staff record. A dismissed employee kept full admin API
+ * access for the rest of the day. The driver endpoints already did this sweep
+ * on revoke; staff did not.
+ */
+async function revokeAdminSessions(env, email) {
+  const em = String(email || "").toLowerCase();
+  let cursor, killed = 0;
+  do {
+    const page = await env.CMS_KV.list({ prefix: "asess:", cursor });
+    for (const k of page.keys) {
+      if ((await env.CMS_KV.get(k.name)) === em) { await env.CMS_KV.delete(k.name); killed++; }
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return killed;
+}
+
 async function isAdmin(request, env) {
   const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!t) return false;
@@ -239,10 +276,28 @@ async function isAdmin(request, env) {
   // A session issued by /admin-login is always valid — that is what the dashboard
   // actually sends. (This used to be rejected whenever 2FA was not yet enrolled,
   // which broke the whole admin portal on a fresh install.)
-  if ((await env.CMS_KV.get("asess:" + t)) != null) return true;
+  const who = await env.CMS_KV.get("asess:" + t);
+  if (who != null) {
+    // Re-read the staff record on every request. A session alone is not proof
+    // of current employment — the account may have been disabled or deleted
+    // since the token was issued.
+    if (who && who.includes("@")) {
+      const raw = await env.CMS_KV.get("staff:" + who);
+      if (raw) {
+        const acct = JSON.parse(raw);
+        if (acct.disabled) { await env.CMS_KV.delete("asess:" + t); return false; }
+      }
+    }
+    return true;
+  }
 
-  // Before 2FA is enrolled the raw admin token is also accepted, so the owner can
-  // reach the dashboard to set 2FA up. Once enrolled, only a verified session works.
+  // Bootstrap only. Before ANY staff account exists the raw admin token is
+  // accepted so the owner can reach the dashboard and create one. Once real
+  // accounts exist it must stop working as a bearer credential too — not just
+  // at /admin-login — or the per-person accountability those accounts provide
+  // is bypassable by anyone still holding the old shared secret.
+  const staff = await env.CMS_KV.list({ prefix: "staff:" });
+  if (staff.keys.length > 0) return false;
   const enrolled = await env.CMS_KV.get("admin_totp");
   if (!enrolled) return safeEqual(t, env.ADMIN_TOKEN);
   return false;
@@ -1099,6 +1154,8 @@ async function api(request, env, url, ctx) {
   if (p === "/auth/signup" && request.method === "POST") {
     const { name, email, phone, password, marketing, smsUpdates, consent } = await request.json().catch(() => ({}));
     const em = (email || "").trim().toLowerCase();
+    if (await rateLimited(env, "signup:" + clientIp(request), 10)) return bad("Too many attempts — try again later.", 429);
+    await noteFailure(env, "signup:" + clientIp(request));
     if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || (password || "").length < 6) return bad("Invalid details");
     if (!consent) return bad("Please accept the privacy notice to create an account."); // GDPR: no account without lawful basis
     if (await env.CMS_KV.get("user:" + em)) return bad("Account already exists", 409);
@@ -1147,6 +1204,11 @@ async function api(request, env, url, ctx) {
   if (p === "/auth/forgot" && request.method === "POST") {
     const { email } = await request.json().catch(() => ({}));
     const em = (email || "").trim().toLowerCase();
+    // Every call here sends a real email. Unlimited, it is a free outbound
+    // amplifier pointed at anyone's inbox from our domain — the exact
+    // reputation damage the bounce handling exists to prevent.
+    if (await rateLimited(env, "ip:" + clientIp(request))) return json({ ok: true });
+    await noteFailure(env, "ip:" + clientIp(request));
     const raw = await env.CMS_KV.get("user:" + em);
     if (raw) {
       const rt = token();
@@ -1216,9 +1278,27 @@ async function api(request, env, url, ctx) {
   if (p === "/gdpr/delete" && request.method === "POST") {
     const u = await sessionUser(request, env);
     if (!u) return bad("Not signed in", 401);
-    await env.CMS_KV.delete("user:" + u.email);
-    await env.CMS_KV.delete("bookings:" + u.email);
-    await env.CMS_KV.delete("audit:" + u.email);
+    // Every key that holds anything about this person. The list used to stop
+    // after user/bookings/audit, which left their message history, CRM notes
+    // and full contact record queryable by the admin — so a route advertised
+    // as erasure under Art. 17 was not erasure.
+    for (const k of ["user:", "bookings:", "audit:", "msgs:", "contact:", "crm:", "mailfail:"]) {
+      await env.CMS_KV.delete(k + u.email);
+    }
+
+    // The inbox index is a single object keyed by email — deleting the thread
+    // without this leaves their name sitting in the admin's message list.
+    const inbox = JSON.parse((await env.CMS_KV.get("inbox")) || "{}");
+    if (inbox[u.email]) { delete inbox[u.email]; await env.CMS_KV.put("inbox", JSON.stringify(inbox)); }
+
+    // Marketing suppression at Resend, so an erased customer is not later
+    // re-added by a stale broadcast list.
+    if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
+      ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(u.email), {
+        method: "DELETE", headers: { authorization: "Bearer " + env.RESEND_API_KEY },
+      }).catch(() => null));
+    }
+
     const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
     if (t) await env.CMS_KV.delete("sess:" + t);
     return json({ ok: true, erased: true });
@@ -1254,17 +1334,22 @@ async function checkAndTriggerReorders(env, opts = {}) {
 
     let stock = JSON.parse((await env.CMS_KV.get("stock")) || "null");
     
-    // Seed default realistic tyre inventory if missing or empty
-    if (!stock || !Array.isArray(stock) || stock.length === 0) {
-      stock = [
-        { id: "P1", name: "Budget Tyre 205/55 R16", sku: "TY-20555-16-B", brand: "Aplus", size: "205/55R16", category: "Budget", qty: 2, minStock: 4, reorderQty: 10, costPrice: 32, price: 48, supplierEmail: "orders@ctyreswholesale.co.uk", supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders", autoReorder: true, lastReorderedAt: null, status: "Low Stock" },
-        { id: "P2", name: "Michelin Primacy 4 225/45 R17", sku: "TY-22545-17-M", brand: "Michelin", size: "225/45R17", category: "Premium", qty: 3, minStock: 5, reorderQty: 8, costPrice: 68, price: 118, supplierEmail: "orders@ctyreswholesale.co.uk", supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders", autoReorder: true, lastReorderedAt: null, status: "Low Stock" },
-        { id: "P3", name: "Falken Ziex ZE310 195/65 R15", sku: "TY-19565-15-F", brand: "Falken", size: "195/65R15", category: "Mid-Range", qty: 1, minStock: 4, reorderQty: 10, costPrice: 42, price: 62, supplierEmail: "orders@ctyreswholesale.co.uk", supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders", autoReorder: true, lastReorderedAt: null, status: "Critical Low" },
-        { id: "P4", name: "Continental PremiumContact 6 225/40 R18", sku: "TY-22240-18-C", brand: "Continental", size: "225/40R18", category: "Premium", qty: 8, minStock: 3, reorderQty: 6, costPrice: 75, price: 125, supplierEmail: "orders@ctyreswholesale.co.uk", supplierApiUrl: "https://api.ctyreswholesale.co.uk/v1/reorders", autoReorder: true, lastReorderedAt: null, status: "Healthy" },
-        { id: "P5", name: "Front Brake Pad Kit (VAG / Ford)", sku: "BR-PAD-F", brand: "Brembo", size: "Multi-Fit", category: "Mid-Range", qty: 12, minStock: 5, reorderQty: 10, costPrice: 22, price: 38, supplierEmail: "parts@autodistribution.co.uk", supplierApiUrl: "", autoReorder: true, lastReorderedAt: null, status: "Healthy" }
-      ];
-      await env.CMS_KV.put("stock", JSON.stringify(stock));
-    }
+    // NO DEMO SEED. This used to write five invented tyres into KV whenever
+    // stock was empty — including on a plain GET /admin/inventory, so simply
+    // opening the Inventory tab on a fresh install fabricated the business's
+    // stock. Real consequences, not cosmetic ones:
+    //
+    //   - A customer booking 225/45 R17 was told, in their own live job
+    //     timeline: "Allocated 2x Michelin Primacy 4 ... Remaining stock: 1"
+    //     for a tyre Cousins has never owned.
+    //   - Every seeded row hardcoded supplierEmail orders@ctyreswholesale.co.uk,
+    //     the address that bounces and got this domain suppressed by Resend.
+    //   - The dashboard's stock valuation, low-stock alerts and reorder counts
+    //     were all computed from the fiction.
+    //
+    // An empty inventory is the correct state for a business that has not
+    // entered its stock yet. The admin adds real items in the Inventory tab.
+    if (!Array.isArray(stock)) stock = [];
 
     // Defaults are deliberately inert. The previous defaults pointed at
     // ctyreswholesale.co.uk (which bounces / delays every message) and copied
@@ -1301,13 +1386,22 @@ async function checkAndTriggerReorders(env, opts = {}) {
 
       const minThresh = item.minStock !== undefined && item.minStock !== null ? parseInt(item.minStock, 10) : settings.defaultMinStock;
       const isBelowThreshold = item.qty <= minThresh;
-      const autoEnabled = (item.autoReorder !== false) && (settings.masterAutoReorder !== false);
+      // Opt-in, both levels. `!== false` treated "unset" as ON, which is the
+      // wrong default for something that sends real purchase orders.
+      const autoEnabled = (item.autoReorder !== false) && (settings.masterAutoReorder === true);
       const isCoolingDown = item.lastReorderedAt && (now - item.lastReorderedAt < cooldownMs);
 
-      if ((isBelowThreshold && autoEnabled && (!isCoolingDown || force)) || (force && specificSku)) {
+      // The old second clause was `(force && specificSku)`, which consulted
+      // neither autoEnabled nor the cooldown. The admin's "1-Click Reorder"
+      // button always passes force+sku, so it fired a live purchase order with
+      // the master switch OFF — one click from emailing a supplier that does
+      // not exist. force may now skip the cooldown, but never the master switch.
+      if (autoEnabled && isBelowThreshold && (!isCoolingDown || force)) {
         const orderQty = customQty ? parseInt(customQty, 10) : (item.reorderQty || settings.defaultReorderQty || 10);
         const poRef = "PO-AUTO-" + now.toString(36).toUpperCase().slice(-5);
-        const supplierEmail = item.supplierEmail || settings.supplierEmail || "orders@ctyreswholesale.co.uk";
+        // No fictional fallback. If nobody has configured a supplier, there is
+        // nobody to email, and inventing an address just generates bounces.
+        const supplierEmail = item.supplierEmail || settings.supplierEmail || "";
         const supplierApiUrl = item.supplierApiUrl || settings.supplierApiUrl || "";
 
         // Build Email Purchase Order
@@ -1371,7 +1465,12 @@ Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
             if (r && r.ok) {
               apiRes = { ok: true, status: r.status || 200, note: "Supplier API acknowledged order" };
             } else {
-              apiRes = { ok: true, status: 200, note: "Reorder Webhook Dispatched (200 OK)" };
+              // This branch used to return ok:true / "Dispatched (200 OK)".
+              // A DNS failure, a refused connection and a 500 all logged as a
+              // success, so the reorder log was a fabricated record and the
+              // owner believed stock was on its way for a booked appointment.
+              apiRes = { ok: false, status: (r && r.status) || 0,
+                note: "Supplier API did not accept the order" + ((r && r.statusText) ? ": " + r.statusText : "") };
             }
           } catch (err) {
             apiRes = { ok: false, error: err.message };
@@ -1388,8 +1487,13 @@ Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
           qty: orderQty,
           wholesaleCost: item.costPrice || 45,
           retailPrice: item.price || 65,
-          supplier: item.brand ? `${item.brand} Wholesale` : "C-Tyres Wholesale Ltd",
-          status: "Auto-Reordered (Email/API Sent)",
+          supplier: supplierEmail || "Not configured",
+          // Report what actually happened. This was the hardcoded string
+          // "Auto-Reordered (Email/API Sent)" regardless of outcome, so the
+          // owner saw a confirmed order for tyres nobody had ordered.
+          status: emailRes.ok ? "Ordered — supplier emailed"
+            : emailRes.skipped ? "NOT ordered — no supplier configured"
+            : "NOT ordered — the email failed to send",
           orderedAt: now,
           estDelivery: "Tomorrow 8:00 AM"
         };
@@ -1453,9 +1557,21 @@ Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
 // ---------- Stock & Auto-Ordering Helper ----------
 async function processTyreStockForOrder(env, order) {
   try {
+    // GUARD FIRST. This check used to sit 40 lines below, AFTER the stock
+    // decrement and after an unconditional return — so it only ever protected
+    // the not-in-stock branch. Any booking that happened to match a stock row
+    // consumed stock before it was reached.
+    const consumesStock = /tyre|tire/i.test(order.svcLabel || order.service || "");
+    if (!consumesStock) {
+      return { inStock: null, skipped: true, reason: "This service does not consume stock" };
+    }
+
     const rawStock = await env.CMS_KV.get("stock");
     let stock = JSON.parse(rawStock || "[]");
-    const label = (order.svcLabel || order.service || order.notes || "").toLowerCase();
+    // Match on the service label ONLY. `order.notes` used to be included, and
+    // /service-requests is public — so "michelin primacy tyres please" typed
+    // into the notes box by anyone drained real stock anonymously.
+    const label = (order.svcLabel || order.service || "").toLowerCase();
     
     // Determine quantity required (e.g. 2 or 4 or default 2 for tyre fitting)
     let qtyNeeded = 2;
@@ -1486,8 +1602,13 @@ async function processTyreStockForOrder(env, order) {
       return { inStock: true, item: stock[matchedIndex] };
     }
 
-    // Not in stock or insufficient quantity -> Auto-order from supplier
-    const poRef = "PO-CTYRES-" + Date.now().toString(36).toUpperCase().slice(-5);
+    // Not in stock or insufficient quantity -> Auto-order from supplier.
+    // Read settings here: autoPO below needs supplierName, and this used to be
+    // declared after it (a TDZ ReferenceError that the try/catch swallowed, so
+    // every tyre booking silently skipped stock handling).
+    const settings = JSON.parse((await env.CMS_KV.get("inventory_settings")) || "{}");
+    const autoOrderOn = settings.masterAutoReorder === true; // opt-in, never assumed
+    const poRef = "PO-AUTO-" + Date.now().toString(36).toUpperCase().slice(-5);
     const supplierOrders = JSON.parse((await env.CMS_KV.get("supplier_orders")) || "[]");
     
     const autoPO = {
@@ -1498,30 +1619,23 @@ async function processTyreStockForOrder(env, order) {
       tyreDetails: order.svcLabel || order.notes || "Tyre Fitting",
       vehicleReg: order.reg || "-",
       qty: qtyNeeded,
-      supplier: "C-Tyres Wholesale Ltd",
+      supplier: settings.supplierName || "Supplier (not yet configured)",
       status: "Ordered (Auto-Generated)",
       orderedAt: Date.now(),
       estDelivery: "Next Business Day (8:00 AM)"
     };
     
-    const settings = JSON.parse((await env.CMS_KV.get("inventory_settings")) || "{}");
-    const autoOrderOn = settings.masterAutoReorder !== false;
-
-    // Only ever touch stock for work that actually consumes stock. Recovery,
-    // diagnostics and callouts do not. This used to run for every booking, which
-    // is how a recovery job created a "stock item" called "Breakdown / recovery"
-    // with SKU AUTO-<registration> and raised a purchase order for it.
-    const consumesStock = /tyre|tire/i.test(order.svcLabel || order.service || "");
-    if (!consumesStock) {
-      return { inStock: null, skipped: true, reason: "This service does not consume stock" };
-    }
-
     if (autoOrderOn) {
       supplierOrders.unshift(autoPO);
       await env.CMS_KV.put("supplier_orders", JSON.stringify(supplierOrders.slice(0, 200)));
 
       if (matchedIndex >= 0) {
-        stock[matchedIndex].qty += qtyNeeded;
+        // Track what is ON ORDER separately. This used to do `qty += qtyNeeded`,
+        // adding goods that had not arrived to the on-hand count: one unit left
+        // and two needed became three in stock. It inflated the stock valuation
+        // and, because qty then sat above minStock, silently suppressed the
+        // reorder that was actually required.
+        stock[matchedIndex].onOrder = (Number(stock[matchedIndex].onOrder) || 0) + qtyNeeded;
         stock[matchedIndex].status = "Supplier Delivery Pending";
         await env.CMS_KV.put("stock", JSON.stringify(stock));
       }
@@ -1534,7 +1648,10 @@ async function processTyreStockForOrder(env, order) {
       order.updates.push({
         t: Date.now(),
         s: "Supplier Auto-Ordered",
-        d: `Not in local stock. Purchase order ${poRef} raised automatically with C-Tyres Wholesale.`,
+        // Customer-facing. Do not name a supplier here at all: it told customers
+        // their tyres were ordered from "C-Tyres Wholesale", a company that does
+        // not exist, and it is none of their business who supplies us.
+        d: `Not in local stock — we have placed an order for it. We will confirm your fitting time.`,
       });
       return { inStock: false, autoPO };
     }
@@ -1577,9 +1694,30 @@ async function processTyreStockForOrder(env, order) {
     // A booking with no way to contact the customer back is worse than no booking.
     if (!b.name || !b.phone) return bad("Name and mobile number are required.");
 
-    const orderRef = b.ref || ("CMS-" + Date.now().toString(36).toUpperCase().slice(-5));
+    // Public endpoint — no login. It must not send email without limit, or it
+    // is an open relay for our own domain's reputation.
+    if (await rateLimited(env, "book:" + clientIp(request), 20)) {
+      return bad("Too many booking attempts — please call 07925 340977.", 429);
+    }
+    await noteFailure(env, "book:" + clientIp(request));
+
+    // WHITELIST. This used to be `{ ...b }` — every field of an anonymous
+    // request body spread straight into the stored job. That let anyone POST
+    // {"email":"victim@…","payments":[{"kind":"payment","pence":5000000}],
+    //  "paidPence":5000000} to write a fake £50,000 payment into someone else's
+    // booking list, which /admin/jobs/:ref/payment then trusts when it computes
+    // how much may be refunded.
+    const str = (v, max) => (v === undefined || v === null) ? undefined : String(v).slice(0, max);
+    const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : undefined; };
+    const orderRef = "CMS-" + Date.now().toString(36).toUpperCase().slice(-5);
     const order = {
-      ...b,
+      name: str(b.name, 100), phone: str(b.phone, 30), email: str(b.email, 200),
+      reg: str(b.reg, 15), service: str(b.service, 60), svcLabel: str(b.svcLabel, 200),
+      postcode: str(b.postcode, 60), date: str(b.date, 30), time: str(b.time, 40),
+      notes: str(b.notes, 2000),
+      lat: num(b.lat), lng: num(b.lng),
+      calendar: b.calendar !== false,
+      marketing: b.marketing === true,
       ref: orderRef,
       status: "confirmed",
       createdAt: Date.now(),
@@ -1593,7 +1731,7 @@ async function processTyreStockForOrder(env, order) {
     // call BEFORE the KV write, so any failure in either lost the job while
     // still showing the customer a confirmation.
     // ---------------------------------------------------------------------
-    const emailKey = b.email ? ("bookings:" + String(b.email).toLowerCase()) : "bookings:guest";
+    const emailKey = order.email ? ("bookings:" + order.email.toLowerCase()) : "bookings:guest";
     const existing = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
     if (!existing.some(o => o.ref === order.ref)) existing.unshift(order); // idempotent on retry
     await env.CMS_KV.put(emailKey, JSON.stringify(existing));
@@ -1628,7 +1766,7 @@ async function processTyreStockForOrder(env, order) {
       if (i >= 0) { arr[i] = order; await env.CMS_KV.put(emailKey, JSON.stringify(arr)); }
     });
 
-    const gcalResult = (await safe("calendar", () => addCalendarEvent(env, order, b.email))) || { skipped: true };
+    const gcalResult = (await safe("calendar", () => addCalendarEvent(env, order, order.email))) || { skipped: true };
 
     const when = (order.date || "as soon as possible") + " " + (order.time || "");
     const lines = [
@@ -1644,11 +1782,11 @@ async function processTyreStockForOrder(env, order) {
     ].filter(Boolean).join("\n");
 
     // Customer confirmation (only possible if they gave us an address).
-    if (b.email) {
+    if (order.email) {
       await safe("customer-email", async () => {
         const ics = buildICS(order, env.MAIL_FROM);
         const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
-        const unsub = await unsubUrl(env, b.email);
+        const unsub = await unsubUrl(env, order.email);
         const subject = `Booking confirmed — ${order.ref} — Cousins Mechanical`;
         const html = renderEmail("booking_confirmed", {
           subject,
@@ -1670,7 +1808,7 @@ async function processTyreStockForOrder(env, order) {
             + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
         });
 
-        ctx.waitUntil(sendEmail(env, b.email, subject,
+        ctx.waitUntil(sendEmail(env, order.email, subject,
           `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
           + `Track it: ${site}/#track=${order.ref}\n\n`
           + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
@@ -1706,9 +1844,15 @@ async function processTyreStockForOrder(env, order) {
   }
 
   if (p === "/calendar/add-event" && request.method === "POST") {
+    // Admin only. This was open to the world: anyone could POST arbitrary
+    // details and Google would send a real calendar invite FROM the business
+    // account to any address they chose — spam sent under the client's identity.
+    if (!(await isAdmin(request, env))) return bad("Forbidden", 403);
     const b = await request.json().catch(() => ({}));
     const calResult = await addCalendarEvent(env, b, b.customerEmail || b.email);
-    return json({ ok: calResult.ok || false, result: calResult });
+    // Do not echo the raw Google error body back to the caller; it names the
+    // service account and calendar id.
+    return json({ ok: calResult.ok || false, eventId: calResult.eventId, skipped: calResult.skipped });
   }
 
   // --- BOOKINGS (per account) ---
@@ -1722,7 +1866,18 @@ async function processTyreStockForOrder(env, order) {
 
     if (request.method === "POST") {
       const b = await request.json().catch(() => ({}));
-      const order = { ...b, ref: b.ref || ref(), status: "confirmed", createdAt: Date.now(),
+      // Whitelisted, same as /service-requests. `{ ...b }` let a signed-in
+      // customer set paidPence, payments, status and even choose their own
+      // booking reference.
+      const str = (v, max) => (v === undefined || v === null) ? undefined : String(v).slice(0, max);
+      const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : undefined; };
+      const order = {
+        name: str(b.name, 100) || u.name, phone: str(b.phone, 30) || u.phone, email: u.email,
+        reg: str(b.reg, 15), service: str(b.service, 60), svcLabel: str(b.svcLabel, 200),
+        postcode: str(b.postcode, 60), date: str(b.date, 30), time: str(b.time, 40),
+        notes: str(b.notes, 2000), lat: num(b.lat), lng: num(b.lng),
+        calendar: b.calendar !== false,
+        ref: ref(), status: "confirmed", createdAt: Date.now(),
         updates: [{ t: Date.now(), s: "Booking confirmed", d: "We have your job — you will get a text when the van is on the way." }] };
       
       // Auto-check stock & trigger supplier auto-order if required
@@ -1748,7 +1903,14 @@ async function processTyreStockForOrder(env, order) {
 
     if (request.method === "PATCH") {
       const b = await request.json().catch(() => ({}));
-      list[i] = { ...list[i], ...b, updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking amended", d: "Your booking was updated." }] };
+      // Whitelist. This used to spread the whole body over the stored job, so a
+      // customer could PATCH {"paidPence":20000,"payments":[...]} and mark their
+      // own job paid — which the refund ceiling in /admin/jobs/:ref/payment
+      // then trusts, authorising a refund of money never taken.
+      const AMENDABLE = ["date", "time", "postcode", "notes", "phone", "reg", "lat", "lng"];
+      const patch = {};
+      for (const k of AMENDABLE) if (b[k] !== undefined) patch[k] = b[k];
+      list[i] = { ...list[i], ...patch, updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking amended", d: "Your booking was updated." }] };
       await env.CMS_KV.put(kvKey, JSON.stringify(list));
       await audit(env, u.email, "booking_amended", list[i].ref);
       if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `Cousins Mechanical: booking ${list[i].ref} updated to ${list[i].date || ""} ${list[i].time || ""}.`));
@@ -1778,10 +1940,26 @@ async function processTyreStockForOrder(env, order) {
   // --- LIVE LOCATION: driver posts GPS, customer reads it for their own job ---
   if (p === "/driver/location" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const okAdmin = (await isAdmin(request, env)) || body.token === env.ADMIN_TOKEN || (await env.CMS_KV.get("dsess:" + body.token));
-    if (!okAdmin) return bad("Forbidden", 403);
+    // safeEqual, not ===. With `===`, an unset ADMIN_TOKEN and an omitted
+    // body.token gave `undefined === undefined` → true → an unauthenticated
+    // stranger could plant GPS on any job.
+    const driverId = body.token ? await env.CMS_KV.get("dsess:" + body.token) : null;
+    const okAdmin = (await isAdmin(request, env))
+      || (env.ADMIN_TOKEN && safeEqual(body.token || "", env.ADMIN_TOKEN))
+      || driverId;
+    if (!okAdmin) {
+      await noteFailure(env, "ip:" + clientIp(request));
+      return bad("Forbidden", 403);
+    }
+    if (await rateLimited(env, "loc:" + clientIp(request), 240)) return bad("Too many updates", 429);
+
     const { ref: r, lat, lng, eta, arrived } = body;
-    if (!r) return bad("Missing ref");
+    if (!r || !/^[\w-]{1,32}$/.test(String(r))) return bad("Missing or invalid ref");
+
+    // The ref must name a real booking. Without this, any string became a new
+    // KV key — unbounded writes from one endpoint.
+    const owner = await findBookingOwner(env, r);
+    if (!owner) return bad("Not found", 404);
     if (arrived) {
       const list = await env.CMS_KV.list({ prefix: "bookings:" });
       for (const k of list.keys) {
@@ -1791,7 +1969,24 @@ async function processTyreStockForOrder(env, order) {
         if (changed) await env.CMS_KV.put(k.name, JSON.stringify(arr));
       }
     } else {
-      await env.CMS_KV.put("loc:" + r, JSON.stringify({ lat, lng, eta, t: Date.now() }), { expirationTtl: LOCATION_TTL_SEC });
+      // Validate. These went straight from the request body into KV and on to
+      // the customer's map, where a NaN or an out-of-range value makes
+      // Leaflet throw "Invalid LatLng" and kills the tracker.
+      // Require a real number. Number(null) and Number("") are both 0, which is
+      // a perfectly valid latitude — so a missing coordinate would have quietly
+      // placed the van at 0,0 in the Atlantic instead of being rejected.
+      const coord = (v, limit, name) => {
+        if (v === null || v === undefined || v === "" || typeof v === "boolean") return null;
+        const x = Number(v);
+        return (Number.isFinite(x) && Math.abs(x) <= limit) ? x : null;
+      };
+      const la = coord(lat, 90), lo = coord(lng, 180);
+      if (la === null) return bad("Invalid latitude");
+      if (lo === null) return bad("Invalid longitude");
+      const e = Number(eta);
+      await env.CMS_KV.put("loc:" + r, JSON.stringify({
+        lat: la, lng: lo, eta: Number.isFinite(e) && e >= 0 && e < 1440 ? e : null, t: Date.now(),
+      }), { expirationTtl: LOCATION_TTL_SEC });
     }
     return json({ ok: true });
   }
@@ -1843,7 +2038,18 @@ async function processTyreStockForOrder(env, order) {
 
   if (p === "/driver/jobs" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    if (!(await env.CMS_KV.get("dsess:" + body.token)) && body.token !== env.ADMIN_TOKEN && !(await isAdmin(request, env))) return bad("Forbidden", 403);
+    // Was `body.token !== env.ADMIN_TOKEN` with a raw !==. If ADMIN_TOKEN were
+    // ever unset, omitting the token satisfied it and this endpoint handed out
+    // every active customer's name, postcode and registration to anyone asking.
+    // Also unlimited-brute-forceable: no rate limit on a secret comparison.
+    if (await rateLimited(env, "ip:" + clientIp(request))) return bad("Too many attempts", 429);
+    const isDriver = body.token ? await env.CMS_KV.get("dsess:" + body.token) : null;
+    if (!isDriver
+        && !(env.ADMIN_TOKEN && safeEqual(body.token || "", env.ADMIN_TOKEN))
+        && !(await isAdmin(request, env))) {
+      await noteFailure(env, "ip:" + clientIp(request));
+      return bad("Forbidden", 403);
+    }
     const out = [];
     const list = await env.CMS_KV.list({ prefix: "bookings:" });
     for (const k of list.keys) {
@@ -2017,6 +2223,11 @@ async function processTyreStockForOrder(env, order) {
     await env.CMS_KV.put("admin_totp", b.secret);
     await audit(env, "admin", "admin_2fa_enrolled", "");
     return json({ ok: true });
+  }
+  // Only an admin needs to know whether 2FA is on. Unauthenticated, it told an
+  // attacker precisely when a bare ADMIN_TOKEN bearer would still be accepted.
+  if (p === "/admin-2fa/status" && request.method === "GET" && !(await isAdmin(request, env))) {
+    return bad("Forbidden", 403);
   }
   if (p === "/admin-2fa/status" && request.method === "GET") {
     return json({ enrolled: !!(await env.CMS_KV.get("admin_totp")) });
@@ -2197,6 +2408,10 @@ async function processTyreStockForOrder(env, order) {
       if (request.method === "POST") {
         const b = await request.json().catch(() => ({}));
         const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
+        // Accept a single `id` as well as an `ids` array. The admin UI acts on
+        // one row at a time; without this every button was a silent no-op.
+        const ids = b.ids || (b.id ? [b.id] : null);
+        const pendingCount = (arr) => arr.filter(i => i.status === "pending").length;
 
         if (b.action === "add") {
           if (!b.description) return bad("Describe what needs ordering.");
@@ -2209,23 +2424,25 @@ async function processTyreStockForOrder(env, order) {
             customerName: b.customerName || "-", note: b.note || "Added by hand",
           });
         } else if (b.action === "mark_ordered") {
-          for (const i of list) if (!b.ids || b.ids.includes(i.id)) {
+          for (const i of list) if (!ids || ids.includes(i.id)) {
             if (i.status === "pending") { i.status = "ordered"; i.orderedAt = Date.now(); }
           }
         } else if (b.action === "remove") {
-          const keep = list.filter(i => !(b.ids || []).includes(i.id));
+          const keep = list.filter(i => !(ids || []).includes(i.id));
           await env.CMS_KV.put("reorder_list", JSON.stringify(keep));
-          return json({ list: keep });
+          return json({ list: keep, pending: pendingCount(keep) });
         } else if (b.action === "clear_ordered") {
           const keep = list.filter(i => i.status !== "ordered");
           await env.CMS_KV.put("reorder_list", JSON.stringify(keep));
-          return json({ list: keep });
+          return json({ list: keep, pending: pendingCount(keep) });
         } else {
           return bad("Unknown action");
         }
 
-        await env.CMS_KV.put("reorder_list", JSON.stringify(list.slice(0, 500)));
-        return json({ list });
+        const saved = list.slice(0, 500);
+        await env.CMS_KV.put("reorder_list", JSON.stringify(saved));
+        // The UI needs the pending count back on every action, not just on GET.
+        return json({ list: saved, pending: pendingCount(saved) });
       }
     }
 
@@ -2236,6 +2453,9 @@ async function processTyreStockForOrder(env, order) {
       const settings = JSON.parse((await env.CMS_KV.get("inventory_settings")) || "{}");
       const to = (b.to || settings.supplierEmail || "").trim();
       if (!to) return bad("No supplier email set — add one in the automation settings.");
+      // Non-empty was the only check, so "tbc" or "none" passed and a
+      // syntactically valid but non-existent address sent for real and bounced.
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return bad("That supplier email is not a valid address.");
 
       const list = JSON.parse((await env.CMS_KV.get("reorder_list")) || "[]");
       const pending = list.filter(i => i.status === "pending");
@@ -2268,7 +2488,11 @@ async function processTyreStockForOrder(env, order) {
     // rate-limit counters, reset tokens) are deliberately excluded — restoring
     // them would be wrong, and sessions are secrets.
     if (p === "/admin/backup" && request.method === "GET") {
-      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:"];
+            // Sessions, rate-limit counters and reset tokens are transient. The rest
+      // of this list is credential material: exporting it turns "download a
+      // backup" into "download every password hash and the owner's 2FA seed",
+      // which any staff-level account could then use to log in as the owner.
+      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "admin_totp"];
       const data = {};
       let cursor;
       do {
@@ -2277,7 +2501,20 @@ async function processTyreStockForOrder(env, order) {
           if (EXCLUDE.some(pre => k.name.startsWith(pre))) continue;
           const raw = await env.CMS_KV.get(k.name);
           if (raw == null) continue;
-          try { data[k.name] = JSON.parse(raw); } catch { data[k.name] = raw; }
+          let val;
+          try { val = JSON.parse(raw); } catch { val = raw; }
+          // Strip password material. A backup is for restoring business data,
+          // not for carrying every customer's and every staff member's salt and
+          // PBKDF2 hash out of the system in a file that lands in Downloads.
+          if (val && typeof val === "object") {
+            if (k.name.startsWith("user:") || k.name.startsWith("staff:")) {
+              delete val.salt; delete val.hash;
+            }
+            if (k.name === "drivers" && Array.isArray(val)) {
+              val = val.map(d => { const c = { ...d }; delete c.salt; delete c.hash; return c; });
+            }
+          }
+          data[k.name] = val;
         }
         cursor = page.list_complete ? undefined : page.cursor;
       } while (cursor);
@@ -2364,6 +2601,8 @@ async function processTyreStockForOrder(env, order) {
       if (b.name !== undefined) acct.name = String(b.name).trim();
       acct.updatedAt = Date.now();
       await env.CMS_KV.put("staff:" + em, JSON.stringify(acct));
+      // Disabling must take effect now, not at the end of their 12h session.
+      if (acct.disabled) await revokeAdminSessions(env, em);
       await audit(env, "admin", "staff_updated", em + " disabled=" + !!acct.disabled);
       return json({ ok: true, staff: { email: acct.email, name: acct.name, role: acct.role, disabled: !!acct.disabled } });
     }
@@ -2530,7 +2769,7 @@ async function processTyreStockForOrder(env, order) {
         reorderQty: parseInt(b.reorderQty || "10", 10) || 10,
         costPrice: parseFloat(b.costPrice || b.cost || "45") || 45,
         price: parseFloat(b.price || b.retailPrice || "65") || 65,
-        supplierEmail: b.supplierEmail || "orders@ctyreswholesale.co.uk",
+        supplierEmail: b.supplierEmail || "",
         supplierApiUrl: b.supplierApiUrl || "",
         autoReorder: b.autoReorder !== false,
         lastReorderedAt: b.lastReorderedAt || null,
@@ -2642,7 +2881,7 @@ async function processTyreStockForOrder(env, order) {
           qty: parseInt(b.qty || "1", 10) || 1,
           wholesaleCost: b.cost || 45,
           retailPrice: b.price || 65,
-          supplier: b.supplier || "C-Tyres Wholesale Ltd",
+          supplier: b.supplier || "Supplier (not set)",
           status: "Manual Order Placed",
           orderedAt: Date.now(),
           estDelivery: "Tomorrow 8:00 AM"
@@ -2925,6 +3164,15 @@ async function processTyreStockForOrder(env, order) {
   }
 
   // --- UK Vehicle Data: plate -> vehicle + tyre ---
+  // These two proxy PAID third-party APIs using the client's keys. Open to the
+  // world with no limit, a script can burn the whole vehicle-lookup quota — the
+  // bill and the outage are the client's. CORS does not help: it restrains
+  // browsers, not curl.
+  if ((p === "/ukvd" || p.startsWith("/v1/")) && await rateLimited(env, "lookup:" + clientIp(request), 60)) {
+    return bad("Too many lookups — slow down.", 429);
+  }
+  if (p === "/ukvd" || p.startsWith("/v1/")) await noteFailure(env, "lookup:" + clientIp(request));
+
   if (p === "/ukvd" && request.method === "GET") {
     const vrm = (url.searchParams.get("vrm") || "").toUpperCase().replace(/\s+/g, "");
     if (!vrm) return bad("Missing vrm");
