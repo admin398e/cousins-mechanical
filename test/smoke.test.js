@@ -592,6 +592,76 @@ try {
     assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
   });
 
+  // ---- Recording money -------------------------------------------------------
+
+  await check('marking a job paid records it in pence and shows on the job', async () => {
+    const em = `paid-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Pay Tester', phone: '07900555888', email: em,
+      reg: 'PA11YED', service: 'tyres', svcLabel: 'Tyre fitting — Michelin 205/55R16',
+    });
+    const ref = (await r.json()).ref;
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+
+    const pay = await api(`/api/admin/jobs/${ref}/payment`, {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ customerEmail: em, amount: 188.1, method: 'card' }),
+    });
+    assert.equal(pay.status, 200);
+    const d = await pay.json();
+    // Pence, not pounds: 188.10 held as a float and summed drifts to
+    // 188.09999999999999, which is wrong the moment it feeds a day's takings.
+    assert.equal(d.entry.pence, 18810, 'amount was not stored as an integer number of pence');
+    assert.equal(d.job.paidPence, 18810);
+    assert.equal(d.entry.kind, 'payment');
+
+    const jobs = (await (await api('/api/admin/jobs', { headers: h })).json()).jobs;
+    assert.equal(jobs.find(j => j.ref === ref).paidPence, 18810, 'the payment did not reach the job list');
+  });
+
+  await check('a refund cannot exceed what was actually taken', async () => {
+    const em = `refund-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Refund Tester', phone: '07900555999', email: em,
+      reg: 'RE11FND', service: 'tyres', svcLabel: 'Tyre fitting',
+    });
+    const ref = (await r.json()).ref;
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    const pay = (body) => api(`/api/admin/jobs/${ref}/payment`, { method: 'POST', headers: h, body: JSON.stringify(body) });
+
+    await pay({ customerEmail: em, amount: 100, method: 'cash' });
+
+    const tooMuch = await pay({ customerEmail: em, kind: 'refund', amount: 150 });
+    assert.equal(tooMuch.status, 400, 'refunded more than was ever taken');
+
+    const ok = await pay({ customerEmail: em, kind: 'refund', amount: 40 });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).job.paidPence, 6000, 'net balance after a partial refund is wrong');
+  });
+
+  await check('a payment of zero or a silly amount is refused', async () => {
+    const em = `zero-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Zero Tester', phone: '07900556000', email: em, reg: 'ZE11RO', service: 'diagnostics', svcLabel: 'Diagnostics',
+    });
+    const ref = (await r.json()).ref;
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    for (const amount of [0, -5, 'banana', 99999999]) {
+      const res = await api(`/api/admin/jobs/${ref}/payment`, {
+        method: 'POST', headers: h, body: JSON.stringify({ customerEmail: em, amount }),
+      });
+      assert.equal(res.status, 400, `amount ${amount} was accepted`);
+    }
+  });
+
+  await check('recording money requires admin auth', async () => {
+    const res = await postJson('/api/admin/jobs/CMS-FAKE1/payment', { customerEmail: 'x@example.com', amount: 10 });
+    assert.equal(res.status, 403, 'anyone could record a payment and email a customer a receipt');
+  });
+
   // ---- HTML email templates -------------------------------------------------
   // The whole point of these: a customer must never receive "Hi {{{firstname}}}".
 

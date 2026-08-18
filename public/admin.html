@@ -107,6 +107,56 @@
   </div>
 </sc-if>
 
+<!-- RECORD A PAYMENT / REFUND -->
+<sc-if value="{{ payOpen }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;z-index:100;background:rgba(10,8,7,.8);display:flex;align-items:center;justify-content:center;padding:24px" onClick="{{ closePay }}">
+    <div style="width:100%;max-width:440px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:28px" onClick="{{ stop }}">
+      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:4px">{{ payTitle }}</div>
+      <div style="color:#9a918a;font-size:13px;line-height:1.5;margin-bottom:6px">{{ paySub }}</div>
+      <div style="color:#6f6862;font-size:12.5px;line-height:1.5;margin-bottom:16px">This records money you have already taken on site and emails the customer a receipt. It does not charge a card.</div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button onClick="{{ payModePayment }}" style="{{ payTabPayStyle }}">Payment taken</button>
+        <button onClick="{{ payModeRefund }}" style="{{ payTabRefStyle }}">Refund</button>
+      </div>
+
+      <label style="display:block;font-size:12px;color:#9a918a;font-weight:600;margin-bottom:4px">Amount (&pound;)</label>
+      <input value="{{ payAmount }}" onInput="{{ setPayAmount }}" inputmode="decimal" placeholder="0.00" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:20px;margin-bottom:12px"/>
+
+      <label style="display:block;font-size:12px;color:#9a918a;font-weight:600;margin-bottom:4px">How was it paid?</label>
+      <select value="{{ payMethod }}" onChange="{{ setPayMethod }}" style="width:100%;background:#14100e;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:10px;padding:12px 13px;font-size:14px;margin-bottom:12px">
+        <option value="card">Card</option>
+        <option value="cash">Cash</option>
+        <option value="bank transfer">Bank transfer</option>
+        <option value="other">Other</option>
+      </select>
+
+      <label style="display:block;font-size:12px;color:#9a918a;font-weight:600;margin-bottom:4px">Note (optional, not shown to the customer)</label>
+      <input value="{{ payNote }}" onInput="{{ setPayNote }}" placeholder="e.g. paid on the card machine" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:11px 13px;font-size:14px;margin-bottom:14px"/>
+
+      <sc-if value="{{ payErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ payErr }}</div></sc-if>
+      <sc-if value="{{ payMsg }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(57,168,84,.14);border:1px solid #2f6b3f;color:#8ee6a0;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ payMsg }}</div></sc-if>
+
+      <sc-if value="{{ payHistoryAny }}" hint-placeholder-val="{{ false }}">
+        <div style="border-top:1px solid #2a2320;padding-top:12px;margin-bottom:14px">
+          <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:8px">ALREADY RECORDED</div>
+          <sc-for list="{{ payHistory }}" as="h" hint-placeholder-count="1">
+            <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0">
+              <span style="color:#9a918a">{{ h.when }} · {{ h.method }}</span>
+              <span style="{{ h.style }}">{{ h.amount }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <div style="display:flex;gap:10px">
+        <button onClick="{{ submitPay }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer">{{ paySubmitLabel }}</button>
+        <button onClick="{{ closePay }}" style="background:#2a2320;color:#d9d2cc;font-weight:700;border:0;border-radius:10px;padding:13px 18px;cursor:pointer">Close</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
 <!-- DASHBOARD -->
 <sc-if value="{{ loggedIn }}" hint-placeholder-val="{{ false }}">
   <div style="flex:1;display:flex;flex-direction:column">
@@ -147,7 +197,7 @@
         <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
           <div style="overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;min-width:820px">
-              <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">Vehicle</th><th class="adm-th">Customer</th><th class="adm-th">When</th><th class="adm-th">Status</th><th class="adm-th">Move to</th><th class="adm-th">Live GPS</th></tr></thead>
+              <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">Vehicle</th><th class="adm-th">Customer</th><th class="adm-th">When</th><th class="adm-th">Status</th><th class="adm-th">Move to</th><th class="adm-th">Money</th><th class="adm-th">Live GPS</th></tr></thead>
               <tbody>
                 <sc-for list="{{ jobRows }}" as="j" hint-placeholder-count="4">
                   <tr>
@@ -158,6 +208,12 @@
                     <td class="adm-td">{{ j.when }}</td>
                     <td class="adm-td"><span style="{{ j.badgeStyle }}">{{ j.statusLabel }}</span></td>
                     <td class="adm-td"><select value="{{ j.status }}" onChange="{{ j.onStatus }}" style="background:#14100e;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:8px;padding:8px 10px;font-size:13px"><option value="confirmed">Confirmed</option><option value="enroute">On the way</option><option value="arrived">Arrived</option><option value="complete">Complete</option><option value="cancelled">Cancelled</option></select></td>
+                    <td class="adm-td">
+                      <div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
+                        <span style="{{ j.paidStyle }}">{{ j.paidLabel }}</span>
+                        <button onClick="{{ j.openPay }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px" style-hover="border-color:#e8791a;color:#f4a04a">{{ j.payLabel }}</button>
+                      </div>
+                    </td>
                     <td class="adm-td"><button onClick="{{ j.toggleGps }}" style="{{ j.gpsStyle }}">{{ j.gpsLabel }}</button></td>
                   </tr>
                 </sc-for>
@@ -831,6 +887,9 @@ class Component extends DCLogic {
     threads:[], activeThread:'', threadMsgs:[], replyInput:'',
     // CRM (customers tab)
     custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
+    // Record-a-payment modal. payJob holds the whole job, not just the ref,
+    // because the modal shows that job's existing payment history.
+    payJob:null, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payBusy:false, payMsg:'', payErr:'',
     pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'orders@ctyreswholesale.co.uk', pSupplierApiUrl:'https://api.ctyreswholesale.co.uk/v1/reorders', pAutoReorder:true,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
     catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
@@ -930,6 +989,51 @@ class Component extends DCLogic {
   };
   logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
+
+  // --- Record a payment or refund -------------------------------------------
+  openPay(job){
+    this.setState({ payJob:job, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payMsg:'', payErr:'', payBusy:false });
+  }
+  closePay = () => this.setState({ payJob:null, payMsg:'', payErr:'' });
+  payModePayment = () => this.setState({ payKind:'payment', payErr:'', payMsg:'' });
+  payModeRefund  = () => this.setState({ payKind:'refund',  payErr:'', payMsg:'' });
+  setPayAmount = e => this.setState({ payAmount:e.target.value, payErr:'' });
+  setPayMethod = e => this.setState({ payMethod:e.target.value });
+  setPayNote   = e => this.setState({ payNote:e.target.value });
+
+  submitPay = () => {
+    const s = this.state, job = s.payJob;
+    if(!job || s.payBusy) return;
+    const amount = parseFloat(String(s.payAmount).replace(/[^0-9.]/g,''));
+    if(!isFinite(amount) || amount <= 0){ this.setState({payErr:'Enter an amount greater than zero.'}); return; }
+
+    this.setState({payBusy:true, payErr:'', payMsg:''});
+
+    if(s.demoMode){
+      this.setState({payBusy:false, payMsg:'Demo mode — nothing was recorded and no email was sent.'});
+      return;
+    }
+
+    this.af('/admin/jobs/'+job.ref+'/payment', { method:'POST', body:JSON.stringify({
+      customerEmail: job.customerEmail, kind: s.payKind, amount, method: s.payMethod, note: s.payNote,
+    })})
+    .then(async r => { const d = await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Could not save that.'); return d; })
+    .then(d => {
+      // Keep the table and the open modal in step with the server's version of
+      // the job, so the history and the paid badge are never stale.
+      this.setState(st=>({
+        jobs: st.jobs.map(j => j.ref===job.ref ? {...j, ...d.job} : j),
+        payJob: {...job, ...d.job},
+        payBusy:false, payAmount:'', payNote:'',
+        payMsg: (s.payKind==='refund'?'Refund recorded. ':'Payment recorded. ')
+          + (d.emailed && d.emailed.ok ? 'Receipt emailed to the customer.'
+            : d.emailed && d.emailed.skipped ? 'No receipt sent — ' + (d.emailed.reason||'email is not configured') + '.'
+            : 'The receipt email did not send — the money is still recorded.'),
+      }));
+    })
+    .catch(err => this.setState({payBusy:false, payErr:err.message||'Could not save that.'}));
+  };
+  fmtMoney(pence){ return '\u00A3' + (Number(pence||0)/100).toFixed(2); }
   stop = (e) => e.stopPropagation();
 
   // ---------- AUTOMATION SETTINGS ----------
@@ -1552,13 +1656,22 @@ class Component extends DCLogic {
     const s=this.state;
     const statusMap={confirmed:['CONFIRMED','#e8791a'],enroute:['ON THE WAY','#0d5bd4'],arrived:['ARRIVED','#39a854'],complete:['COMPLETE','#6f6862'],cancelled:['CANCELLED','#a5401a']};
     const badge=(st)=>{ const m=statusMap[st]||['—','#6f6862']; return 'font-family:\'Barlow Condensed\';font-weight:800;font-size:11.5px;letter-spacing:.05em;color:#fff;background:'+m[1]+';border-radius:6px;padding:4px 9px'; };
+    const payTab=(on)=>'flex:1;border:1px solid '+(on?'#e8791a':'#3a322d')+';background:'+(on?'rgba(232,121,26,.16)':'#14100e')+';color:'+(on?'#f4a04a':'#9a918a')+';font-weight:700;border-radius:9px;padding:10px;cursor:pointer;font-size:13px';
 
     const activeJobs=s.jobs.filter(j=>j.status!=='cancelled'&&j.status!=='complete');
     const jobRows=s.jobs.map(j=>({ ...j, when:this.fmtWhen(j), statusLabel:(statusMap[j.status]||['—'])[0], badgeStyle:badge(j.status),
       onStatus:(e)=>this.changeStatus(j, e.target.value),
       toggleGps:()=>this.toggleGps(j),
       gpsLabel: s.gpsRef===j.ref?'● Sharing':'Share',
-      gpsStyle: 'border:1px solid '+(s.gpsRef===j.ref?'#39a854':'#3a322d')+';background:'+(s.gpsRef===j.ref?'rgba(57,168,84,.16)':'#14100e')+';color:'+(s.gpsRef===j.ref?'#4fe06a':'#9a918a')+';font-weight:700;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;white-space:nowrap' }));
+      gpsStyle: 'border:1px solid '+(s.gpsRef===j.ref?'#39a854':'#3a322d')+';background:'+(s.gpsRef===j.ref?'rgba(57,168,84,.16)':'#14100e')+';color:'+(s.gpsRef===j.ref?'#4fe06a':'#9a918a')+';font-weight:700;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;white-space:nowrap',
+      openPay: ()=>this.openPay(j),
+      // paidPence is the net of payments minus refunds, computed server-side.
+      paidLabel: j.paidPence>0 ? this.fmtMoney(j.paidPence) : (Array.isArray(j.payments)&&j.payments.length ? 'Refunded' : 'Unpaid'),
+      paidStyle: j.paidPence>0
+        ? 'background:rgba(57,168,84,.16);border:1px solid rgba(57,168,84,.45);color:#8ee6a0;border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px'
+        : 'color:#6f6862;font-size:12px',
+      payLabel: j.paidPence>0 ? 'Edit' : 'Mark paid',
+    }));
     const custRows=s.customers.map(c=>({ ...c,
       sms:c.smsUpdates?'On':'Off', marketing:c.marketing?'Yes':'No', joined:this.fmtDate(c.createdAt),
       discountLabel: c.discount? (c.discount+'%') : '—',
@@ -1654,6 +1767,23 @@ class Component extends DCLogic {
       codeInput:s.codeInput, setCode:this.setCode, needCode:s.needCode,
       overrideOpen:s.overrideOpen, reset2fa:s.reset2fa, toggleOverride:this.toggleOverride, toggleReset2fa:this.toggleReset2fa,
       start2fa:this.start2fa, twofaOpen:s.twofaOpen, close2fa:this.close2fa, stop:this.stop,
+      payOpen: !!s.payJob,
+      payTitle: s.payKind==='refund' ? 'RECORD A REFUND' : 'RECORD A PAYMENT',
+      paySub: s.payJob ? (s.payJob.ref+' \u00B7 '+(s.payJob.name||'')+' \u00B7 '+(s.payJob.svcLabel||s.payJob.service||'Mobile job')) : '',
+      payKind:s.payKind, payAmount:s.payAmount, payMethod:s.payMethod, payNote:s.payNote,
+      payMsg:s.payMsg, payErr:s.payErr,
+      closePay:this.closePay, payModePayment:this.payModePayment, payModeRefund:this.payModeRefund,
+      setPayAmount:this.setPayAmount, setPayMethod:this.setPayMethod, setPayNote:this.setPayNote,
+      submitPay:this.submitPay,
+      paySubmitLabel: s.payBusy ? 'Saving\u2026' : (s.payKind==='refund' ? 'Record refund & email receipt' : 'Record payment & email receipt'),
+      payTabPayStyle: payTab(s.payKind==='payment'),
+      payTabRefStyle: payTab(s.payKind==='refund'),
+      payHistoryAny: !!(s.payJob && Array.isArray(s.payJob.payments) && s.payJob.payments.length),
+      payHistory: ((s.payJob&&s.payJob.payments)||[]).slice().reverse().map(h=>({
+        when:this.fmtDateTime(h.t), method:h.method||'',
+        amount:(h.kind==='refund'?'-':'+')+this.fmtMoney(h.pence),
+        style:'font-weight:700;color:'+(h.kind==='refund'?'#f0a884':'#8ee6a0'),
+      })),
       twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
       login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
       tabs, kpis, downloadBackup:this.downloadBackup,

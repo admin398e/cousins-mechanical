@@ -247,6 +247,19 @@ async function isAdmin(request, env) {
   if (!enrolled) return safeEqual(t, env.ADMIN_TOKEN);
   return false;
 }
+/**
+ * Which staff member is behind this request.
+ *
+ * /admin-login stores the signed-in email as the value of the "asess:" key, so
+ * a money entry can be attributed to a person rather than to "admin". Falls
+ * back to "admin" for the pre-2FA bootstrap token, which has no identity.
+ */
+async function whoAmI(env, request) {
+  const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!t) return "";
+  return (await env.CMS_KV.get("asess:" + t)) || "admin";
+}
+
 function ref() { return "CMS-" + Date.now().toString(36).toUpperCase().slice(-5); }
 
 async function sessionUser(request, env) {
@@ -2049,6 +2062,96 @@ async function processTyreStockForOrder(env, order) {
       const uraw = await env.CMS_KV.get("user:" + email);
       if (uraw) { const u = JSON.parse(uraw); if (u.smsUpdates !== false && b.sms) ctx.waitUntil(sendSMS(env, u.phone, b.sms)); }
       return json({ job: arr[i] });
+    }
+
+    // Record a payment or a refund against a job, and send the receipt.
+    //
+    // Money is held in PENCE as an integer. Storing 188.10 as a float and
+    // adding it up gives 188.09999999999999 — fine on one job, wrong the moment
+    // these totals feed a day's takings or an invoice.
+    //
+    // This deliberately does NOT take money. It records money already taken on
+    // site (card machine or cash) so the customer gets a receipt and the job
+    // carries a payment history. Stripe can call the same endpoint later.
+    const pm = p.match(/^\/admin\/jobs\/([\w-]+)\/payment$/);
+    if (pm && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const email = String(b.customerEmail || "").toLowerCase();
+      const key = "bookings:" + email;
+      const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+      const i = arr.findIndex(o => o.ref === pm[1]);
+      if (i < 0) return bad("Job not found", 404);
+
+      const kind = b.kind === "refund" ? "refund" : "payment";
+      const pence = Math.round(Number(b.amount) * 100);
+      if (!Number.isFinite(pence) || pence <= 0) return bad("Enter an amount greater than zero.");
+      if (pence > 5000000) return bad("That amount looks wrong — over £50,000.");
+
+      const job = arr[i];
+      job.payments = Array.isArray(job.payments) ? job.payments : [];
+
+      // Do not refund more than was taken. Without this a slip of the keyboard
+      // emails a customer a receipt for a refund larger than they ever paid.
+      const takenPence = job.payments.filter(x => x.kind === "payment").reduce((n, x) => n + x.pence, 0);
+      const refundedPence = job.payments.filter(x => x.kind === "refund").reduce((n, x) => n + x.pence, 0);
+      if (kind === "refund" && pence > takenPence - refundedPence) {
+        return bad("You cannot refund more than the £" + ((takenPence - refundedPence) / 100).toFixed(2) + " still held on this job.");
+      }
+
+      const entry = {
+        t: Date.now(), kind, pence,
+        method: String(b.method || "card").slice(0, 20),
+        note: String(b.note || "").slice(0, 200),
+        by: (await whoAmI(env, request)) || "admin",
+      };
+      job.payments.push(entry);
+      job.paidPence = takenPence + (kind === "payment" ? pence : 0) - refundedPence - (kind === "refund" ? pence : 0);
+      job.updates = [...(job.updates || []), {
+        t: Date.now(),
+        s: kind === "refund" ? "Refund processed" : "Payment received",
+        d: "£" + (pence / 100).toFixed(2) + (entry.method ? " by " + entry.method : ""),
+      }];
+      await env.CMS_KV.put(key, JSON.stringify(arr));
+      await audit(env, email, "job_" + kind, job.ref + " £" + (pence / 100).toFixed(2));
+
+      // Receipt. Best effort — the money is recorded either way, and a failed
+      // send must not make Josh think the payment did not save.
+      let emailed = { skipped: true, reason: "customer gave no email address" };
+      if (email && email !== "guest" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        try {
+          const amount = (pence / 100).toFixed(2);
+          const subject = kind === "refund"
+            ? `Refund processed — ${job.ref} — Cousins Mechanical`
+            : `Payment received — ${job.ref} — Cousins Mechanical`;
+          const unsub = await unsubUrl(env, email);
+          const html = renderEmail(kind === "refund" ? "refund_processed" : "payment_received", {
+            subject,
+            preheader: (kind === "refund" ? "£" + amount + " is on its way back to you" : "Your receipt for £" + amount),
+            firstname: String(job.name || "there").trim().split(/\s+/)[0],
+            amount,
+            booking_ref: job.ref,
+            service: job.svcLabel || job.service || "Mobile job",
+            vehicle_reg: job.reg || "Not given",
+          }, {
+            footer_note: `This relates to job ${esc(job.ref)}. It is a receipt, not marketing.`
+              + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
+          });
+          const text = kind === "refund"
+            ? `Hi ${job.name},\n\nWe have processed a refund of £${amount} for job ${job.ref}.\n\n`
+              + `It goes back to your original payment method — please allow 3-5 working days.\n\n`
+              + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`
+            : `Hi ${job.name},\n\nThanks — we have received your payment of £${amount}.\n\n`
+              + `Job: ${job.ref}\nWork: ${job.svcLabel || job.service || "Mobile job"}\nVehicle: ${job.reg || "-"}\n\n`
+              + `Keep this email as your receipt.\n\n`
+              + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`;
+          emailed = await sendEmail(env, email, subject, text, null, { html, unsubscribeUrl: unsub });
+        } catch (err) {
+          console.error("[payment:receipt]", job.ref, err && err.stack ? err.stack : err);
+          emailed = { ok: false, reason: "receipt could not be sent" };
+        }
+      }
+
+      return json({ job, entry, emailed });
     }
 
     // --- MESSAGING (admin): list threads, read a thread, reply ---
