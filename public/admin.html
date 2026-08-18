@@ -425,22 +425,43 @@
           <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
             <div style="overflow-x:auto">
               <table style="width:100%;border-collapse:collapse;min-width:680px">
-                <thead><tr><th class="adm-th">ID</th><th class="adm-th">Driver</th><th class="adm-th">Van Reg</th><th class="adm-th">Mobile</th><th class="adm-th">Status</th><th class="adm-th">Assigned Job</th><th class="adm-th">Access</th></tr></thead>
+                <thead><tr><th class="adm-th">Driver</th><th class="adm-th">Email</th><th class="adm-th">Van Reg</th><th class="adm-th">Mobile</th><th class="adm-th">Status</th><th class="adm-th">Notes</th><th class="adm-th">Access</th></tr></thead>
                 <tbody>
                   <sc-for list="{{ driverRows }}" as="d" hint-placeholder-count="2">
                     <tr>
-                      <td class="adm-td" style="font-weight:700;color:#f4a04a">{{ d.id }}</td>
-                      <td class="adm-td" style="font-weight:600;color:#fff">{{ d.name }}</td>
-                      <td class="adm-td" style="font-family:'Barlow Condensed';font-weight:700">{{ d.vanReg }}</td>
-                      <td class="adm-td">{{ d.phone }}</td>
-                      <td class="adm-td"><span style="background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700">{{ d.status }}</span></td>
-                      <td class="adm-td">{{ d.assignedJob }}</td><td class="adm-td"><sc-if value="{{ d.approved }}" hint-placeholder-val="{{ false }}"><button onClick="{{ d.revoke }}" style="background:#a5401a;color:#fff;border:0;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:bold;font-size:12px">Revoke</button></sc-if><sc-if value="{{ d.needsApproval }}" hint-placeholder-val="{{ true }}"><button onClick="{{ d.approve }}" style="background:#39a854;color:#fff;border:0;border-radius:6px;padding:4px 8px;cursor:pointer;font-weight:bold;font-size:12px">Approve</button></sc-if></td>
+                      <td class="adm-td"><div style="font-weight:600;color:#fff">{{ d.name }}</div><div style="color:#6f6862;font-size:11.5px">{{ d.username }}</div></td>
+                      <td class="adm-td"><div style="font-size:12.5px">{{ d.email }}</div><span style="{{ d.emailStyle }}">{{ d.emailLabel }}</span></td>
+                      <td class="adm-td"><input value="{{ d.vanReg }}" onInput="{{ d.setVan }}" placeholder="Van reg" style="width:110px;background:#14100e;border:1.5px solid #3a322d;color:#fff;border-radius:8px;padding:8px;font-size:13px;font-family:'Barlow Condensed';font-weight:700"/></td>
+                      <td class="adm-td"><input value="{{ d.phone }}" onInput="{{ d.setPhone }}" placeholder="Mobile" style="width:120px;background:#14100e;border:1.5px solid #3a322d;color:#fff;border-radius:8px;padding:8px;font-size:13px"/></td>
+                      <td class="adm-td"><span style="{{ d.statusStyle }}">{{ d.status }}</span></td>
+                      <td class="adm-td">
+                        <div style="display:flex;gap:6px;align-items:center">
+                          <input value="{{ d.noteDraft }}" onInput="{{ d.setNote }}" placeholder="Add a note" style="width:150px;background:#14100e;border:1.5px solid #3a322d;color:#fff;border-radius:8px;padding:8px;font-size:13px"/>
+                          <button onClick="{{ d.addNote }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:12px">Add</button>
+                        </div>
+                        <sc-if value="{{ d.hasNotes }}" hint-placeholder-val="{{ false }}">
+                          <div style="margin-top:6px;max-width:230px">
+                            <sc-for list="{{ d.noteRows }}" as="nt" hint-placeholder-count="1">
+                              <div style="color:#8a817b;font-size:11.5px;line-height:1.4;padding:2px 0;border-top:1px solid #241d18">{{ nt.when }} — {{ nt.text }}</div>
+                            </sc-for>
+                          </div>
+                        </sc-if>
+                      </td>
+                      <td class="adm-td">
+                        <div style="display:flex;flex-direction:column;gap:6px">
+                          <button onClick="{{ d.save }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:12px" style-hover="border-color:#e8791a;color:#f4a04a">Save</button>
+                          <sc-if value="{{ d.approved }}" hint-placeholder-val="{{ false }}"><button onClick="{{ d.revoke }}" style="background:#a5401a;color:#fff;border:0;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:bold;font-size:12px">Revoke</button></sc-if>
+                          <sc-if value="{{ d.canApprove }}" hint-placeholder-val="{{ true }}"><button onClick="{{ d.approve }}" style="background:#39a854;color:#fff;border:0;border-radius:6px;padding:6px 8px;cursor:pointer;font-weight:bold;font-size:12px">Approve</button></sc-if>
+                          <sc-if value="{{ d.blockedByEmail }}" hint-placeholder-val="{{ false }}"><span style="color:#8a817b;font-size:11px;line-height:1.35;max-width:120px;display:block">Cannot approve until they confirm their email</span></sc-if>
+                        </div>
+                      </td>
                     </tr>
                   </sc-for>
                 </tbody>
               </table>
             </div>
-            <sc-if value="{{ noDrivers }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No drivers added yet. Add your first mobile van driver above.</div></sc-if>
+            <sc-if value="{{ hasDrvMsg }}" hint-placeholder-val="{{ false }}"><div style="padding:12px 20px;color:#f4a04a;font-size:13px;border-top:1px solid #2a2320">{{ drvMsg }}</div></sc-if>
+            <sc-if value="{{ noDrivers }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#8a817b">No drivers yet. A driver registers at /driver, confirms their email, then you approve them here.</div></sc-if>
           </div>
         </div>
       </sc-if>
@@ -933,7 +954,7 @@ class Component extends DCLogic {
     custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
     // Record-a-payment modal. payJob holds the whole job, not just the ref,
     // because the modal shows that job's existing payment history.
-    catErr:'', tyreCount:0,
+    catErr:'', tyreCount:0, driverEdits:{}, drvMsg:'',
     payJob:null, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payBusy:false, payMsg:'', payErr:'',
     pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'', pSupplierApiUrl:'', pAutoReorder:false,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
@@ -1546,7 +1567,42 @@ class Component extends DCLogic {
   setDrvName=e=>this.setState({drvName:e.target.value});
   setDrvReg=e=>this.setState({drvReg:e.target.value});
   setDrvPhone=e=>this.setState({drvPhone:e.target.value});
-  approveDriver = (id) => { this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"approve", id})}).then(r=>r.json()).then(d=>{ if(d.drivers) this.setState({drivers:d.drivers}); }); };
+  // Per-row edit buffer, so typing in one driver's van box does not re-render
+  // and discard what is being typed in another's.
+  editDriver(id, field, value){
+    this.setState(st=>({ driverEdits: { ...(st.driverEdits||{}), [id]: { ...((st.driverEdits||{})[id]||{}), [field]: value } } }));
+  }
+
+  saveDriver(id){
+    if(this.state.demoMode){ this.setState({drvMsg:'Demo mode — nothing saved.'}); return; }
+    const e=(this.state.driverEdits||{})[id]||{};
+    this.af('/admin/drivers',{method:'POST',body:JSON.stringify({ id, vanReg:e.vanReg, phone:e.phone })})
+      .then(r=>r.json())
+      .then(d=>{ if(d.drivers) this.setState(st=>({drivers:d.drivers, drvMsg:'Saved.', driverEdits:{...(st.driverEdits||{}), [id]:{}}})); })
+      .catch(()=>this.setState({drvMsg:'Could not save that.'}));
+  }
+
+  addDriverNote(id){
+    if(this.state.demoMode){ this.setState({drvMsg:'Demo mode — nothing saved.'}); return; }
+    const e=(this.state.driverEdits||{})[id]||{};
+    const text=(e.note||'').trim();
+    if(!text) return;
+    this.af('/admin/drivers',{method:'POST',body:JSON.stringify({action:'note', id, text})})
+      .then(r=>r.json())
+      .then(d=>{ if(d.drivers) this.setState(st=>({drivers:d.drivers, driverEdits:{...(st.driverEdits||{}), [id]:{...e, note:''}}})); })
+      .catch(()=>this.setState({drvMsg:'Could not add that note.'}));
+  }
+
+  approveDriver = (id) => {
+    this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"approve", id})})
+      .then(async r=>{ const d=await r.json().catch(()=>({}));
+        // The server refuses to approve a driver who has not confirmed their
+        // email. Say why rather than appearing to do nothing.
+        if(!r.ok) throw new Error(d.error||'Could not approve that driver.');
+        return d; })
+      .then(d=>{ if(d.drivers) this.setState({drivers:d.drivers, drvMsg:'Driver approved.'}); })
+      .catch(e=>this.setState({drvMsg:e.message}));
+  };
   revokeDriver = (id) => { this.af("/admin/drivers", {method:"POST", body:JSON.stringify({action:"revoke", id})}).then(r=>r.json()).then(d=>{ if(d.drivers) this.setState({drivers:d.drivers}); }); };
   addDriver = () => {
     const {drvName, drvReg, drvPhone} = this.state;
@@ -1833,7 +1889,37 @@ class Component extends DCLogic {
     const custNoteRows=(s.custNotes||[]).slice().reverse().map(n=>({ text:n.text, when:this.fmtDateTime(n.t) }));
     const cbSel=s.custDetail;
     const userRows=s.users.map(u=>({ ...u, joined:this.fmtDate(u.createdAt || u.joined) }));
-    const driverRows=s.drivers.map(d=>({ ...d, needsApproval: !d.approved, approve: () => this.approveDriver(d.id), revoke: () => this.revokeDriver(d.id) }));
+    const driverRows=s.drivers.map(d=>{
+      // Two independent gates, shown separately so it is obvious WHY somebody
+      // has no access: they have not confirmed their email, or you have not
+      // approved them. The server refuses to approve an unconfirmed driver, so
+      // the button is hidden rather than offered and then rejected.
+      const confirmed = d.emailVerified !== false;
+      const edit = (s.driverEdits||{})[d.id] || {};
+      return { ...d,
+        vanReg: edit.vanReg !== undefined ? edit.vanReg : (d.vanReg||''),
+        phone:  edit.phone  !== undefined ? edit.phone  : (d.phone||''),
+        noteDraft: edit.note || '',
+        emailLabel: confirmed ? 'Confirmed' : 'Not confirmed',
+        emailStyle: confirmed
+          ? 'background:rgba(57,168,84,.16);border:1px solid rgba(57,168,84,.45);color:#8ee6a0;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700'
+          : 'background:rgba(232,121,26,.16);border:1px solid rgba(232,121,26,.45);color:#f4a04a;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700',
+        statusStyle: d.approved
+          ? 'background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700'
+          : 'background:rgba(232,121,26,.16);color:#f4a04a;border:1px solid rgba(232,121,26,.45);border-radius:6px;padding:3px 8px;font-size:12px;font-weight:700',
+        canApprove: !d.approved && confirmed,
+        blockedByEmail: !d.approved && !confirmed,
+        hasNotes: !!(d.notes && d.notes.length),
+        noteRows: (d.notes||[]).slice().reverse().slice(0,5).map(nt=>({ when:this.fmtDate(nt.t), text:nt.text })),
+        setVan:  e => this.editDriver(d.id, 'vanReg', e.target.value.toUpperCase()),
+        setPhone:e => this.editDriver(d.id, 'phone',  e.target.value),
+        setNote: e => this.editDriver(d.id, 'note',   e.target.value),
+        save:    () => this.saveDriver(d.id),
+        addNote: () => this.addDriverNote(d.id),
+        approve: () => this.approveDriver(d.id),
+        revoke:  () => this.revokeDriver(d.id),
+      };
+    });
     const poRows=s.supplierOrders.map(po=>({ ...po }));
     const catResults=s.catResults.map(c=>({ ...c, orderNow: () => this.orderFromSupplier(c) }));
     
@@ -2063,7 +2149,7 @@ class Component extends DCLogic {
       custNoteRows, noCustNotes:(s.custNotes||[]).length===0,
       custMsg:s.custMsg, custErr:s.custErr,
       userRows, noUsers:s.users.length===0,
-      driverRows, noDrivers:s.drivers.length===0,
+      driverRows, noDrivers:s.drivers.length===0, drvMsg:s.drvMsg||'', hasDrvMsg:!!s.drvMsg,
       drvName:s.drvName, drvReg:s.drvReg, drvPhone:s.drvPhone,
       setDrvName:this.setDrvName, setDrvReg:this.setDrvReg, setDrvPhone:this.setDrvPhone, addDriver:this.addDriver,
       poRows, noPOs:s.supplierOrders.length===0,

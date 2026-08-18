@@ -227,11 +227,36 @@ try {
   });
 
   // --- driver auth ----------------------------------------------------------
+  const driverEmail = `driver-${Date.now()}@example.com`;
+  let driverCode = null;
   const driverPass = 'driver-password-123';
   await check('driver registration succeeds and starts unapproved', async () => {
-    const r = await postJson('/api/driver/register', { username: 'TestDriver', password: driverPass, name: 'Test Driver' });
+    const r = await postJson('/api/driver/register', {
+      username: 'TestDriver', email: driverEmail, password: driverPass, name: 'Test Driver',
+    });
     assert.equal(r.status, 200);
-    assert.equal((await r.json()).pending, true);
+    const d = await r.json();
+    assert.equal(d.pending, true);
+    assert.equal(d.verifyRequired, true, 'registration no longer requires email confirmation');
+    driverCode = d.devCode;
+    assert.ok(driverCode, 'no confirmation code issued');
+  });
+
+  await check('driver registration is refused without a real email address', async () => {
+    for (const email of [undefined, '', 'not-an-email']) {
+      const r = await postJson('/api/driver/register', {
+        username: 'NoEmail' + Date.now(), email, password: driverPass, name: 'No Email',
+      });
+      assert.equal(r.status, 400, `registration accepted email "${email}"`);
+    }
+  });
+
+  await check('confirming the email does not by itself grant access', async () => {
+    const v = await postJson('/api/driver/verify-email', { email: driverEmail, code: driverCode });
+    assert.equal(v.status, 200);
+    const d = await v.json();
+    assert.equal(d.emailVerified, true);
+    assert.equal(d.approved, false, 'confirming an email approved the driver');
   });
 
   await check('driver password is never stored in plaintext', async () => {
@@ -431,7 +456,7 @@ try {
     // stranger's customer as "your mechanic is with you".
     const other = 'Driver2-' + Date.now();
     const otherPass = 'anotherLongPassword1';
-    const reg2 = await postJson('/api/driver/register', { username: other, password: otherPass, name: 'Second Driver' });
+    const reg2 = await postJson('/api/driver/register', { username: other, email: `${other}@example.com`, password: otherPass, name: 'Second Driver' });
     const d2 = await reg2.json();
     await postJson('/api/admin/drivers', { action: 'approve', id: d2.id || d2.driver?.id }, { authorization: 'Bearer ' + adminTok });
     const { token: tok2 } = await (await postJson('/api/driver/login', { username: other, password: otherPass })).json();
@@ -807,6 +832,86 @@ try {
     const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
     const adminView = JSON.stringify(jobs.find(j => j.ref === ref));
     assert.ok(adminView.includes('Supplier'), 'the internal note vanished from the admin view too');
+  });
+
+  await check('a driver needs BOTH a confirmed email and admin approval', async () => {
+    const uname = 'gated' + Date.now();
+    const em = `${uname}@example.com`;
+    const pw = 'aVeryLongDriverPassword1';
+
+    const reg = await postJson('/api/driver/register', { username: uname, email: em, password: pw, name: 'Gated Driver' });
+    assert.equal(reg.status, 200, 'register failed: ' + (await reg.clone().text()));
+    const rd = await reg.json();
+    assert.equal(rd.verifyRequired, true, 'registration did not ask for email confirmation');
+    assert.ok(rd.devCode, 'no confirmation code issued');
+
+    // Gate 1 still closed. Note the login path deliberately issues a FRESH
+    // code, which invalidates the one from registration — so carry it forward.
+    const before = await postJson('/api/driver/login', { username: uname, password: pw });
+    assert.equal(before.status, 403, 'an unconfirmed driver could sign in');
+    const bd = await before.json();
+    assert.equal(bd.verifyRequired, true);
+    const liveCode = bd.devCode || rd.devCode;
+
+    // The stale code must no longer work.
+    if (bd.devCode && bd.devCode !== rd.devCode) {
+      const stale = await postJson('/api/driver/verify-email', { email: em, code: rd.devCode });
+      assert.equal(stale.status, 400, 'a superseded confirmation code still worked');
+    }
+
+    // The admin must not be able to approve around gate 1.
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    const drivers = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
+    const rec = drivers.find(d => d.username === uname);
+    assert.ok(rec, 'driver missing from the admin list');
+    assert.equal(rec.emailVerified, false);
+    const early = await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id: rec.id }) });
+    assert.equal(early.status, 409, 'the admin approved a driver who had not confirmed their email');
+
+    // Clear gate 1 — still no access, because gate 2 is closed.
+    const v = await postJson('/api/driver/verify-email', { email: em, code: liveCode });
+    assert.equal(v.status, 200, 'verify failed: ' + (await v.clone().text()));
+    const mid = await postJson('/api/driver/login', { username: uname, password: pw });
+    assert.equal(mid.status, 403, 'a confirmed but unapproved driver got in');
+    assert.equal((await mid.json()).pendingApproval, true);
+
+    // Clear gate 2 — now in, and by email as well as username.
+    await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id: rec.id }) });
+    const ok = await postJson('/api/driver/login', { username: uname, password: pw });
+    assert.equal(ok.status, 200, 'an approved, confirmed driver still could not sign in');
+    assert.ok((await ok.json()).token);
+    const byEmail = await postJson('/api/driver/login', { username: em, password: pw });
+    assert.equal(byEmail.status, 200, 'signing in with the registered email did not work');
+  });
+
+  await check('the admin can edit a driver and keep notes without breaking their login', async () => {
+    const uname = 'edit' + Date.now();
+    const em = `${uname}@example.com`;
+    const pw = 'aVeryLongDriverPassword1';
+    const rd = await (await postJson('/api/driver/register', { username: uname, email: em, password: pw, name: 'Edit Me' })).json();
+    await postJson('/api/driver/verify-email', { email: em, code: rd.devCode });
+
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok, 'content-type': 'application/json' };
+    let list = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
+    const id = list.find(d => d.username === uname).id;
+    await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'approve', id }) });
+
+    await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ id, name: 'Mark Cousin', vanReg: 'KM16 GLY', phone: '07925340977' }) });
+    await api('/api/admin/drivers', { method: 'POST', headers: h, body: JSON.stringify({ action: 'note', id, text: 'Has the tyre machine in van 2.' }) });
+
+    list = (await (await api('/api/admin/drivers', { headers: h })).json()).drivers;
+    const d = list.find(x => x.id === id);
+    assert.equal(d.name, 'Mark Cousin');
+    assert.equal(d.vanReg, 'KM16 GLY');
+    assert.equal(d.notes.length, 1);
+    assert.equal(d.notes[0].text, 'Has the tyre machine in van 2.');
+    assert.equal(d.hash, undefined, 'the driver list leaked password material');
+
+    // Editing must not have destroyed the login — this has broken before.
+    const still = await postJson('/api/driver/login', { username: uname, password: pw });
+    assert.equal(still.status, 200, 'editing the driver in admin broke their password');
   });
 
   // ---- Security regressions --------------------------------------------------

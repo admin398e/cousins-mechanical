@@ -41,12 +41,23 @@
       
       <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
         <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
-        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Enter your driver username and password.</div>
-        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the username or email address you registered with.</div>
+        <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username or email" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ signInLabel }}</button>
+      </sc-if>
+
+      <sc-if value="{{ isVerifyMode }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">CONFIRM YOUR EMAIL</div>
+        <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">{{ verifyMsg }}</div>
+        <input value="{{ verifyCodeInput }}" onInput="{{ setVerifyCode }}" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:14px;font-size:24px;letter-spacing:.4em;text-align:center;font-weight:700;margin-bottom:12px"/>
+        <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
+        <button onClick="{{ submitVerify }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px;margin-bottom:10px">{{ verifyLabel }}</button>
+        <div style="display:flex;justify-content:space-between;gap:10px">
+          <button onClick="{{ resendCode }}" style="background:none;border:0;color:#e8791a;font-weight:700;cursor:pointer;font-size:13.5px">Send a new code</button>
+          <button onClick="{{ gotoLogin }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;font-size:13.5px">Back to sign in</button>
+        </div>
       </sc-if>
 
       <sc-if value="{{ isRegMode }}" hint-placeholder-val="{{ false }}">
@@ -55,7 +66,8 @@
         <input value="{{ usernameInput }}" onInput="{{ setUsername }}" placeholder="Username" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Full Name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
+        <input value="{{ regEmail }}" onInput="{{ setRegEmail }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <input value="{{ regVan }}" onInput="{{ setRegVan }}" placeholder="Van registration (optional)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ registerLabel }}</button>
       </sc-if>
@@ -131,7 +143,8 @@ class Component extends DCLogic {
     // the template but never set here, so isLoginMode and isRegMode were both
     // false and the card rendered with no fields in it at all.
     authView:'login',
-    usernameInput:'', passwordInput:'', regName:'', busy:false,
+    usernameInput:'', passwordInput:'', regName:'', regEmail:'', regVan:'',
+    verifyCodeInput:'', verifyEmail:'', verifyMsg:'', busy:false,
     token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'',
     view:'login', jobs:[], activeRef:'', activeSvc:'', activeWho:'',
     on:false, lastFix:'—', accuracy:'—', shareErr:'', destPostcode:''
@@ -151,6 +164,32 @@ class Component extends DCLogic {
   setUsername = e => this.setState({usernameInput:e.target.value, loginErr:''});
   setPassword = e => this.setState({passwordInput:e.target.value, loginErr:''});
   setRegName  = e => this.setState({regName:e.target.value, loginErr:''});
+  setRegEmail = e => this.setState({regEmail:e.target.value, loginErr:''});
+  setRegVan   = e => this.setState({regVan:e.target.value.toUpperCase(), loginErr:''});
+  setVerifyCode = e => this.setState({verifyCodeInput:e.target.value.replace(/\D/g,'').slice(0,6), loginErr:''});
+
+  submitVerify = async () => {
+    const code=(this.state.verifyCodeInput||'').trim();
+    if(code.length!==6){ this.setState({loginErr:'Enter the 6-digit code from your email.'}); return; }
+    this.setState({busy:true, loginErr:''});
+    try{
+      const r=await fetch(this.cleanApi()+'/api/driver/verify-email',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({email:this.state.verifyEmail, code})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(d.error||'That code did not work.');
+      // Confirming the email is only the FIRST gate. Say so plainly rather
+      // than letting them think they are in.
+      this.setState({busy:false, authView:'login', verifyCodeInput:'',
+        loginErr:'Email confirmed. Cousins has been told — you will be able to sign in once your account is approved.'});
+    }catch(e){ this.setState({busy:false, loginErr:e.message}); }
+  };
+
+  resendCode = () => {
+    this.setState({verifyMsg:'Sending a new code…'});
+    fetch(this.cleanApi()+'/api/driver/resend-code',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({email:this.state.verifyEmail})}).catch(()=>{})
+      .finally(()=>this.setState({verifyMsg:'If that address still needs confirming, a new code is on its way.'}));
+  };
   gotoLogin    = () => this.setState({authView:'login', loginErr:''});
   gotoRegister = () => this.setState({authView:'register', loginErr:''});
 
@@ -158,11 +197,11 @@ class Component extends DCLogic {
   // page, which silently sends every call to <site>/<whatever>/api/... — the
   // same fault that broke signup on the public site. Blank means same origin,
   // which is correct in production.
-  cleanApi(){
-    const v=(this.state.apiInput||'').trim().replace(/\/+$/,'');
-    if(!v) return '';
-    return /^https?:\/\//i.test(v) ? v : 'https://'+v;
-  }
+  // The driver page is served by the same Worker that serves the API, so the
+  // base is always the current origin. There used to be a "Worker URL" box on
+  // the form — a development leftover that only ever gave a driver standing in
+  // the rain a way to break their own login.
+  cleanApi(){ return ''; }
 
   /**
    * Sign in with the driver's own username and password.

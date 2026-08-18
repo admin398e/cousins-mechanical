@@ -217,14 +217,14 @@ function verifyCode() {
  * The code is stored hashed. A KV dump — or the backup endpoint — should never
  * hand somebody a working key to every pending account.
  */
-async function sendVerifyCode(env, ctx, em, name) {
+async function sendVerifyCode(env, ctx, em, name, keyPrefix) {
   const code = verifyCode();
   // pbkdf2() takes a BASE64 salt, and a fresh one per code — passing the email
   // both fed it a non-base64 string (which threw) and would have made the same
   // code hash identically every time for a given address.
   const salt = newSalt();
   const hash = await pbkdf2(code, salt, env.SESSION_PEPPER);
-  await env.CMS_KV.put("verify:" + em, JSON.stringify({ hash, salt, tries: 0, sentAt: Date.now() }),
+  await env.CMS_KV.put((keyPrefix || "verify:") + em, JSON.stringify({ hash, salt, tries: 0, sentAt: Date.now() }),
     { expirationTtl: VERIFY_TTL_SEC });
 
   const subject = "Your Cousins Mechanical confirmation code: " + code;
@@ -2234,21 +2234,95 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/driver/register" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const username = String(b.username || "").trim().toLowerCase();
+    const email = String(b.email || "").trim().toLowerCase();
+    if (await edgeLimited(env, "RL_AUTH", "drvreg:" + clientIp(request))) {
+      return bad("Too many attempts — try again shortly.", 429);
+    }
     if (!username || !b.password) return bad("Missing username or password", 400);
+    // An email address is now required. A driver account grants access to every
+    // active customer's name, address and phone number, so we need a way to
+    // prove the person is who they say and a way to reach them.
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return bad("A valid email address is required", 400);
     if (String(b.password).length < 10) return bad("Password must be at least 10 characters", 400);
     const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
     if (drivers.find(d => d.username === username)) return bad("Username taken", 400);
+    if (drivers.find(d => (d.email || "").toLowerCase() === email)) return bad("That email is already registered", 400);
     // Salted PBKDF2, same scheme as customer accounts. Never store the password itself.
     const salt = newSalt();
     const hash = await pbkdf2(b.password, salt, env.SESSION_PEPPER);
     const id = "DRV-" + token().slice(0, 8).toUpperCase();
     drivers.push({
-      id, username, salt, hash,
+      id, username, email, salt, hash,
       name: b.name || username, vanReg: b.vanReg || "", phone: b.phone || "",
-      status: "Pending Approval", approved: false, assignedJob: "-", createdAt: Date.now(),
+      // TWO independent gates. Confirming the email proves the person owns the
+      // inbox; approval is Cousins deciding this person may see customer jobs.
+      // Neither alone is enough, and the account does nothing until both pass.
+      emailVerified: false,
+      approved: false,
+      status: "Awaiting email confirmation",
+      notes: [], assignedJob: "-", createdAt: Date.now(),
     });
     await env.CMS_KV.put("drivers", JSON.stringify(drivers));
-    return json({ ok: true, pending: true });
+    const code = await sendVerifyCode(env, ctx, email, b.name || username, "dverify:");
+    await audit(env, "admin", "driver_registered", username + " (" + email + ") pending");
+    return json({ ok: true, pending: true, verifyRequired: true, email, ...testCode(env, code) });
+  }
+
+  // Confirm the code emailed at driver registration. This does NOT grant
+  // access — it only clears the first of the two gates.
+  if (p === "/driver/verify-email" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    const email = String(b.email || "").trim().toLowerCase();
+    if (await edgeLimited(env, "RL_AUTH", "drvver:" + clientIp(request))) {
+      return bad("Too many attempts — try again shortly.", 429);
+    }
+    const raw = await env.CMS_KV.get("dverify:" + email);
+    if (!raw) return bad("That code has expired. Ask for a new one.", 400);
+    const rec = JSON.parse(raw);
+    if (rec.tries >= VERIFY_MAX_TRIES) {
+      await env.CMS_KV.delete("dverify:" + email);
+      return bad("Too many wrong codes. Ask for a new one.", 429);
+    }
+    const attempt = await pbkdf2(String(b.code || "").trim(), rec.salt, env.SESSION_PEPPER);
+    if (!safeEqual(attempt, rec.hash)) {
+      rec.tries += 1;
+      await env.CMS_KV.put("dverify:" + email, JSON.stringify(rec), { expirationTtl: VERIFY_TTL_SEC });
+      return bad("That code is not right. " + (VERIFY_MAX_TRIES - rec.tries) + " attempts left.", 400);
+    }
+
+    const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
+    const i = drivers.findIndex(d => (d.email || "").toLowerCase() === email);
+    if (i < 0) return bad("No account for that address", 404);
+    drivers[i].emailVerified = true;
+    drivers[i].emailVerifiedAt = Date.now();
+    if (!drivers[i].approved) drivers[i].status = "Pending Approval";
+    await env.CMS_KV.put("drivers", JSON.stringify(drivers));
+    await env.CMS_KV.delete("dverify:" + email);
+    await audit(env, "admin", "driver_email_verified", drivers[i].username);
+
+    // Tell the owner there is somebody waiting, or the driver sits in limbo
+    // until he happens to open the Drivers tab.
+    const ownerTo = env.OWNER_EMAIL || env.MAIL_FROM;
+    if (ownerTo) {
+      ctx.waitUntil(sendEmail(env, ownerTo,
+        "Driver awaiting approval — " + drivers[i].name,
+        `${drivers[i].name} (${drivers[i].username}) has confirmed their email and is waiting for you to approve them.\n\n`
+        + `Email: ${email}\nVan: ${drivers[i].vanReg || "not set"}\n\n`
+        + `They cannot see any jobs until you approve them in the Drivers tab of the dashboard.`));
+    }
+    return json({ ok: true, emailVerified: true, approved: !!drivers[i].approved });
+  }
+
+  if (p === "/driver/resend-code" && request.method === "POST") {
+    const b = await request.json().catch(() => ({}));
+    const email = String(b.email || "").trim().toLowerCase();
+    if (await edgeLimited(env, "RL_AUTH", "drvres:" + clientIp(request))
+        || await rateLimited(env, "drvres:" + email, 5)) return json({ ok: true });
+    await noteFailure(env, "drvres:" + email);
+    const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
+    const d = drivers.find(x => (x.email || "").toLowerCase() === email);
+    if (d && !d.emailVerified) await sendVerifyCode(env, ctx, email, d.name, "dverify:");
+    return json({ ok: true });
   }
 
   if (p === "/driver/login" && request.method === "POST") {
@@ -2263,7 +2337,10 @@ async function processTyreStockForOrder(env, order) {
     }
 
     const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
-    const d = drivers.find(x => x.username === username);
+    // Accept either the username or the registered email. A driver stood at the
+    // roadside should not be locked out because they typed the wrong one of two
+    // identifiers they gave us.
+    const d = drivers.find(x => x.username === username || (x.email || "").toLowerCase() === username);
     // Always run the KDF, even for an unknown user, so a wrong username and a
     // wrong password take the same time and cannot be told apart.
     const salt = d?.salt || newSalt();
@@ -2272,7 +2349,17 @@ async function processTyreStockForOrder(env, order) {
       await noteFailure(env, rlKey);
       return bad("Invalid credentials", 401);
     }
-    if (!d.approved) return bad("Account pending admin approval", 403);
+    // BOTH gates, checked after the password so neither can be used to work out
+    // which usernames exist.
+    if (d.emailVerified === false) {
+      const code = await sendVerifyCode(env, ctx, d.email, d.name, "dverify:");
+      return json({ verifyRequired: true, email: d.email, ...testCode(env, code),
+        error: "Confirm your email address first — we have sent you a new code." }, 403);
+    }
+    if (!d.approved) {
+      return json({ pendingApproval: true,
+        error: "Your account is waiting for Cousins to approve it. You will not see any jobs until then." }, 403);
+    }
 
     await clearFailures(env, rlKey);
     const token_ = "DRVTOK-" + token();
@@ -2769,7 +2856,7 @@ async function processTyreStockForOrder(env, order) {
       // "verify:" holds a hashed email-confirmation code and its salt. It is
       // transient credential material like a session or a reset token, and the
       // backup test caught it leaking the moment verification was added.
-      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "verify:", "admin_totp"];
+      const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "verify:", "dverify:", "admin_totp"];
       const data = {};
       let cursor;
       do {
@@ -3199,12 +3286,33 @@ async function processTyreStockForOrder(env, order) {
         // Approve / revoke a driver's access. The dashboard posts {action, id} here.
         // (This block was previously spliced into the customer /messages handler by
         // a patch script, which left worker.js unparseable and undeployable.)
+        // Add a note against a driver.
+        if (b.action === "note") {
+          const idx = drivers.findIndex(d => d.id === b.id);
+          if (idx < 0) return bad("Driver not found", 404);
+          const text = String(b.text || "").slice(0, 2000).trim();
+          if (!text) return bad("Note is empty");
+          drivers[idx].notes = Array.isArray(drivers[idx].notes) ? drivers[idx].notes : [];
+          drivers[idx].notes.push({ t: Date.now(), text, by: (await whoAmI(env, request)) || "admin" });
+          drivers[idx].notes = drivers[idx].notes.slice(-200);
+          await env.CMS_KV.put("drivers", JSON.stringify(drivers));
+          await audit(env, "admin", "driver_note", b.id + " " + text.slice(0, 60));
+          return json({ drivers: publicView(drivers) });
+        }
+
         if (b.action === "approve" || b.action === "revoke") {
           const idx = drivers.findIndex(d => d.id === b.id);
           if (idx < 0) return bad("Driver not found", 404);
           const approving = b.action === "approve";
+          // Approval is the SECOND gate. Approving somebody who has not
+          // confirmed their address would defeat the first one entirely.
+          if (approving && drivers[idx].emailVerified === false) {
+            return bad("That driver has not confirmed their email address yet, so they cannot be approved.", 409);
+          }
           drivers[idx].approved = approving;
           drivers[idx].status = approving ? "Active" : "Suspended";
+          drivers[idx][approving ? "approvedAt" : "revokedAt"] = Date.now();
+          drivers[idx].approvedBy = approving ? ((await whoAmI(env, request)) || "admin") : drivers[idx].approvedBy;
           await env.CMS_KV.put("drivers", JSON.stringify(drivers));
           // Revoking must kill any live session, not just flip the flag.
           if (!approving) {
@@ -3229,6 +3337,10 @@ async function processTyreStockForOrder(env, order) {
           name: b.name ?? existing.name ?? "Van Driver",
           vanReg: b.vanReg ?? existing.vanReg ?? "",
           phone: b.phone ?? existing.phone ?? "",
+          email: b.email ?? existing.email ?? "",
+          // Append-only, like the CRM notes. An editable free-text blob loses
+          // history the moment two people touch it.
+          notes: Array.isArray(existing.notes) ? existing.notes : [],
           status: b.status ?? existing.status ?? "Active",
           assignedJob: b.assignedJob ?? existing.assignedJob ?? "-",
           approved: b.approved !== undefined ? !!b.approved : (existing.approved ?? false),
