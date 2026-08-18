@@ -20,7 +20,16 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Anything already set is LEFT ALONE. Without this the script happily
+# overwrote a correct value that had just been entered by hand — which is
+# exactly what nearly happened the first time it ran.
+EXISTING="$(npx wrangler secret list 2>/dev/null | grep '"name"' | sed 's/.*: "//;s/".*//')"
+
 put() {  # put NAME VALUE
+  if printf '%s\n' "$EXISTING" | grep -qx "$1"; then
+    echo "  keep   $1  (already set — not overwritten)"
+    return
+  fi
   printf '%s' "$2" | npx wrangler secret put "$1" >/dev/null 2>&1 \
     && echo "  set    $1" \
     || echo "  FAILED $1  — run: npx wrangler secret put $1"
@@ -35,14 +44,22 @@ put OWNER_PHONE           '+447925340977'
 put SITE_URL              'https://cousinsmechanicalservices.co.uk'
 
 # Where new-job alerts land. Change this if Cousins should get them directly.
-read -r -p "  OWNER_EMAIL [admin@joshuastone.co.uk]: " OWNER_EMAIL
-put OWNER_EMAIL "${OWNER_EMAIL:-admin@joshuastone.co.uk}"
+if printf '%s\n' "$EXISTING" | grep -qx OWNER_EMAIL; then
+  echo "  keep   OWNER_EMAIL  (already set — not overwritten)"
+else
+  read -r -p "  OWNER_EMAIL [admin@joshuastone.co.uk]: " OWNER_EMAIL
+  put OWNER_EMAIL "${OWNER_EMAIL:-admin@joshuastone.co.uk}"
+fi
 
 # Optional. Leave blank and marketing consent is still recorded in KV — nothing
 # is synced to Resend. Find the id in the URL of the Audience page in Resend.
 # NOTE: 8fcdef39-… is a *segment* id, not an audience id. Do not use it.
-read -r -p "  RESEND_AUDIENCE_ID (optional, Enter to skip): " AUD
-[ -n "${AUD:-}" ] && put RESEND_AUDIENCE_ID "$AUD" || echo "  skipped RESEND_AUDIENCE_ID (safe — consent is still recorded)"
+if printf '%s\n' "$EXISTING" | grep -qx RESEND_AUDIENCE_ID; then
+  echo "  keep   RESEND_AUDIENCE_ID  (already set — not overwritten)"
+else
+  read -r -p "  RESEND_AUDIENCE_ID (optional, Enter to skip): " AUD
+  [ -n "${AUD:-}" ] && put RESEND_AUDIENCE_ID "$AUD" || echo "  skipped RESEND_AUDIENCE_ID (safe — consent is still recorded)"
+fi
 
 echo
 echo "Removing the secrets whose NAME is a secret VALUE"

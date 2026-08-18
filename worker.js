@@ -3198,6 +3198,27 @@ async function processTyreStockForOrder(env, order) {
         } catch (err) { return { ok: false, reason: "Could not reach UK Vehicle Data: " + err.message }; }
       })();
 
+      // Is RESEND_AUDIENCE_ID actually an AUDIENCE? Resend's dashboard also
+      // shows *segment* ids in its URLs, and the two look identical — both are
+      // plain UUIDs. Pointing this at a segment means every consented contact
+      // sync silently 404s, which is invisible until someone asks why the
+      // mailing list is empty.
+      results.audience = await (async () => {
+        if (!env.RESEND_AUDIENCE_ID) return { skipped: true, reason: "RESEND_AUDIENCE_ID not set — consent is recorded, nothing is synced" };
+        if (!env.RESEND_API_KEY) return { skipped: true, reason: "RESEND_API_KEY not set" };
+        try {
+          const r = await fetch("https://api.resend.com/audiences/" + encodeURIComponent(env.RESEND_AUDIENCE_ID), {
+            headers: { authorization: "Bearer " + env.RESEND_API_KEY },
+          });
+          if (r.ok) {
+            const d = await r.json().catch(() => ({}));
+            return { ok: true, reason: "Audience found: " + (d.name || d.id || "unnamed") };
+          }
+          if (r.status === 404) return { ok: false, reason: "No audience with that id. It is probably a SEGMENT id — open Resend → Audience and take the id from the audience itself." };
+          return { ok: false, reason: "Resend returned " + r.status };
+        } catch (err) { return { ok: false, reason: "Could not reach Resend: " + err.message }; }
+      })();
+
       results.email = env.RESEND_API_KEY && env.MAIL_FROM
         ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
             "Cousins Mechanical — test email",
