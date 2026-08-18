@@ -592,6 +592,44 @@ try {
     assert.ok(r.status === 403 || r.status === 401, `shared token still logs in (status ${r.status})`);
   });
 
+  await check('admin.<domain> serves the dashboard at its root and is noindex', async () => {
+    // Exercised against the Worker directly: the hostname branch cannot be
+    // reached over HTTP here because fetch() refuses to set a Host header.
+    const worker = (await import('../worker.js')).default;
+    const stubEnv = {
+      ASSETS: { fetch: async (req) => new Response('SERVED:' + new URL(req.url).pathname, { status: 200, headers: { 'content-type': 'text/html' } }) },
+    };
+    const ctx = { waitUntil() {} };
+
+    const adminRoot = await worker.fetch(new Request('https://admin.cousinsmechanicalservices.co.uk/'), stubEnv, ctx);
+    assert.equal(await adminRoot.text(), 'SERVED:/admin.html', 'admin host root did not rewrite to admin.html');
+    assert.equal(adminRoot.headers.get('x-robots-tag'), 'noindex, nofollow', 'admin host is not marked noindex');
+
+    const adminRobots = await worker.fetch(new Request('https://admin.cousinsmechanicalservices.co.uk/robots.txt'), stubEnv, ctx);
+    assert.ok((await adminRobots.text()).includes('Disallow: /'), 'admin host robots.txt does not block crawlers');
+
+    // The public hostname must be untouched by that rewrite.
+    const publicRoot = await worker.fetch(new Request('https://cousinsmechanicalservices.co.uk/'), stubEnv, ctx);
+    assert.equal(await publicRoot.text(), 'SERVED:/', 'public root was rewritten — it must still serve the marketing page');
+    assert.equal(publicRoot.headers.get('x-robots-tag'), null, 'public site must not be noindex');
+  });
+
+  await check('the public site root still serves the marketing page, not admin', async () => {
+    const html = await (await api('/')).text();
+    assert.ok(/WE COME TO YOU|FIND YOUR TYRE SIZE/.test(html), 'apex root no longer serves the public site');
+  });
+
+  await check('Google sign-in endpoints exist and fail closed when unconfigured', async () => {
+    // FIREBASE_WEB_CONFIG is not set in the test environment, so the config
+    // endpoint must 404 (the button hides itself) and the login endpoint must
+    // refuse cleanly rather than granting a session.
+    assert.equal((await api('/api/firebase-config')).status, 404);
+    const r = await postJson('/api/admin-login-firebase', { idToken: 'anything' });
+    assert.equal(r.status, 503);
+    const mode = await (await api('/api/admin-auth/mode')).json();
+    assert.equal(mode.google, false, 'auth mode should report Google sign-in as off');
+  });
+
   await check('admin backup exports durable data and excludes sessions', async () => {
     const tok = await adminTok();
     const noAuth = await api('/api/admin/backup');

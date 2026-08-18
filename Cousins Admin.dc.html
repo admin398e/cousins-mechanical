@@ -41,10 +41,12 @@
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin:14px 0 4px">ADMIN & STAFF PORTAL</div>
             <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">{{ loginSubtitle }}</div>
             
+            <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ false }}">
             <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
               <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
               Sign in with Google
             </button>
+            </sc-if>
 
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#6f6862;font-size:12px;font-weight:600">
               <div style="flex:1;height:1px;background:#2a2320"></div>
@@ -802,7 +804,7 @@
 class Component extends DCLogic {
   state = {
     token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
-    emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'',
+    emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'', googleEnabled:false,
     staff:[], stEmail:'', stName:'', stPassword:'', stMsg:'', stErr:'', stBusy:false,
     codeInput:'', needCode:false, enrolled:false,
     overrideOpen:false, reset2fa:false,
@@ -836,8 +838,9 @@ class Component extends DCLogic {
       const authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
       const auth = authMod.getAuth(app);
       const provider = new authMod.GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/calendar");
-      provider.addScope("https://mail.google.com/");
+      // No extra scopes: admin sign-in only needs identity. Calendar events are
+      // created server-side by the Worker's service account, and requesting
+      // gmail/calendar scopes here would hit Google's unverified-app warning.
       const result = await authMod.signInWithPopup(auth, provider);
       const credential = authMod.GoogleAuthProvider.credentialFromResult(result);
       if (credential && credential.accessToken) {
@@ -853,7 +856,6 @@ class Component extends DCLogic {
       } else {
         throw new Error(loginData.error || "Login failed");
       }
-      this.setState({ token: idToken, loggedIn: true, demoMode: !this.hasServer() }, () => this.enter());
     } catch(err) {
       console.error("Google Sign-In failed:", err);
       this.setState({ loginErr: "Google Sign-In failed: " + err.message });
@@ -866,7 +868,7 @@ class Component extends DCLogic {
   // Ask the server whether any staff account exists yet, so the screen shows
   // email+password normally and the one-time token setup on a fresh install.
   async probeAuthMode(){
-    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured}); } }catch(e){}
+    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google}); } }catch(e){}
   }
   setApi = e => this.setState({apiInput:e.target.value});
   setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
@@ -1639,7 +1641,7 @@ class Component extends DCLogic {
       // login screen
       emailInput:s.emailInput, passwordInput:s.passwordInput,
       setEmail:this.setEmail, setPassword:this.setPassword,
-      staffMode:s.staffConfigured, setupMode:!s.staffConfigured,
+      staffMode:s.staffConfigured, setupMode:!s.staffConfigured, hasGoogle:!!s.googleEnabled,
       loginSubtitle: s.staffConfigured ? 'Authorised staff only. Sign in with your work email and password.' : 'First-time setup — sign in with your admin token to create the first staff login.',
       loginDividerLabel: s.staffConfigured ? 'OR SIGN IN WITH EMAIL' : 'FIRST-TIME SETUP',
       loginFootnote: s.staffConfigured ? 'Once two-factor is enabled, sign-in also needs your authenticator code.' : 'This is your Worker\'s ADMIN_TOKEN. It stops working as a login once the first staff account exists.',

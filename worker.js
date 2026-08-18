@@ -68,6 +68,7 @@ const PRIVACY_VERSION = "2026-08-05"; // bump when your privacy notice changes t
 const ALLOWED_ORIGINS = [
   "https://cousinsmechanicalservices.co.uk",
   "https://www.cousinsmechanicalservices.co.uk",
+  "https://admin.cousinsmechanicalservices.co.uk",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ];
@@ -422,14 +423,35 @@ async function addCalendarEvent(env, o, customerEmail) {
     reminders: { useDefault: true },
   };
 
-  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GCAL_CALENDAR_ID)}/events?sendUpdates=all`, {
-    method: "POST",
-    headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
-    body: JSON.stringify(event),
-  }).catch((err) => {
-    console.error("GCAL fetch error:", err);
-    return null;
-  });
+  const insert = (ev, sendUpdates) =>
+    fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GCAL_CALENDAR_ID)}/events${sendUpdates ? "?sendUpdates=all" : ""}`, {
+      method: "POST",
+      headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
+      body: JSON.stringify(ev),
+    }).catch((err) => {
+      console.error("GCAL fetch error:", err);
+      return null;
+    });
+
+  let r = await insert(event, true);
+
+  // Plain service accounts (no Google Workspace domain-wide delegation) are
+  // forbidden from inviting attendees — Google returns 403
+  // "Service accounts cannot invite attendees". The event itself is still
+  // valid, and the customer already receives an .ics in their confirmation
+  // email, so retry once without attendees rather than losing the event.
+  if (r && !r.ok && event.attendees.length) {
+    const errText = await r.text();
+    if (/attendee/i.test(errText) || r.status === 403) {
+      console.error("GCAL attendees rejected, retrying without:", errText.slice(0, 200));
+      const { attendees, ...noAttendees } = event;
+      noAttendees.description += `\nCustomer email: ${event.attendees[0].email}`;
+      r = await insert(noAttendees, false);
+    } else {
+      console.error("GCAL API Error response:", errText);
+      return { ok: false, error: errText };
+    }
+  }
 
   if (!r || !r.ok) {
     const errText = r ? await r.text() : "Network error reaching Google Calendar API";
@@ -1296,6 +1318,52 @@ async function processTyreStockForOrder(env, order) {
 
   // --- ADMIN LOGIN + 2FA ---
   // Step 1: exchange admin token (+ TOTP code once enrolled) for a short-lived admin session.
+  // Public Firebase web config for the "Sign in with Google" button. Firebase
+  // web config is client-side by design (not a secret); 404 when unset lets
+  // the login screen hide the button entirely.
+  if (p === "/firebase-config" && request.method === "GET") {
+    if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 404);
+    return new Response(env.FIREBASE_WEB_CONFIG, {
+      headers: { ...CORS, ...SECURITY_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  // Google sign-in for the admin dashboard. The browser gets a Firebase ID
+  // token; we verify it SERVER-SIDE with Google Identity Toolkit (so a forged
+  // token is useless) and only then check the email against ADMIN_EMAILS.
+  // Previously this endpoint existed only in the dev server — on Cloudflare
+  // the Google button 404'd.
+  if (p === "/admin-login-firebase" && request.method === "POST") {
+    const rlKey = "admin:" + clientIp(request);
+    if (await rateLimited(env, rlKey)) return bad("Too many attempts — try again in 15 minutes", 429);
+    if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 503);
+    const admins = String(env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
+    if (!admins.length) return bad("ADMIN_EMAILS is not set — refusing to grant admin access", 503);
+    let apiKey = "";
+    try { apiKey = JSON.parse(env.FIREBASE_WEB_CONFIG).apiKey || ""; } catch {}
+    if (!apiKey) return bad("Google sign-in is misconfigured", 503);
+    const b = await request.json().catch(() => ({}));
+    if (!b.idToken) { await noteFailure(env, rlKey); return bad("Unauthorized", 401); }
+    const vr = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" + encodeURIComponent(apiKey), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idToken: b.idToken }),
+    }).catch(() => null);
+    const vd = vr && vr.ok ? await vr.json().catch(() => null) : null;
+    const u = vd && Array.isArray(vd.users) ? vd.users[0] : null;
+    const email = ((u && u.email) || "").toLowerCase();
+    if (!u || !email || !u.emailVerified || !admins.includes(email)) {
+      await noteFailure(env, rlKey);
+      await audit(env, "admin", "admin_login_google_rejected", email || "invalid-token");
+      return bad("This account is not an administrator", 403);
+    }
+    await clearFailures(env, rlKey);
+    const t = token();
+    await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
+    await audit(env, "admin", "admin_login_google", email + " " + clientIp(request));
+    return json({ token: t, user: { email, name: u.displayName || email } });
+  }
+
   if (p === "/admin-login" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
     const rlKey = "admin:" + clientIp(request);
@@ -1410,7 +1478,7 @@ async function processTyreStockForOrder(env, order) {
   // setup. Reveals only whether any staff account exists, never who.
   if (p === "/admin-auth/mode" && request.method === "GET") {
     const list = await env.CMS_KV.list({ prefix: "staff:" });
-    return json({ staffConfigured: list.keys.length > 0, enrolled: !!(await env.CMS_KV.get("admin_totp")) });
+    return json({ staffConfigured: list.keys.length > 0, enrolled: !!(await env.CMS_KV.get("admin_totp")), google: !!(env.FIREBASE_WEB_CONFIG && env.ADMIN_EMAILS) });
   }
 
   // --- ADMIN (business owner) — all protected by 2FA-verified session ---
@@ -2248,12 +2316,30 @@ export default {
       }
     }
 
+    // ---------------------------------------------------------------
+    // admin.<domain> is the staff dashboard on its own hostname: its root
+    // serves admin.html, and the whole host is blocked from search engines
+    // (the apex robots.txt only covers the apex).
+    // ---------------------------------------------------------------
+    let assetRequest = request;
+    if (url.hostname.split(".")[0] === "admin") {
+      if (url.pathname === "/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /\n", {
+          headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex, nofollow" },
+        });
+      }
+      if (url.pathname === "/" || url.pathname === "") {
+        assetRequest = new Request(new URL("/admin.html", url).toString(), request);
+      }
+    }
+
     if (env.ASSETS) {
-      const res = await env.ASSETS.fetch(request);
+      const res = await env.ASSETS.fetch(assetRequest);
       // Security headers on the HTML pages too, not just the API.
       const headers = new Headers(res.headers);
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
       headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+      if (url.hostname.split(".")[0] === "admin") headers.set("X-Robots-Tag", "noindex, nofollow");
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     }
     return new Response("API worker running. Bind ASSETS to serve the site, or call /api/*.", { status: 200 });

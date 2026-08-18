@@ -133,59 +133,12 @@ const env = {
   GCAL_CALENDAR_ID: process.env.GCAL_CALENDAR_ID || '',
   OWNER_PHONE: process.env.OWNER_PHONE || '',
   EXTRA_ORIGINS: process.env.EXTRA_ORIGINS || '',
+  FIREBASE_WEB_CONFIG: process.env.FIREBASE_WEB_CONFIG || '',
+  ADMIN_EMAILS: process.env.ADMIN_EMAILS || '',
 };
 
-// ---------------------------------------------------------------------------
-// Firebase (optional) — only used for "Sign in with Google"
-// ---------------------------------------------------------------------------
-// FIREBASE_WEB_CONFIG is the public web config, safe to serve to the browser.
-// ADMIN_EMAILS is the allowlist of Google accounts permitted into the admin
-// portal. Without it, any customer who signed in with Google could exchange
-// their token for an admin session — this endpoint previously trusted every
-// valid token from the project.
-const FIREBASE_WEB_CONFIG = process.env.FIREBASE_WEB_CONFIG || '';
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-
-let firebaseAuth = null;
-if (FIREBASE_WEB_CONFIG) {
-  try {
-    const cfg = JSON.parse(FIREBASE_WEB_CONFIG);
-    const { initializeApp, getApps } = await import('firebase-admin/app');
-    const { getAuth } = await import('firebase-admin/auth');
-    if (!getApps().length) initializeApp({ projectId: cfg.projectId });
-    firebaseAuth = getAuth();
-  } catch (e) {
-    console.error('[firebase] disabled —', e.message);
-  }
-}
-
-app.get('/api/firebase-config', (req, res) => {
-  if (!FIREBASE_WEB_CONFIG) return res.status(404).json({ error: 'Google sign-in is not configured' });
-  res.type('application/json').send(FIREBASE_WEB_CONFIG);
-});
-
-app.post('/api/admin-login-firebase', express.json(), async (req, res) => {
-  try {
-    if (!firebaseAuth) return res.status(503).json({ error: 'Google sign-in is not configured' });
-    if (ADMIN_EMAILS.length === 0) {
-      return res.status(503).json({ error: 'ADMIN_EMAILS is not set — refusing to grant admin access' });
-    }
-    const decoded = await firebaseAuth.verifyIdToken(req.body?.idToken || '');
-    const email = (decoded.email || '').toLowerCase();
-    if (!decoded.email_verified || !ADMIN_EMAILS.includes(email)) {
-      console.warn('[admin] rejected Google sign-in for', email || '(no email)');
-      return res.status(403).json({ error: 'This account is not an administrator' });
-    }
-    // Cryptographically random, matching the Worker's own session tokens.
-    const sessionToken = crypto.randomBytes(30).toString('base64url');
-    await CMS_KV.put('asess:' + sessionToken, email, { expirationTtl: 60 * 60 * 12 });
-    res.json({ token: sessionToken, user: { email, name: decoded.name || email } });
-  } catch (err) {
-    console.error('Firebase admin login error:', err.message);
-    res.status(401).json({ error: 'Unauthorized' });
-  }
-});
+// Google sign-in routes (/api/firebase-config, /api/admin-login-firebase)
+// are handled by the Worker itself now, same as production.
 
 // ---------------------------------------------------------------------------
 // Everything under /api, /v1, /ukvd goes to the real Worker
@@ -258,7 +211,7 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!env.RESEND_API_KEY) off.push('email');
   if (!env.TWILIO_SID && !env.WHATSAPP_TOKEN) off.push('SMS/WhatsApp');
   if (!env.GCAL_CALENDAR_ID) off.push('calendar');
-  if (!FIREBASE_WEB_CONFIG) off.push('Google sign-in');
+  if (!process.env.FIREBASE_WEB_CONFIG) off.push('Google sign-in');
   if (off.length) console.log(`  Disabled (no key set): ${off.join(', ')}`);
 
   if (devGenerated.length) {

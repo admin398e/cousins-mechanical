@@ -40,6 +40,13 @@ custom_domain = true
 pattern = "www.cousinsmechanicalservices.co.uk"
 custom_domain = true
 
+# Staff dashboard on its own hostname. Its root serves admin.html and the whole
+# host is noindex (see the fetch handler). /admin.html on the main domain keeps
+# working too, so existing links are unaffected.
+[[routes]]
+pattern = "admin.cousinsmechanicalservices.co.uk"
+custom_domain = true
+
 # ---------------------------------------------------------------------------
 # KV — customer accounts, sessions, bookings, drivers, inventory, live driver
 # GPS, rate-limit counters and the GDPR audit log all live here.
