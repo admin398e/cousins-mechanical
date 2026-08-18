@@ -1026,6 +1026,10 @@ async function api(request, env, url, ctx) {
       configured: {
         vehicleLookup: !!env.UKVD_API_KEY,
         email: !!env.RESEND_API_KEY,
+        // NOTE: every flag here means "a value is configured", NOT "it works".
+        // UKVD_API_KEY is currently set but rejected upstream with
+        // UnknownApiKey, and this endpoint still reported vehicleLookup: true.
+        // Use /admin/test-channels for a live check that actually calls out.
         sms: !!(env.TWILIO_SID && env.TWILIO_TOKEN) || !!env.WHATSAPP_TOKEN,
         calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
         adminToken: !!env.ADMIN_TOKEN,
@@ -3177,6 +3181,23 @@ async function processTyreStockForOrder(env, order) {
       const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
       const results = {};
 
+      // Live check of the paid vehicle-lookup key. /api/health only reports
+      // that a key is SET, which is how an invalid key sat there reporting
+      // vehicleLookup:true while every call came back UnknownApiKey.
+      results.vehicleLookup = await (async () => {
+        if (!env.UKVD_API_KEY) return { skipped: true, reason: "UKVD_API_KEY not set" };
+        try {
+          const base = (env.UKVD_BASE || "https://uk.api.vehicledataglobal.com/r2/lookup").replace(/\/+$/, "");
+          const r = await fetch(`${base}?packagename=${encodeURIComponent(UKVD_PACKAGE)}&apikey=${encodeURIComponent(env.UKVD_API_KEY)}&vrm=AA19AAA`, { headers: { accept: "application/json" } });
+          const d = await r.json().catch(() => ({}));
+          const info = d.ResponseInformation || {};
+          // StatusCode 7 = UnknownApiKey. A "vehicle not found" for the dummy
+          // plate is a PASS: it proves the key was accepted.
+          if (info.StatusMessage === "UnknownApiKey") return { ok: false, reason: "The UKVD API key is rejected — regenerate it and set UKVD_API_KEY." };
+          return { ok: true, reason: info.StatusMessage || "Key accepted" };
+        } catch (err) { return { ok: false, reason: "Could not reach UK Vehicle Data: " + err.message }; }
+      })();
+
       results.email = env.RESEND_API_KEY && env.MAIL_FROM
         ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
             "Cousins Mechanical — test email",
@@ -3243,7 +3264,14 @@ async function processTyreStockForOrder(env, order) {
   // world with no limit, a script can burn the whole vehicle-lookup quota — the
   // bill and the outage are the client's. CORS does not help: it restrains
   // browsers, not curl.
+  // ADMIN ONLY. These proxy metered third-party APIs on the client's paid
+  // accounts. Nothing on the public site calls them — the registration box on
+  // the booking form is a plain text field — so leaving them open to the world
+  // was pure liability: anyone could run the vehicle-lookup quota to zero and
+  // the bill and the outage would be the client's. Rate limiting alone only
+  // slows that down; requiring auth removes it.
   if (p === "/ukvd" || p.startsWith("/v1/")) {
+    if (!(await isAdmin(request, env))) return bad("Forbidden", 403);
     if (await edgeLimited(env, "RL_LOOKUP", "lookup:" + clientIp(request))
         || await rateLimited(env, "lookup:" + clientIp(request), 60)) {
       return bad("Too many lookups — slow down.", 429);

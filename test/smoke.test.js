@@ -630,6 +630,15 @@ try {
     assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
   });
 
+  await check('the metered third-party proxies are not open to the world', async () => {
+    // These bill the client per call. Nothing on the public site uses them, so
+    // open access was pure liability: anyone could run the quota to zero.
+    for (const path of ['/api/ukvd?vrm=AB12CDE', '/api/v1/tyres']) {
+      const r = await api(path);
+      assert.equal(r.status, 403, `${path} is reachable without admin auth (${r.status})`);
+    }
+  });
+
   // ---- Inventory / ordering regressions --------------------------------------
 
   await check('a fresh inventory is empty, not seeded with invented tyres', async () => {
