@@ -378,6 +378,25 @@ try {
     // A ref that names no booking must 404 rather than create a KV key.
     const ghost = await postJson('/api/driver/location', { ref: 'CMS-NOPE1', lat: 50, lng: -2, token: drvTok });
     assert.equal(ghost.status, 404, 'posting GPS for a non-existent job was accepted');
+
+    // A second driver must not be able to hijack a job the first has claimed.
+    // Any approved driver used to be able to plant GPS on any ref, or flag a
+    // stranger's customer as "your mechanic is with you".
+    const other = 'Driver2-' + Date.now();
+    const otherPass = 'anotherLongPassword1';
+    const reg2 = await postJson('/api/driver/register', { username: other, password: otherPass, name: 'Second Driver' });
+    const d2 = await reg2.json();
+    await postJson('/api/admin/drivers', { action: 'approve', id: d2.id || d2.driver?.id }, { authorization: 'Bearer ' + adminTok });
+    const { token: tok2 } = await (await postJson('/api/driver/login', { username: other, password: otherPass })).json();
+    if (tok2) {
+      const steal = await postJson('/api/driver/location', { ref: gpsRef, lat: 51, lng: -1, token: tok2 });
+      assert.equal(steal.status, 403, 'a second driver hijacked a job already claimed by another');
+    }
+
+    // The driver's job list must carry the coordinates, or the live ETA the
+    // customer is shown can never be calculated.
+    const jl = await (await postJson('/api/driver/jobs', { token: drvTok })).json();
+    assert.ok('lat' in (jl.jobs.find(j => j.ref === gpsRef) || {}), 'driver job list omits coordinates — the ETA cannot work');
   });
 
   await check('job tracking requires sign-in and is scoped to the owner', async () => {

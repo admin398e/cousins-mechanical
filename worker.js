@@ -1960,6 +1960,18 @@ async function processTyreStockForOrder(env, order) {
     // KV key — unbounded writes from one endpoint.
     const owner = await findBookingOwner(env, r);
     if (!owner) return bad("Not found", 404);
+
+    // A driver session authenticated the caller but authorised nothing: any
+    // approved driver could plant GPS on any job, or flag someone else's
+    // customer as "your mechanic is with you". Refs are sequential and easy to
+    // guess. First driver to touch a job claims it; after that only they (or an
+    // admin) may update it.
+    if (driverId && !(await isAdmin(request, env))) {
+      const claimKey = "jobdrv:" + r;
+      const claimed = await env.CMS_KV.get(claimKey);
+      if (claimed && claimed !== driverId) return bad("That job is assigned to another driver.", 403);
+      if (!claimed) await env.CMS_KV.put(claimKey, driverId, { expirationTtl: 60 * 60 * 24 * 2 });
+    }
     if (arrived) {
       const list = await env.CMS_KV.list({ prefix: "bookings:" });
       for (const k of list.keys) {
@@ -2055,7 +2067,16 @@ async function processTyreStockForOrder(env, order) {
     for (const k of list.keys) {
       const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
       for (const o of arr) if (o.status !== "cancelled" && o.status !== "complete")
-        out.push({ ref: o.ref, svcLabel: o.svcLabel, reg: o.reg, postcode: o.postcode, name: o.name, date: o.date, time: o.time, status: o.status });
+        // lat/lng included: the customer's exact position was captured at
+        // booking but never sent to the driver, so the driver app's ETA had
+        // nothing to measure against and returned null on every fix — the
+        // "live ETA" the customer is promised never worked at all.
+        out.push({ ref: o.ref, svcLabel: o.svcLabel, reg: o.reg, postcode: o.postcode, name: o.name, date: o.date, time: o.time, status: o.status,
+          // ?? null, not bare o.lat: JSON.stringify drops undefined values, so
+          // the field would silently vanish from the response for any job
+          // booked without GPS and the client could not tell "no coordinates"
+          // from "field not sent".
+          lat: o.lat ?? null, lng: o.lng ?? null });
     }
     return json({ jobs: out });
   }

@@ -164,7 +164,19 @@ class Component extends DCLogic {
   refreshJobs = () => this.loadJobs();
   demo(){ return [{ref:'CMS-DEMO1',svcLabel:'Mobile tyre fitting',reg:'AB12 CDE',postcode:'DT6 3AA',name:'J. Smith',date:'2026-08-08',time:'Morning'}]; }
 
-  pickJob(j){ this.setState({ activeRef:j.ref, activeSvc:j.svcLabel||'Mobile job', activeWho:(j.name||'')+' · '+(j.reg||'')+' · '+(j.postcode||''), destPostcode:j.postcode||'', view:'share', shareErr:'' }); }
+  pickJob(j){
+    // _dest was never assigned anywhere in this file, so estimateEta returned
+    // null on every fix and the customer's live ETA never appeared. The server
+    // now sends the job's coordinates; fall back to geocoding the postcode.
+    this._dest = (j.lat!=null && j.lng!=null) ? [Number(j.lat), Number(j.lng)] : null;
+    if(!this._dest && j.postcode){
+      fetch('https://api.postcodes.io/postcodes/'+encodeURIComponent(String(j.postcode).replace(/\s+/g,'')))
+        .then(r=>r.ok?r.json():null)
+        .then(d=>{ if(d && d.result) this._dest=[d.result.latitude, d.result.longitude]; })
+        .catch(()=>{});
+    }
+    this.setState({ activeRef:j.ref, activeSvc:j.svcLabel||'Mobile job', activeWho:(j.name||'')+' · '+(j.reg||'')+' · '+(j.postcode||''), destPostcode:j.postcode||'', view:'share', shareErr:'' });
+  }
   backToJobs = () => { this.stopShare(); this.setState({view:'pick'}); };
 
   startShare = () => {

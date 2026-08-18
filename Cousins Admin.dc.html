@@ -1040,7 +1040,11 @@ class Component extends DCLogic {
       this.loadAll();
     }catch(e){ this.setState({busy:false, loginErr:'Could not reach the server. Check your connection and try again.'}); }
   };
-  logout = () => { try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
+  logout = () => {
+    // Releases the phone's high-accuracy GPS watch. Logging out used to leave
+    // it running: it only stopped transmitting because the token was dead.
+    if(this._watch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._watch); this._watch=null; }
+    this.setState({gpsRef:''}); try{ localStorage.removeItem('cms_admin_sess'); }catch(e){} this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
   close2fa = () => this.setState({twofaOpen:false});
 
   // --- Record a payment or refund -------------------------------------------
