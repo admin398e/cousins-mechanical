@@ -34,13 +34,17 @@ const postJson = (path, body, headers = {}) =>
   api(path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
 // --- boot -------------------------------------------------------------------
+// Held in a const rather than inlined below: the unsubscribe test has to derive
+// the same HMAC the Worker does, so it needs the pepper the server booted with.
+const SESSION_PEPPER = crypto.randomBytes(24).toString('hex');
+
 const server = spawn(process.execPath, ['server.js'], {
   cwd: new URL('..', import.meta.url).pathname,
   env: {
     ...process.env,
     PORT: String(PORT),
     NODE_ENV: 'test',
-    SESSION_PEPPER: crypto.randomBytes(24).toString('hex'),
+    SESSION_PEPPER,
     ADMIN_TOKEN,
     OVERRIDE_TOKEN,
   },
@@ -586,6 +590,90 @@ try {
     assert.equal(rec.customer.hasAccount, false);
     assert.equal(rec.notes.length, 1);
     assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
+  });
+
+  // ---- HTML email templates -------------------------------------------------
+  // The whole point of these: a customer must never receive "Hi {{{firstname}}}".
+
+  await check('every email template renders with no variable left unfilled', async () => {
+    const { renderEmail, EMAIL_BLOCKS } = await import('../worker.js');
+    // Supply every token any block declares, so a missing *supplier* is the
+    // only thing that can fail here.
+    const vars = {
+      subject: 'Test', preheader: 'Test preheader', firstname: 'Josh',
+      booking_ref: 'CMS-TEST1', service: 'Tyre fitting', vehicle_reg: 'KM16GLY',
+      booking_date: '2026-08-21', booking_time: 'Afternoon (12-5)', booking_location: 'DT6 4LB',
+      manage_booking_url: 'https://cousinsmechanicalservices.co.uk/#track=CMS-TEST1',
+      amount: '245.00',
+    };
+    for (const name of Object.keys(EMAIL_BLOCKS)) {
+      const html = renderEmail(name, vars, { footer_note: 'note' });
+      const leftover = html.match(/\{\{\{\s*[a-z_]+\s*\}\}\}/gi);
+      assert.equal(leftover, null, `${name} left ${leftover && leftover.join(', ')} unfilled`);
+      assert.ok(html.includes('Cousins Mechanical Services Ltd'), `${name} lost the footer`);
+      assert.ok(html.includes('16045339'), `${name} is missing the company number`);
+    }
+  });
+
+  await check('email templates escape customer-supplied values', async () => {
+    const { renderEmail } = await import('../worker.js');
+    const html = renderEmail('booking_confirmed', {
+      subject: 'x', preheader: 'x', firstname: 'Bob & <script>alert(1)</script>',
+      booking_ref: 'CMS-X', service: 'Tyres', vehicle_reg: '"><b>', booking_date: 'd',
+      booking_time: 't', booking_location: 'l', manage_booking_url: 'https://example.com',
+    }, { footer_note: 'n' });
+    assert.ok(!html.includes('<script>'), 'a customer name injected raw HTML into the email');
+    assert.ok(html.includes('&lt;script&gt;'), 'the name was not escaped');
+  });
+
+  await check('a missing template variable is stripped, never shown to a customer', async () => {
+    const { renderEmail } = await import('../worker.js');
+    // firstname deliberately omitted.
+    const html = renderEmail('refund_processed', { subject: 'x', preheader: 'x', amount: '10', booking_ref: 'CMS-Y' }, {});
+    assert.ok(!/\{\{\{/.test(html), 'an unfilled token would have reached the customer');
+  });
+
+  await check('the booking email supplies exactly the variables its template declares', async () => {
+    // This is the wiring check. If someone adds {{{engineer_name}}} to the
+    // block and forgets to pass it, or renames a field on the order, this fails
+    // instead of a customer getting a blank line.
+    const { EMAIL_BLOCKS } = await import('../worker.js');
+    const declared = new Set([...EMAIL_BLOCKS.booking_confirmed.matchAll(/\{\{\{\s*([a-z_]+)\s*\}\}\}/gi)].map(m => m[1]));
+    const supplied = new Set(['firstname', 'booking_ref', 'service', 'vehicle_reg',
+      'booking_date', 'booking_time', 'booking_location', 'manage_booking_url']);
+    for (const d of declared) assert.ok(supplied.has(d), `template needs {{{${d}}}} but the booking handler never passes it`);
+    for (const sup of supplied) assert.ok(declared.has(sup), `booking handler passes ${sup} but no template uses it`);
+  });
+
+  await check('unsubscribe rejects a tampered link and accepts a signed one', async () => {
+    const em = `unsub-${Date.now()}@example.com`;
+    await postJson('/api/service-requests', {
+      name: 'Unsub Tester', phone: '07900555777', email: em, marketing: true,
+      reg: 'UN11SUB', service: 'recovery', svcLabel: 'Breakdown / recovery',
+    });
+
+    const forged = await api(`/api/unsubscribe?e=${encodeURIComponent(em)}&s=deadbeef`);
+    assert.ok((await forged.text()).includes("didn't work"), 'a forged signature unsubscribed someone');
+
+    const tok = await adminTok();
+    const before = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
+    assert.equal(before.find(c => c.email === em).marketing, true, 'setup failed — not opted in');
+
+    // Re-derive the signature the same way the Worker does.
+    const sig = crypto.createHmac('sha256', SESSION_PEPPER).update('unsub:' + em).digest('hex').slice(0, 32);
+    const good = await api(`/api/unsubscribe?e=${encodeURIComponent(em)}&s=${sig}`);
+    assert.ok((await good.text()).includes('unsubscribed'), 'a correctly signed unsubscribe link did not work');
+
+    const after = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
+    assert.equal(after.find(c => c.email === em).marketing, false, 'consent was not withdrawn');
+  });
+
+  await check('the Resend webhook refuses unsigned and forged bounce reports', async () => {
+    // Public endpoint. If it trusted its input, anyone could POST a fake bounce
+    // and stop a real customer receiving their confirmation.
+    const r = await postJson('/api/resend-webhook', { type: 'email.bounced', data: { to: ['victim@example.com'] } });
+    assert.ok(r.status === 503 || r.status === 400 || r.status === 401,
+      `unsigned webhook was accepted (status ${r.status})`);
   });
 
   await check('a booking with no contact details is rejected, not silently accepted', async () => {

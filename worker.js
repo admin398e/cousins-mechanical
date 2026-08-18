@@ -40,6 +40,8 @@ import {
  *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
  *      RESEND_AUDIENCE_ID    Resend Audience id — optional. Only consented contacts are pushed to it;
  *                            leave unset and the marketing tick is still recorded in KV but nothing is synced.
+ *      RESEND_WEBHOOK_SECRET Signing secret (whsec_...) from Resend → Webhooks. Required for /api/resend-webhook;
+ *                            unset means the endpoint refuses every request rather than trusting forged bounces.
  *      OWNER_PHONE           the business owner's number (E.164, e.g. 447925340977) — gets WhatsApp/SMS on new customer messages
  *      SITE_URL              your live site URL, e.g. https://cousinsmechanicalservices.co.uk (used in reset links)
  *      ADMIN_TOKEN           long random string — the admin dashboard password + status-text auth
@@ -476,15 +478,42 @@ async function addCalendarEvent(env, o, customerEmail) {
  * Failures are logged with Resend's own error body; a silent false here is what
  * makes "why did the confirmation never arrive" impossible to debug.
  */
-async function sendEmail(env, to, subject, text, ics) {
+async function sendEmail(env, to, subject, text, ics, opts) {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM || !to) return { skipped: true };
+  const o = opts || {};
+
+  // Never send to an address we already know is dead or hostile. Repeatedly
+  // mailing a hard-bouncing address is precisely what got this domain's
+  // reputation damaged, and Resend will suppress it at their end anyway — this
+  // just stops us burning sends and looking like a careless sender first.
+  try {
+    const fail = JSON.parse((await env.CMS_KV.get("mailfail:" + String(to).toLowerCase())) || "null");
+    if (fail && fail.blocked) {
+      console.error("[email] refusing to send to a blocked address", to, fail.lastType);
+      return { skipped: true, reason: "address blocked after " + fail.lastType };
+    }
+  } catch (e) { /* KV hiccup must never stop a real email going out */ }
+
   const body = {
     from: "Cousins Mechanical Services <" + env.MAIL_FROM + ">",
     to: [to],
     reply_to: env.MAIL_REPLY_TO || env.MAIL_FROM,
     subject,
+    // Always send the plain-text part, even alongside HTML. An HTML-only
+    // message is a well-known spam signal, and the text part is what shows in
+    // watch/notification previews.
     text,
   };
+  if (o.html) body.html = o.html;
+  // One-click unsubscribe. Gmail and Yahoo require this on bulk mail, and it is
+  // what stops an annoyed recipient reaching for "report spam" instead — which
+  // costs far more reputation than an unsubscribe does.
+  if (o.unsubscribeUrl) {
+    body.headers = {
+      "List-Unsubscribe": "<" + o.unsubscribeUrl + ">",
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    };
+  }
   if (ics) body.attachments = [{ filename: "booking.ics", content: btoa(ics) }];
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -498,6 +527,229 @@ async function sendEmail(env, to, subject, text, ics) {
     return { ok: false, status: r.status, detail };
   }
   return { ok: true };
+}
+
+// Named exports for the test suite. The Workers runtime only looks at the
+// default export, so these cost nothing at runtime but let the tests assert
+// that no template variable is left unfilled.
+export { renderEmail, EMAIL_BLOCKS, esc };
+
+// ---------- Unsubscribe links ----------
+// The link has to work without the recipient logging in, and it must not let
+// anyone unsubscribe a stranger by guessing an address — so the address is
+// carried in the URL alongside an HMAC of it. No token store, nothing to
+// expire, and a tampered address simply fails to verify.
+async function unsubSig(env, email) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(env.SESSION_PEPPER || "cms-unsub"),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("unsub:" + email));
+  return [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+async function unsubUrl(env, email) {
+  const em = String(email || "").trim().toLowerCase();
+  if (!em) return "";
+  const base = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+  return base + "/api/unsubscribe?e=" + encodeURIComponent(em) + "&s=" + (await unsubSig(env, em));
+}
+
+// ---------- HTML email templates ----------
+// One shell, several content blocks, and a renderer that substitutes {{{token}}}.
+//
+// We render these OURSELVES rather than relying on Resend's merge tags. Resend
+// only substitutes {{{...}}} for *broadcasts* sent to an audience, where the
+// values come from contact fields. Everything this Worker sends is
+// transactional (POST /emails), which does no substitution at all — so a
+// template pasted in as-is would reach the customer showing the literal text
+// "Hi {{{firstname}}}". Doing it here also means the booking reference, reg and
+// times come from the order record, which is the only place they actually exist.
+
+const EMAIL_SHELL = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html dir="ltr" lang="en">
+  <head>
+    <meta content="width=device-width" name="viewport" />
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
+    <meta content="telephone=no,address=no,email=no,date=no,url=no" name="format-detection" />
+    <title>{{{subject}}}</title>
+    <style>
+      @media (prefers-color-scheme: dark){li::marker{color:#c4c4c4}}
+      body, p, h1, h2, h3, h4, h5, h6 { margin: 0; padding: 0; }
+      a { color: #ed6b23; text-decoration: none; }
+      .details-box { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px; }
+      .btn { display: inline-block; background-color: #ed6b23; color: #ffffff !important; font-weight: 600; font-size: 16px; padding: 14px 28px; border-radius: 4px; text-decoration: none; }
+    </style>
+  </head>
+  <body dir="ltr" lang="en" style="background-color: #f4f5f7; margin: 0; padding: 0;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0">{{{preheader}}}</div>
+    <table border="0" width="100%" cellpadding="0" cellspacing="0" role="presentation" align="center" style="background-color: #f4f5f7;">
+      <tbody>
+        <tr>
+          <td dir="ltr" lang="en" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif; font-size:16px; min-height:100%; line-height:155%; padding: 40px 20px;">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px; width:100%; background-color: #ffffff; border-radius:8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden;">
+              <tbody>
+                <tr>
+                  <td style="padding: 30px 20px; text-align: center; border-bottom: 3px solid #ed6b23;">
+                    <img src="https://cousinsmechanicalservices.co.uk/images/logo.png" alt="Cousins Mechanical Services" width="220" style="max-width: 220px; height: auto; display: block; margin: 0 auto;" />
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 40px 30px; color: #2a2a2a;">
+{{{content}}}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 30px; text-align: center; background-color: #2a2a2a; color: #9ca3af; font-size: 13px; line-height: 1.5;">
+                    <strong style="color: #ffffff; font-size: 14px; display: block; margin-bottom: 10px;">Cousins Mechanical Services Ltd</strong>
+                    Mobile Mechanic &bull; Tyre Fitting &bull; Recovery<br />
+                    Bridport, Dorchester &amp; West Dorset<br /><br />
+                    Call: <a href="tel:07925340977" style="color: #ed6b23;">07925 340977</a> | <a href="tel:01308538046" style="color: #ed6b23;">01308 538046</a><br /><br />
+                    <p style="font-size: 12px; color: #6b7280; margin: 0; padding-top: 15px;">
+                      Registered in England &amp; Wales no. 16045339<br />
+                      7 Watton Park, Bridport, DT6 5NJ<br /><br />
+                      {{{footer_note}}}
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>`;
+
+// Content blocks. Every {{{token}}} here must be supplied by the caller —
+// renderEmail refuses to send anything with a token left in it.
+const EMAIL_BLOCKS = {
+  booking_confirmed: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">You're booked in, {{{firstname}}}!</h1>
+<p style="color: #4a4a4a; margin-bottom: 20px;">Thanks for choosing Cousins Mechanical Services. Your booking is confirmed. We'll text you on the day with a live tracking link so you can see exactly when we're arriving.</p>
+<div class="details-box" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Reference:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_ref}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Service:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{service}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Vehicle:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{vehicle_reg}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Date &amp; Time:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_date}}} | {{{booking_time}}}</td>
+    </tr>
+    <tr>
+      <td style="font-size: 15px; color: #6b7280; font-weight: bold;">Location:</td>
+      <td style="font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_location}}}</td>
+    </tr>
+  </table>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 25px;">Payment is taken on site when the work is done — card or cash. We'll confirm the price with you before any work starts.</p>
+<div style="text-align: center; margin-bottom: 25px;">
+  <a href="{{{manage_booking_url}}}" class="btn" style="display: inline-block; background-color: #ed6b23; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; border-radius: 4px; text-decoration: none;">Track &amp; manage booking</a>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 0; font-size: 14px;">Need to change or cancel? Call <a href="tel:07925340977" style="color:#ed6b23;">07925 340977</a> or <a href="tel:01308538046" style="color:#ed6b23;">01308 538046</a>, or just reply to this email.</p>`,
+
+  // Josh's brief pasted the refund markup under both "payment received" and
+  // "refund" headings. This is the payment block written properly — a receipt
+  // for money taken, not a refund.
+  payment_received: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">Payment received — thank you, {{{firstname}}}</h1>
+<p style="color: #4a4a4a; margin-bottom: 20px;">We've received your payment. This email is your receipt — keep it for your records.</p>
+<div class="details-box" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Amount paid:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #ed6b23; font-weight: 700; text-align: right;">&pound;{{{amount}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Booking:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_ref}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Work carried out:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{service}}}</td>
+    </tr>
+    <tr>
+      <td style="font-size: 15px; color: #6b7280; font-weight: bold;">Vehicle:</td>
+      <td style="font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{vehicle_reg}}}</td>
+    </tr>
+  </table>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 0;">Any questions about this payment or the work done, reply to this email or call <a href="tel:07925340977" style="color:#ed6b23;">07925 340977</a>.</p>`,
+
+  refund_processed: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">Refund processed</h1>
+<p style="color: #4a4a4a; margin-bottom: 20px;">Hi {{{firstname}}}, we've processed a refund for your recent transaction.</p>
+<div class="details-box" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Refund amount:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #ed6b23; font-weight: 700; text-align: right;">&pound;{{{amount}}}</td>
+    </tr>
+    <tr>
+      <td style="font-size: 15px; color: #6b7280; font-weight: bold;">Original booking:</td>
+      <td style="font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_ref}}}</td>
+    </tr>
+  </table>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 0;">The funds go back to your original payment method. Please allow 3-5 working days for it to show on your statement.</p>`,
+};
+
+/**
+ * Escape a value for insertion into HTML.
+ *
+ * Every variable in these templates is customer-supplied — name, registration,
+ * postcode, service label all come straight off the booking form. Without this
+ * a name containing "&" renders wrong and one containing a tag breaks the
+ * layout outright.
+ */
+function esc(v) {
+  return String(v === null || v === undefined ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/**
+ * Render a named block into the shell.
+ *
+ * Unresolved tokens are treated as a bug, not a cosmetic problem: sending
+ * "Hi {{{firstname}}}" to a customer is worse than sending nothing, so this
+ * logs loudly and strips them rather than letting them through silently.
+ * `raw` holds values that are already trusted HTML (the rendered content and
+ * the footer note) — everything else is escaped.
+ */
+function renderEmail(blockName, vars, raw) {
+  const block = EMAIL_BLOCKS[blockName];
+  if (!block) throw new Error("Unknown email block: " + blockName);
+
+  const fill = (tpl, values) =>
+    tpl.replace(/\{\{\{\s*([a-z_]+)\s*\}\}\}/gi, (m, key) =>
+      Object.prototype.hasOwnProperty.call(values, key) ? values[key] : m);
+
+  const escaped = {};
+  for (const k of Object.keys(vars || {})) escaped[k] = esc(vars[k]);
+
+  const content = fill(block, escaped);
+  const html = fill(EMAIL_SHELL, {
+    ...escaped,
+    content,                                        // already-rendered markup
+    subject: esc((vars && vars.subject) || "Cousins Mechanical Services"),
+    preheader: esc((vars && vars.preheader) || ""),
+    footer_note: (raw && raw.footer_note) || "You are receiving this email because you booked a job with us.",
+  });
+
+  const leftover = html.match(/\{\{\{\s*[a-z_]+\s*\}\}\}/gi);
+  if (leftover) {
+    console.error("[email] unresolved template variables in " + blockName + ":", leftover.join(", "));
+    return html.replace(/\{\{\{\s*[a-z_]+\s*\}\}\}/gi, "");
+  }
+  return html;
 }
 
 // ---------- Contacts (own database) + Resend Audience (marketing only) ----------
@@ -693,6 +945,141 @@ async function api(request, env, url, ctx) {
         sessionPepper: !!env.SESSION_PEPPER,
       },
     });
+  }
+
+  // --- Resend webhook: bounces and spam complaints ---
+  // This is the safety net for exactly what went wrong before: the system sent
+  // to a dead address over and over, Resend suppressed it, and the domain's
+  // reputation took the hit while nothing in the app knew. Now a bounce is
+  // recorded and the address stops being mailed.
+  //
+  // Resend signs with Svix headers. Verification is REQUIRED — the endpoint is
+  // public, so without it anyone could POST a forged "bounce" and get a real
+  // customer blocked from receiving their booking confirmation.
+  if (p === "/resend-webhook" && request.method === "POST") {
+    const raw = await request.text();
+
+    if (!env.RESEND_WEBHOOK_SECRET) {
+      console.error("[resend-webhook] rejected: RESEND_WEBHOOK_SECRET is not set");
+      return bad("Webhook not configured", 503);
+    }
+
+    const id = request.headers.get("svix-id") || "";
+    const ts = request.headers.get("svix-timestamp") || "";
+    const sigHeader = request.headers.get("svix-signature") || "";
+    if (!id || !ts || !sigHeader) return bad("Missing signature headers", 400);
+
+    // Reject anything older than 5 minutes so a captured request cannot be
+    // replayed later.
+    const age = Math.abs(Date.now() / 1000 - Number(ts));
+    if (!Number.isFinite(age) || age > 300) return bad("Stale webhook", 400);
+
+    const secret = env.RESEND_WEBHOOK_SECRET.replace(/^whsec_/, "");
+    const keyBytes = Uint8Array.from(atob(secret), c => c.charCodeAt(0));
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(id + "." + ts + "." + raw));
+    const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+    // The header can carry several space-separated "v1,<sig>" values during a
+    // secret rotation; any one matching is a valid signature.
+    const ok = sigHeader.split(" ").some(part => safeEqual(part.split(",")[1] || "", expected));
+    if (!ok) {
+      console.error("[resend-webhook] signature mismatch");
+      return bad("Bad signature", 401);
+    }
+
+    const evt = JSON.parse(raw || "{}");
+    const type = evt.type || "";
+    const to = [].concat(evt.data && evt.data.to || []).map(a => String(a).toLowerCase());
+
+    if (/^email\.(bounced|complained)$/.test(type)) {
+      for (const em of to) {
+        if (!em) continue;
+        const rec = JSON.parse((await env.CMS_KV.get("mailfail:" + em)) || "null") || { email: em, count: 0 };
+        rec.count += 1;
+        rec.lastType = type;
+        rec.lastAt = Date.now();
+        rec.reason = (evt.data && (evt.data.reason || (evt.data.bounce && evt.data.bounce.message))) || "";
+        // A complaint is a one-strike event — they pressed "this is spam".
+        // A bounce might be a full mailbox, so allow one retry before blocking.
+        rec.blocked = type === "email.complained" || rec.count >= 2;
+        await env.CMS_KV.put("mailfail:" + em, JSON.stringify(rec));
+
+        // A spam complaint also withdraws marketing consent, everywhere.
+        if (type === "email.complained") {
+          for (const k of ["user:" + em, "contact:" + em]) {
+            const r2 = await env.CMS_KV.get(k);
+            if (!r2) continue;
+            const o2 = JSON.parse(r2);
+            o2.marketing = false; o2.unsubscribedAt = Date.now();
+            await env.CMS_KV.put(k, JSON.stringify(o2));
+          }
+        }
+        await audit(env, em, type.replace("email.", "mail_"), rec.reason.slice(0, 120));
+      }
+
+      // Tell the owner, once the address is actually blocked. A booking
+      // confirmation silently not arriving is the failure mode that started
+      // all of this.
+      if (to.length && (env.OWNER_EMAIL || env.MAIL_FROM)) {
+        ctx.waitUntil(sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
+          `Email problem — ${to[0]}`,
+          `${type === "email.complained" ? "A recipient marked our email as spam" : "An email bounced"}.\n\n`
+          + `Address: ${to.join(", ")}\n`
+          + `Reason: ${(evt.data && (evt.data.reason || "")) || "not given"}\n\n`
+          + `If this is a customer, phone them — they are not getting their confirmations.`));
+      }
+    }
+
+    return json({ ok: true });
+  }
+
+  // --- Unsubscribe (public, no login — it is a link in an email) ---
+  // Accepts GET so a click works, and POST so Gmail/Yahoo one-click works.
+  if (p === "/unsubscribe" && (request.method === "GET" || request.method === "POST")) {
+    const em = String(url.searchParams.get("e") || "").trim().toLowerCase();
+    const sig = String(url.searchParams.get("s") || "");
+    const page = (title, msg) => new Response(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"/>`
+      + `<meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex"/>`
+      + `<title>${title} — Cousins Mechanical Services</title></head>`
+      + `<body style="margin:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">`
+      + `<div style="max-width:520px;margin:60px auto;background:#fff;border-radius:8px;padding:40px 30px;text-align:center">`
+      + `<h1 style="font-size:22px;color:#2a2a2a;margin:0 0 14px">${title}</h1>`
+      + `<p style="color:#4a4a4a;line-height:1.55;margin:0 0 24px">${msg}</p>`
+      + `<a href="${esc(env.SITE_URL || "https://cousinsmechanicalservices.co.uk")}" `
+      + `style="display:inline-block;background:#ed6b23;color:#fff;font-weight:600;padding:12px 24px;border-radius:4px;text-decoration:none">Back to the site</a>`
+      + `</div></body></html>`,
+      { headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex", ...SECURITY_HEADERS } });
+
+    if (!em || !safeEqual(sig, await unsubSig(env, em))) {
+      return page("That link didn't work", "This unsubscribe link is invalid or incomplete. Reply to any of our emails and we'll take you off the list by hand.");
+    }
+
+    // Clear consent on whichever records exist. Marketing consent lives in two
+    // places because a customer may have both a login account and a guest
+    // contact record; missing one would leave them still opted in.
+    for (const key of ["user:" + em, "contact:" + em]) {
+      const raw = await env.CMS_KV.get(key);
+      if (!raw) continue;
+      const rec = JSON.parse(raw);
+      rec.marketing = false;
+      rec.unsubscribedAt = Date.now();
+      await env.CMS_KV.put(key, JSON.stringify(rec));
+    }
+
+    // Mirror it to Resend so a broadcast can't reach them either. Best effort —
+    // our own record is the one that governs.
+    if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
+      ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(em), {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
+        body: JSON.stringify({ unsubscribed: true }),
+      }).catch(() => null));
+    }
+
+    await audit(env, em, "marketing_unsubscribed", "one-click");
+    return page("You're unsubscribed",
+      "We won't send you any more marketing emails. You'll still get messages about jobs you book with us — those aren't marketing and you need them.");
   }
 
   // --- AUTH ---
@@ -1247,13 +1634,36 @@ async function processTyreStockForOrder(env, order) {
     if (b.email) {
       await safe("customer-email", async () => {
         const ics = buildICS(order, env.MAIL_FROM);
-        ctx.waitUntil(sendEmail(env, b.email,
-          `Booking confirmed — ${order.ref} — Cousins Mechanical`,
+        const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+        const unsub = await unsubUrl(env, b.email);
+        const subject = `Booking confirmed — ${order.ref} — Cousins Mechanical`;
+        const html = renderEmail("booking_confirmed", {
+          subject,
+          // Shown in the inbox list next to the subject. Left blank it gets
+          // filled with whatever text comes first, which here is the address.
+          preheader: `${order.svcLabel || order.service || "Your job"} · ${order.date || "as soon as possible"} · ref ${order.ref}`,
+          firstname: String(order.name || "there").trim().split(/\s+/)[0],
+          booking_ref: order.ref,
+          service: order.svcLabel || order.service || "Mobile job",
+          vehicle_reg: order.reg || "Not given",
+          booking_date: order.date || "As soon as possible",
+          booking_time: order.time || "We'll confirm a time",
+          booking_location: order.postcode || "To be confirmed",
+          // Deep link into the tracker on the public site. The homepage reads
+          // this hash on load and opens that job.
+          manage_booking_url: `${site}/#track=${encodeURIComponent(order.ref)}`,
+        }, {
+          footer_note: `You are receiving this because you booked job ${esc(order.ref)} with us. This is a service message about that job, not marketing.`
+            + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
+        });
+
+        ctx.waitUntil(sendEmail(env, b.email, subject,
           `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
+          + `Track it: ${site}/#track=${order.ref}\n\n`
           + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
           + `Need to change or cancel it? Call 01308 538046 or 07925 340977, or reply to this email.\n\n`
           + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339\n7 Watton Park, Bridport, DT6 5NJ`,
-          ics));
+          ics, { html, unsubscribeUrl: unsub }));
       });
     }
 

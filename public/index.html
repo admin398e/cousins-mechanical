@@ -953,6 +953,16 @@ class Component extends DCLogic {
     this.loadSession();
     try{ const m=(location.hash||'').match(/reset=([\w-]+)/); if(m){ this.setState({resetToken:m[1], portalOpen:true}); } }catch(e){}
     this.loadOrders();
+    // #track=CMS-XXXXX — the "Track & manage booking" button in the confirmation
+    // email points here. Without this the button was a dead anchor: the tracker
+    // could only ever be opened from inside the site. Runs AFTER loadOrders,
+    // which auto-tracks whatever local job it finds — the ref the customer
+    // actually clicked has to win over that.
+    try{
+      const t=(location.hash||'').match(/track=([\w-]+)/);
+      if(t){ const ref=decodeURIComponent(t[1]); this.startTracking(ref);
+        setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 300); }
+    }catch(e){}
     setTimeout(()=>this.loadSizes(), 60);
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);

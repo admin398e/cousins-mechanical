@@ -29,3 +29,4 @@ Thumbs.db
 
 # Large regenerable scrape artefacts (rebuild with ctyres_scraper.py)
 ctyres_catalogue.zip
+email-preview.html
