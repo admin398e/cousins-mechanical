@@ -44,6 +44,7 @@
         <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the email address you registered with.</div>
         <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+        <div id="cf-turnstile-box" style="margin-bottom:12px;min-height:0"></div>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ signInLabel }}</button>
       </sc-if>
@@ -149,6 +150,8 @@ class Component extends DCLogic {
   };
 
   componentDidMount(){
+    // The auth card is on screen at load, so mount the widget straight away.
+    setTimeout(()=>this.mountTurnstile('driver'), 60);
     try{ const t=localStorage.getItem('cms_driver_token'); const a=localStorage.getItem('cms_driver_api')||''; if(t){ this.setState({token:t,apiBase:a,apiInput:a}, ()=>this.loadJobs()); } }catch(e){}
   }
   componentWillUnmount(){ this.stopShare(); }
@@ -156,6 +159,63 @@ class Component extends DCLogic {
   sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
   base(){ return (this.state.apiBase||'').replace(/\/+$/,''); }
   async api(path, body){ return fetch(this.base()+'/api'+path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({token:this.state.token}, body||{}))}); }
+
+
+  // ---------- Turnstile ----------
+  // Cloudflare's CAPTCHA, rendered explicitly into a container in the form.
+  //
+  // An earlier attempt used an invisible widget rendered off-screen. That is
+  // fragile — a managed widget can decide it needs to show an interactive
+  // challenge, and off-screen there is nothing for the person to click, so the
+  // token never arrives and the form just refuses them. A visible widget is
+  // what Cloudflare's own integration guide uses.
+  //
+  // mountTurnstile() is called when the auth card renders; token() reads the
+  // response. If Turnstile is not configured the container stays empty, token()
+  // returns null, and the server (which is what actually enforces) lets the
+  // request through — so this can never lock anyone out on its own.
+  async mountTurnstile(action){
+    try{
+      if(this._tsKey === undefined){
+        const r = await fetch('/api/turnstile-config');
+        this._tsKey = r.ok ? (await r.json()).siteKey : null;
+      }
+      if(!this._tsKey) return;
+      const host = document.getElementById('cf-turnstile-box');
+      if(!host || host.dataset.rendered === '1') return;
+      if(!window.turnstile){
+        await new Promise((res, rej)=>{
+          const sc=document.createElement('script');
+          sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+          sc.async=true; sc.defer=true; sc.onload=res; sc.onerror=rej;
+          document.head.appendChild(sc);
+        });
+      }
+      host.dataset.rendered='1';
+      this._tsId = window.turnstile.render(host, {
+        sitekey: this._tsKey,
+        action: action || 'auth',
+        theme: 'dark',
+        callback: () => this.setState({ tsReady:true }),
+        'expired-callback': () => this.setState({ tsReady:false }),
+        'error-callback': () => this.setState({ tsReady:false }),
+      });
+    }catch(e){ /* leave it unmounted; the server decides */ }
+  }
+
+  turnstileValue(){
+    try{
+      if(!this._tsKey || this._tsId == null) return null;
+      return window.turnstile.getResponse(this._tsId) || null;
+    }catch(e){ return null; }
+  }
+
+  // A token is single-use. Reset after every submit or the next attempt is
+  // rejected with an already-seen token, which looks like a wrong password.
+  turnstileReset(){
+    try{ if(this._tsId != null) window.turnstile.reset(this._tsId); }catch(e){}
+    this.setState({ tsReady:false });
+  }
 
   setToken = e => this.setState({tokenInput:e.target.value});
   setApi = e => this.setState({apiInput:e.target.value});
@@ -216,7 +276,8 @@ class Component extends DCLogic {
     const a=this.cleanApi();
     try{
       const r=await fetch(a+'/api/driver/login',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({username,password})});
+        body:JSON.stringify({username,password,turnstileToken:this.turnstileValue()})});
+      this.turnstileReset();
       const d=await r.json().catch(()=>({}));
       if(!r.ok || !d.token) throw new Error(d.error||'Username or password not recognised.');
       try{ localStorage.setItem('cms_driver_token',d.token); localStorage.setItem('cms_driver_api',a); }catch(e){}
@@ -237,7 +298,8 @@ class Component extends DCLogic {
     const a=this.cleanApi();
     try{
       const r=await fetch(a+'/api/driver/register',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({email,password,name})});
+        body:JSON.stringify({email,password,name,turnstileToken:this.turnstileValue()})});
+      this.turnstileReset();
       const d=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(d.error||'Could not register.');
       // Straight to the code step — the account does nothing until the address

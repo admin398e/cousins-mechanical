@@ -756,6 +756,7 @@
               <div style="color:#8a817b;font-size:13.5px;margin-top:-6px">Log in to view, track, amend or cancel your bookings and see your offers.</div>
               <input value="{{ authEmail }}" onInput="{{ setAuthEmail }}" onKeyDown="{{ authOnKey }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
               <input value="{{ authPass }}" onInput="{{ setAuthPass }}" onKeyDown="{{ authOnKey }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
+              <div id="cf-turnstile-box"></div>
               <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
               <sc-if value="{{ hasForgotMsg }}" hint-placeholder-val="{{ false }}"><div style="background:#eef7ef;border:1px solid #b9dcc0;color:#2f7a45;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ forgotMsg }}</div></sc-if>
               <button onClick="{{ doLogin }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px;margin-bottom:12px">{{ loginBtnLabel }}</button>
@@ -1058,37 +1059,54 @@ class Component extends DCLogic {
   authToken(){ try{ return localStorage.getItem('cms_token')||''; }catch(e){ return ''; } }
 
   // ---------- Turnstile ----------
-  // Loads Cloudflare's CAPTCHA only if the server says one is configured, and
-  // returns a token to send with the request. If it is not configured, or the
-  // script fails to load, this resolves to null and the server (which is the
-  // thing that actually enforces it) simply sees no token — it is inert until
-  // TURNSTILE_SECRET exists, so a broken widget can never lock anyone out.
-  async turnstileToken(){
+  // Rendered explicitly and VISIBLY into a container in the sign-in card.
+  //
+  // The first attempt at this used an invisible widget rendered off-screen.
+  // That cannot work: a managed widget may decide it needs an interactive
+  // challenge, and off-screen there is nothing for the person to click, so no
+  // token is produced and the form refuses everyone — which is exactly what
+  // happened on the driver page.
+  //
+  // If Turnstile is unconfigured the container stays empty and turnstileValue()
+  // returns null. The server is what enforces, and it lets those through, so a
+  // widget that fails to load can never lock a customer out on its own.
+  async mountTurnstile(action){
     try{
-      if(this._tsSiteKey === undefined){
+      if(this._tsKey === undefined){
         const r = await fetch('/api/turnstile-config');
-        this._tsSiteKey = r.ok ? (await r.json()).siteKey : null;
+        this._tsKey = r.ok ? (await r.json()).siteKey : null;
       }
-      if(!this._tsSiteKey) return null;
+      if(!this._tsKey) return;
+      const host = document.getElementById('cf-turnstile-box');
+      if(!host || host.dataset.rendered === '1') return;
       if(!window.turnstile){
         await new Promise((res, rej)=>{
           const sc=document.createElement('script');
           sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-          sc.async=true; sc.onload=res; sc.onerror=rej; document.head.appendChild(sc);
+          sc.async=true; sc.defer=true; sc.onload=res; sc.onerror=rej;
+          document.head.appendChild(sc);
         });
       }
-      if(!this._tsWidget){
-        const host=document.createElement('div');
-        host.style.cssText='position:fixed;left:-9999px;top:0';
-        document.body.appendChild(host);
-        this._tsWidget = window.turnstile.render(host, { sitekey:this._tsSiteKey, size:'invisible' });
-      } else {
-        window.turnstile.reset(this._tsWidget);
-      }
-      return await window.turnstile.getResponsePromise
-        ? window.turnstile.getResponsePromise(this._tsWidget)
-        : window.turnstile.getResponse(this._tsWidget);
+      host.dataset.rendered='1';
+      this._tsId = window.turnstile.render(host, {
+        sitekey: this._tsKey, action: action || 'auth',
+        callback: () => this.setState({ tsReady:true }),
+        'expired-callback': () => this.setState({ tsReady:false }),
+        'error-callback': () => this.setState({ tsReady:false }),
+      });
+    }catch(e){ /* leave it unmounted; the server decides */ }
+  }
+  turnstileValue(){
+    try{
+      if(!this._tsKey || this._tsId == null) return null;
+      return window.turnstile.getResponse(this._tsId) || null;
     }catch(e){ return null; }
+  }
+  // Single-use token: without a reset the next attempt is rejected for a token
+  // already seen, which reads to the customer as a wrong password.
+  turnstileReset(){
+    try{ if(this._tsId != null) window.turnstile.reset(this._tsId); }catch(e){}
+    this.setState({ tsReady:false });
   }
 
   async apiFetch(path, opts){
@@ -1402,8 +1420,7 @@ class Component extends DCLogic {
     if(!this.state.authConsent) return this.setState({authErr:'Please accept the privacy notice to create your account.'});
     this.setState({authBusy:true, authErr:''});
     if(this.hasServer()){
-      this.turnstileToken().then(turnstileToken =>
-      this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms,turnstileToken})}))
+      this.apiFetch('/auth/signup',{method:'POST',body:JSON.stringify({name:authName.trim(),email,phone:authPhone.trim(),password:authPass,consent:true,marketing:this.state.authMarketing,smsUpdates:this.state.authSms,turnstileToken:this.turnstileValue()})})
         .then(async r=>{ const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Sign up failed');
           // No session yet — the account is inert until the emailed code is
           // entered. That code is the only thing proving this person owns the
@@ -1457,8 +1474,7 @@ class Component extends DCLogic {
     const email=(authEmail||'').trim().toLowerCase();
     this.setState({authBusy:true, authErr:''});
     if(this.hasServer()){
-      this.turnstileToken().then(turnstileToken =>
-      this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass,turnstileToken})}))
+      this.apiFetch('/auth/login',{method:'POST',body:JSON.stringify({email,password:authPass,turnstileToken:this.turnstileValue()})})
         .then(async r=>{ const d=await r.json().catch(()=>({}));
           // Right password, unconfirmed address: send them to the code step
           // rather than showing a dead end. The server has already re-sent it.
@@ -1476,7 +1492,8 @@ class Component extends DCLogic {
           try{ localStorage.setItem('cms_token', d.token); }catch(e){}
           this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', portalTab:'bookings'});
           this.pullBookings();
-        }).catch(e=>this.setState({authBusy:false, authErr:e.message}));
+        }).catch(e=>this.setState({authBusy:false, authErr:e.message}))
+        .finally(()=>this.turnstileReset());
       return;
     }
     const users=this.loadUsers();
@@ -1490,7 +1507,12 @@ class Component extends DCLogic {
   logout = () => { if(this.hasServer()){ this.apiFetch('/auth/logout',{method:'POST'}).catch(()=>{}); } try{ localStorage.removeItem('cms_session'); localStorage.removeItem('cms_token'); }catch(e){} this.setState({auth:null, authView:'login', authPass:'', authPass2:'', portalOpen:false}); };
 
   // ---------- PORTAL / ACCOUNT ----------
-  openPortal = () => { this.loadOrders(); this.loadProfile(); this.loadMessages(); this.setState({portalOpen:true, portalTab:'bookings', authErr:''}); };
+  openPortal = () => {
+    this.loadOrders(); this.loadProfile(); this.loadMessages();
+    this.setState({portalOpen:true, portalTab:'bookings', authErr:''});
+    // Mount after the card is on screen — the container does not exist before.
+    setTimeout(()=>this.mountTurnstile('customer'), 80);
+  };
   closePortal = () => this.setState({portalOpen:false, editing:''});
   portalToBook = () => this.setState({portalOpen:false, bookOpen:true, bookStep:1, bookDone:false});
   tabBookings = () => this.setState({portalTab:'bookings'});

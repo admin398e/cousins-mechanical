@@ -1950,7 +1950,16 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/service-requests" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
 
-    if (!(await turnstileOk(env, request, b))) return bad("Please complete the check that proves you are not a robot.", 400);
+    // NO CAPTCHA on the booking form, deliberately.
+    //
+    // The brief was a CAPTCHA on sign-in. Putting one on the booking form as
+    // well means a customer at the roadside with a flat tyre is blocked if the
+    // widget fails to load, on the one form where that costs Cousins actual
+    // work. The rate limiter above already caps this at 20 per IP per window,
+    // which is what stops it being used to send mail in bulk.
+    //
+    // If booking spam ever becomes real, add a widget to the booking modal
+    // FIRST, then re-enable the check here — not the other way round.
 
     // A booking with no way to contact the customer back is worse than no booking.
     if (!b.name || !b.phone) return bad("Name and mobile number are required.");

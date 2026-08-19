@@ -72,6 +72,7 @@
                 <input value="{{ codeInput }}" onInput="{{ setCode }}" onKeyDown="{{ onKey }}" inputmode="numeric" placeholder="123456" style="width:100%;border:1.5px solid #e8791a;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:22px;letter-spacing:.3em;text-align:center;font-family:'Barlow Condensed';font-weight:700"/>
               </div>
             </sc-if>
+            <div id="cf-turnstile-box" style="margin-bottom:12px"></div>
             <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13.5px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
             <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ loginLabel }}</button>
             <button onClick="{{ start2fa }}" style="width:100%;background:none;border:0;color:#9a918a;font-weight:600;cursor:pointer;font-size:12.5px;margin-top:12px;text-decoration:underline">Set up / enable two-factor authentication</button>
@@ -982,6 +983,7 @@ class Component extends DCLogic {
 
   componentDidMount(){
     this.probeAuthMode();
+    setTimeout(()=>this.mountTurnstile('admin'), 60);
     // The admin session lives in sessionStorage, NOT localStorage.
     //
     // It used to persist in localStorage, so opening the dashboard on a shared
@@ -1053,6 +1055,55 @@ class Component extends DCLogic {
   setPassword = e => this.setState({passwordInput:e.target.value});
   // Ask the server whether any staff account exists yet, so the screen shows
   // email+password normally and the one-time token setup on a fresh install.
+
+  // ---------- Turnstile ----------
+  // Rendered explicitly and VISIBLY into a container in the form. An invisible
+  // widget rendered off-screen cannot work: a managed widget may decide it
+  // needs an interactive challenge, and off-screen there is nothing to click,
+  // so no token is ever produced and the form simply refuses everyone.
+  //
+  // If Turnstile is unconfigured the container stays empty and turnstileValue()
+  // returns null; the server is what enforces, and it lets those through, so a
+  // broken widget can never lock anyone out on its own.
+  async mountTurnstile(action){
+    try{
+      if(this._tsKey === undefined){
+        const r = await fetch('/api/turnstile-config');
+        this._tsKey = r.ok ? (await r.json()).siteKey : null;
+      }
+      if(!this._tsKey) return;
+      const host = document.getElementById('cf-turnstile-box');
+      if(!host || host.dataset.rendered === '1') return;
+      if(!window.turnstile){
+        await new Promise((res, rej)=>{
+          const sc=document.createElement('script');
+          sc.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+          sc.async=true; sc.defer=true; sc.onload=res; sc.onerror=rej;
+          document.head.appendChild(sc);
+        });
+      }
+      host.dataset.rendered='1';
+      this._tsId = window.turnstile.render(host, {
+        sitekey: this._tsKey, action: action || 'auth', theme: 'dark',
+        callback: () => this.setState({ tsReady:true }),
+        'expired-callback': () => this.setState({ tsReady:false }),
+        'error-callback': () => this.setState({ tsReady:false }),
+      });
+    }catch(e){ /* leave it unmounted; the server decides */ }
+  }
+  turnstileValue(){
+    try{
+      if(!this._tsKey || this._tsId == null) return null;
+      return window.turnstile.getResponse(this._tsId) || null;
+    }catch(e){ return null; }
+  }
+  // A token is single-use. Without a reset the second attempt is rejected for a
+  // token already seen, which reads to the user as a wrong password.
+  turnstileReset(){
+    try{ if(this._tsId != null) window.turnstile.reset(this._tsId); }catch(e){}
+    this.setState({ tsReady:false });
+  }
+
   async probeAuthMode(){
     try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google}); } }catch(e){}
   }
@@ -1095,7 +1146,11 @@ class Component extends DCLogic {
       // The owner-override box always sends the token, so lockout recovery works
       // even once staff accounts exist.
       if(this.state.overrideOpen && tok){ payload.token = tok; payload.reset2fa = this.state.reset2fa; }
+      payload.turnstileToken = this.turnstileValue();
       const r=await this.raw('/admin-login',{method:'POST',body:JSON.stringify(payload)});
+      // Reset after every attempt: a Turnstile token is single-use, so a second
+      // try with the same one is rejected and reads as a wrong password.
+      this.turnstileReset();
       const d=await r.json().catch(()=>({}));
       if(r.status===401 && /code/i.test(d.error||'')){ this.setState({busy:false, needCode:true, loginErr:this.state.codeInput?'Code incorrect — try the current 6 digits.':''}); return; }
       if(!r.ok){ this.setState({busy:false, loginErr:d.error||'Login failed.'}); return; }

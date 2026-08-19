@@ -963,6 +963,16 @@ try {
     assert.equal(cfg.status, 404, 'turnstile-config returned a site key that is not set');
   });
 
+  await check('the booking form is never blocked by the CAPTCHA', async () => {
+    // A customer at the roadside must not be turned away because a widget
+    // failed to load. Sign-in is CAPTCHA-gated; booking is rate-limited only.
+    const r = await postJson('/api/service-requests', {
+      name: 'No Token', phone: '07900000456', reg: 'NO11TOK',
+      service: 'recovery', svcLabel: 'Breakdown / recovery',
+    });
+    assert.equal(r.status, 200, 'a booking without a CAPTCHA token was refused');
+  });
+
   // ---- Security regressions --------------------------------------------------
   // Each of these reproduces a real hole found in the pre-go-live audit. They
   // are here so the hole cannot quietly come back.
