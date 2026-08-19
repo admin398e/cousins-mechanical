@@ -709,6 +709,11 @@
           </div>
 
           <!-- CONFIRM YOUR EMAIL — shown after signup, and on login if never confirmed -->
+          <!-- OUTSIDE every sc-if: a widget mounted inside one view is
+               destroyed when the customer switches to another, leaving that
+               form with no token and no way to get one. -->
+          <div id="cf-turnstile-box" style="margin-bottom:4px"></div>
+
           <sc-if value="{{ onVerifyView }}" hint-placeholder-val="{{ false }}">
             <div style="display:flex;flex-direction:column;gap:12px;animation:fadeIn .2s ease">
               <div style="font-weight:700;color:#1c1817;font-size:16px">Confirm your email</div>
@@ -756,7 +761,6 @@
               <div style="color:#8a817b;font-size:13.5px;margin-top:-6px">Log in to view, track, amend or cancel your bookings and see your offers.</div>
               <input value="{{ authEmail }}" onInput="{{ setAuthEmail }}" onKeyDown="{{ authOnKey }}" type="email" placeholder="Email address" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
               <input value="{{ authPass }}" onInput="{{ setAuthPass }}" onKeyDown="{{ authOnKey }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:16px"/>
-              <div id="cf-turnstile-box"></div>
               <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
               <sc-if value="{{ hasForgotMsg }}" hint-placeholder-val="{{ false }}"><div style="background:#eef7ef;border:1px solid #b9dcc0;color:#2f7a45;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ forgotMsg }}</div></sc-if>
               <button onClick="{{ doLogin }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px;margin-bottom:12px">{{ loginBtnLabel }}</button>

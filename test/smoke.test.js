@@ -1414,6 +1414,51 @@ try {
     assert.equal(prof.notes, undefined, 'notes leaked to customer profile');
   });
 
+  // Creating an account used to write nothing but "user:" — the contact
+  // database and the Resend audience were only ever touched by a *booking*.
+  // So somebody who signed up and ticked the marketing box appeared on no
+  // list at all, which is exactly what "customers are not being added" was.
+  await check('confirming a signup writes a contact record', async () => {
+    const em = `contactsync-${Date.now()}@example.com`;
+    await signupVerified({ name: 'Contact Sync', email: em, phone: '07900000456', password: 'contact-pass-123', marketing: true });
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const keys = Object.keys(dump.data);
+    assert.ok(keys.includes('contact:' + em), 'no contact record was created for a confirmed signup');
+  });
+
+  await check('marketing consent is carried onto the contact record', async () => {
+    const yes = `optin-${Date.now()}@example.com`;
+    const no = `optout-${Date.now()}@example.com`;
+    await signupVerified({ name: 'Opt In', email: yes, phone: '07900000457', password: 'contact-pass-123', marketing: true });
+    await signupVerified({ name: 'Opt Out', email: no, phone: '07900000458', password: 'contact-pass-123', marketing: false });
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const d = dump.data;
+    const read = k => d[k];
+    assert.equal(read('contact:' + yes).marketing, true, 'an explicit tick was not recorded');
+    // No tick means no marketing consent, ever — not "they are a customer so
+    // it is fine". That inference is the PECR problem, not a convenience.
+    assert.equal(read('contact:' + no).marketing, false, 'consent was inferred without a tick');
+  });
+
+  // Withdrawing consent has to change the contact record, not just the account.
+  await check('turning marketing off clears consent on the contact record', async () => {
+    const em = `withdraw-${Date.now()}@example.com`;
+    const { token } = await signupVerified({ name: 'Withdraw', email: em, phone: '07900000459', password: 'contact-pass-123', marketing: true });
+    const r = await api('/api/auth/profile', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
+      body: JSON.stringify({ marketing: false }),
+    });
+    assert.equal(r.status, 200);
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const d = dump.data;
+    const rec = d['contact:' + em];
+    assert.equal(rec.marketing, false, 'withdrawal did not reach the contact record');
+  });
+
   await check('repeated bad admin logins get rate limited', async () => {
     let sawLimit = false;
     for (let i = 0; i < 12; i++) {

@@ -65,7 +65,6 @@
               <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:12px;line-height:1.5">First-time setup. Sign in with your <strong>ADMIN_TOKEN</strong>, then create a staff email &amp; password. The token stops working once you do.</div>
               <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token (setup only)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
             </sc-if>
-            <input value="{{ apiInput }}" onInput="{{ setApi }}" placeholder="Worker URL (blank = same site)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px"/>
             <sc-if value="{{ needCode }}" hint-placeholder-val="{{ false }}">
               <div style="margin-bottom:14px">
                 <div style="color:#f4a04a;font-size:12.5px;font-weight:700;margin-bottom:6px">Two-factor required — enter the 6-digit code from your authenticator app</div>
@@ -949,7 +948,7 @@
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:860}}">
 class Component extends DCLogic {
   state = {
-    token:'', apiBase:'', tokenInput:'', apiInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
+    token:'', apiBase:'', tokenInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
     emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'', googleEnabled:false,
     staff:[], stEmail:'', stName:'', stPassword:'', stMsg:'', stErr:'', stBusy:false,
     codeInput:'', needCode:false, enrolled:false,
@@ -998,8 +997,9 @@ class Component extends DCLogic {
       // auto-signed-in from here on.
       localStorage.removeItem('cms_admin_sess');
       const sess=sessionStorage.getItem('cms_admin_sess');
-      const a=localStorage.getItem('cms_admin_api')||'';
-      if(sess){ this.setState({token:sess, apiBase:a, apiInput:a}, ()=>this.enter()); }
+      // A base saved by an older build would now be dead weight; drop it.
+      localStorage.removeItem('cms_admin_api');
+      if(sess){ this.setState({token:sess, apiBase:''}, ()=>this.enter()); }
     }catch(e){}
     this.armIdleTimer();
   }
@@ -1107,7 +1107,6 @@ class Component extends DCLogic {
   async probeAuthMode(){
     try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google}); } }catch(e){}
   }
-  setApi = e => this.setState({apiInput:e.target.value});
   setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
   toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
   toggleReset2fa = e => this.setState({reset2fa:e.target.checked});
@@ -1117,13 +1116,11 @@ class Component extends DCLogic {
   // goes to <this site>/<whatever was typed>/api/... and 404s. Anything without
   // http(s):// is ignored in favour of same-origin, which is correct in
   // production anyway — the Worker serves the dashboard and the API together.
-  apiBaseUrl(){
-    const v = (this.state.apiInput||'').trim().replace(/\/+$/,'');
-    if (!v) return '';
-    if (/^https?:\/\//i.test(v)) return v;
-    console.warn('[cms-admin] ignoring API base without a scheme:', v);
-    return '';
-  }
+  // The Worker serves this dashboard and the API from one origin, so the API
+  // base is always the current origin. The old "Worker URL" box only ever
+  // produced broken states: a value with no scheme is treated by fetch() as a
+  // path, so every call silently went to <this site>/<whatever was typed>/api.
+  apiBaseUrl(){ return ''; }
   async raw(path, opts){ opts=opts||{}; const h=Object.assign({'content-type':'application/json'}, opts.headers||{}); return fetch(this.apiBaseUrl()+'/api'+path, {...opts, headers:h}); }
 
   login = async () => {
@@ -1135,10 +1132,9 @@ class Component extends DCLogic {
       if(!em || !pw){ this.setState({loginErr:'Enter your email and password.'}); return; }
     } else if(!tok){ this.setState({loginErr:'Enter your admin token to set up the first account.'}); return; }
     const a=this.apiBaseUrl();
-    try{ localStorage.setItem('cms_admin_api',a); }catch(e){}
     this.setState({busy:true, loginErr:''});
     // Demo mode when no live worker is reachable
-    if(!(a || this.sameOrigin())){ this.setState({busy:false, loginErr:'No API URL set. Enter your Worker URL, or open the admin panel on your live domain.'}); return; }
+    if(!(a || this.sameOrigin())){ this.setState({busy:false, loginErr:'This is a design preview, not the live site. Open the admin panel on cousinsmechanicalservices.co.uk/admin to sign in.'}); return; }
     try{
       const payload = useStaff
         ? { email:em, password:pw, code:this.state.codeInput }
@@ -1434,7 +1430,7 @@ class Component extends DCLogic {
     }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
   };
 
-  // Same-origin API when served from the worker (blank Worker URL); preview/localhost => demo.
+  // Same-origin API when served from the worker; preview/localhost => demo.
   sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
   async af(path, opts){
     opts=opts||{}; const h=Object.assign({}, opts.headers||{});
@@ -2117,7 +2113,7 @@ class Component extends DCLogic {
 
     return {
       needsLogin:!s.loggedIn, loggedIn:s.loggedIn, demoMode:s.demoMode,
-      tokenInput:s.tokenInput, apiInput:s.apiInput, setToken:this.setToken, setApi:this.setApi, onKey:this.onKey,
+      tokenInput:s.tokenInput, setToken:this.setToken, onKey:this.onKey,
       googleSignIn:this.googleSignIn,
       codeInput:s.codeInput, setCode:this.setCode, needCode:s.needCode,
       overrideOpen:s.overrideOpen, reset2fa:s.reset2fa, toggleOverride:this.toggleOverride, toggleReset2fa:this.toggleReset2fa,

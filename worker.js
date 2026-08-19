@@ -1387,6 +1387,21 @@ async function api(request, env, url, ctx) {
     await env.CMS_KV.delete("verify:" + em);
     await audit(env, em, "email_verified", "");
 
+    // Signing up used to touch nothing but `user:` — only *bookings* wrote a
+    // contact record or reached Resend. So someone who created an account and
+    // ticked "keep me posted" never appeared on the mailing list, and never
+    // appeared in the contacts database either. Do it here rather than at
+    // signup so an unconfirmed address can never reach the audience.
+    const signupContact = await upsertContact(env, {
+      email: em, name: user.name, phone: user.phone, marketing: user.marketing === true,
+    }).catch(() => null);
+    if (signupContact && signupContact.contact) {
+      signupContact.contact.source = signupContact.contact.source || "account";
+      if (user.marketing === true) {
+        ctx.waitUntil(syncResendAudience(env, signupContact.contact).catch(() => null));
+      }
+    }
+
     const t = token();
     await env.CMS_KV.put("sess:" + t, em, { expirationTtl: 60 * 60 * 24 * 30 });
     return json({ token: t, user: publicUser(user) });
@@ -1513,6 +1528,32 @@ async function api(request, env, url, ctx) {
     if (b.smsUpdates !== undefined) u.smsUpdates = !!b.smsUpdates;
     await env.CMS_KV.put("user:" + u.email, JSON.stringify(u));
     await audit(env, u.email, "profile_updated", "marketing=" + u.marketing + " sms=" + u.smsUpdates);
+
+    // Consent is only real if it reaches the list. Ticking the box wrote `true`
+    // to KV and stopped there, so the audience never changed either way.
+    if (b.marketing !== undefined) {
+      const c = await upsertContact(env, {
+        email: u.email, name: u.name, phone: u.phone, marketing: u.marketing === true,
+      }).catch(() => null);
+      if (u.marketing === true) {
+        if (c && c.contact) ctx.waitUntil(syncResendAudience(env, c.contact).catch(() => null));
+      } else {
+        // upsertContact deliberately never *lowers* consent — a booking form
+        // with the box unticked must not wipe a tick given elsewhere. A
+        // withdrawal is the one case that has to, so clear it here, and do it
+        // whether or not Resend is configured: the local record is the record.
+        if (c && c.contact) {
+          c.contact.marketing = false;
+          c.contact.unsubscribedAt = Date.now();
+          await env.CMS_KV.put("contact:" + u.email, JSON.stringify(c.contact));
+        }
+        if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
+          ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(u.email), {
+            method: "DELETE", headers: { authorization: "Bearer " + env.RESEND_API_KEY },
+          }).catch(() => null));
+        }
+      }
+    }
     return json({ user: publicUser(u) });
   }
 

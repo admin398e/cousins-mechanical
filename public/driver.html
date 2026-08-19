@@ -38,13 +38,17 @@
         <button onClick="{{ gotoLogin }}" style="{{ loginSegStyle }}">Sign In</button>
         <button onClick="{{ gotoRegister }}" style="{{ regSegStyle }}">Register</button>
       </div>
+
+      <!-- OUTSIDE both sc-if blocks on purpose. Inside one of them, switching
+           tab unmounts the widget and the other form has no token to send —
+           which is exactly why Register refused everyone while Sign In worked. -->
+      <div id="cf-turnstile-box" style="margin-bottom:14px"></div>
       
       <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
         <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
         <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the email address you registered with.</div>
         <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-        <div id="cf-turnstile-box" style="margin-bottom:12px;min-height:0"></div>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ signInLabel }}</button>
       </sc-if>
