@@ -914,6 +914,106 @@
         </div>
       </sc-if>
 
+      <!-- ===================== CATALOGUE ===================== -->
+      <sc-if value="{{ onCatalogue }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+          <div style="margin-bottom:16px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;letter-spacing:.03em">TYRE CATALOGUE</div>
+            <div style="color:#9a918a;font-size:13px;margin-top:2px">Every tyre the supplier stocks, at your prices. Sort by <strong>worst margin</strong> to find anything the markup rules have got wrong.</div>
+          </div>
+
+          <!-- headline numbers -->
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px" class="adm-grid5">
+            <sc-for list="{{ catStats }}" as="k" hint-placeholder-count="5">
+              <div style="background:#14100e;border:1px solid #2a2320;border-radius:11px;padding:12px 14px">
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:21px;color:{{ k.colour }};line-height:1.1">{{ k.value }}</div>
+                <div style="color:#8a817b;font-size:11.5px;margin-top:3px">{{ k.label }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ catInverted }}" hint-placeholder-val="{{ false }}">
+            <div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:11px;padding:12px 15px;font-size:13.5px;line-height:1.5;margin-bottom:14px">
+              <strong>{{ catInvertedHeadline }}</strong> A customer looking at those sizes is shown a budget tyre that costs more than a premium one. It comes from budget carrying a bigger markup % than premium — check the Tyre Pricing tab. Worst offenders: {{ catInvertedList }}
+            </div>
+          </sc-if>
+
+          <!-- controls -->
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:15px 17px;margin-bottom:14px">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+              <input value="{{ catQ }}" onInput="{{ setCatQ }}" onKeyDown="{{ onCatKey }}" placeholder="Search brand, model or size (e.g. 205/55R16)…" style="flex:1;min-width:240px;border:1.5px solid #3a322d;background:#0f0c0b;color:#fff;border-radius:9px;padding:12px 14px;font-size:15px"/>
+              <select value="{{ catSort }}" onChange="{{ setCatSort }}" style="background:#0f0c0b;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:9px;padding:12px 13px;font-size:14px">
+                <option value="size">Size, then price</option>
+                <option value="marginAsc">Worst margin first</option>
+                <option value="marginDesc">Best margin first</option>
+                <option value="priceAsc">Cheapest first</option>
+                <option value="priceDesc">Dearest first</option>
+                <option value="brand">Brand A–Z</option>
+              </select>
+              <button onClick="{{ toggleCatStock }}" style="{{ catStockBtnStyle }}">{{ catStockBtnLabel }}</button>
+              <button onClick="{{ loadCatalogue }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 20px;cursor:pointer;font-size:14.5px">{{ catSearchLabel }}</button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;max-height:132px;overflow-y:auto;padding-bottom:2px">
+              <sc-for list="{{ catBrands }}" as="b" hint-placeholder-count="8">
+                <button onClick="{{ b.pick }}" style="{{ b.style }}">{{ b.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- the grid -->
+          <sc-if value="{{ catBusy }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:40px;text-align:center;color:#8a817b;font-size:14px">Loading the catalogue…</div>
+          </sc-if>
+          <sc-if value="{{ catEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:40px;text-align:center;color:#8a817b;font-size:14px">Nothing matches that search. Clear the box or pick a different brand.</div>
+          </sc-if>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px">
+            <sc-for list="{{ catRows }}" as="t" hint-placeholder-count="10">
+              <div style="{{ t.cardStyle }}">
+                <div style="background:#fff;border-radius:9px;height:118px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:11px">
+                  <img src="{{ t.image }}" alt="{{ t.brand }}" style="max-width:92%;max-height:104px;object-fit:contain"/>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
+                  <span style="font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:.07em;color:#f4a04a;text-transform:uppercase">{{ t.brand }}</span>
+                  <span style="{{ t.tierStyle }}">{{ t.tierLabel }}</span>
+                </div>
+                <div style="font-weight:700;color:#fff;font-size:14.5px;line-height:1.25">{{ t.model }}</div>
+                <div style="color:#8a817b;font-size:12px;margin-top:2px">{{ t.label }}</div>
+                <div style="font-family:monospace;font-size:11px;color:#6f6862;margin-top:3px">{{ t.sku }}</div>
+
+                <div style="display:flex;align-items:baseline;gap:8px;margin-top:10px">
+                  <span style="font-family:'Barlow Condensed';font-weight:800;font-size:25px;color:#7fe09a;line-height:1">{{ t.priceLabel }}</span>
+                  <span style="color:#6f6862;font-size:11.5px">cost {{ t.costLabel }}</span>
+                </div>
+                <div style="{{ t.marginStyle }}">{{ t.marginLabel }}</div>
+
+                <div style="display:flex;gap:7px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid #241d19">
+                  <input value="{{ t.priceInput }}" onInput="{{ t.setPrice }}" onKeyDown="{{ t.onPriceKey }}" onBlur="{{ t.savePrice }}" placeholder="{{ t.pricePlaceholder }}" style="{{ t.priceInputStyle }}"/>
+                  <label style="display:flex;align-items:center;gap:5px;color:#9a918a;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap">
+                    <input type="checkbox" checked="{{ t.inStock }}" onChange="{{ t.toggleStock }}" style="width:15px;height:15px;accent-color:#39a854;cursor:pointer"/>
+                    In van
+                  </label>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px">
+                  <span style="font-size:10.5px;color:#6f6862">{{ t.priceNote }}</span>
+                  <a href="{{ t.supplierUrl }}" target="_blank" rel="noopener" style="color:#0d8bd4;font-size:11.5px;font-weight:700;text-decoration:underline">Order →</a>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- paging -->
+          <sc-if value="{{ catHasRows }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-top:18px">
+              <button onClick="{{ catPrev }}" style="{{ catPrevStyle }}">← Previous</button>
+              <div style="color:#9a918a;font-size:13px;font-weight:600">{{ catPageLabel }}</div>
+              <button onClick="{{ catNext }}" style="{{ catNextStyle }}">Next →</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
       <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
@@ -955,6 +1055,9 @@ class Component extends DCLogic {
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
+    // Catalogue browser
+    catQ:'', catBrand:'', catSort:'size', catStockOnly:false, catPage:1, catPages:1,
+    catTotal:0, catRaw:[], catBrandList:[], catSummary:null, catBusy:false, catEdit:{},
     threads:[], activeThread:'', threadMsgs:[], replyInput:'',
     // CRM (customers tab)
     custSel:null, custDetail:null, custBookings:[], custNotes:[], custDiscount:'0', custDiscountReason:'', custNote:'', custLoading:false, custSaving:false, custMsg:'', custErr:'',
@@ -1298,6 +1401,73 @@ class Component extends DCLogic {
       this.setState({ custNotes:d.notes||[], custNote:'', custSaving:false, custMsg:'Note added.' });
       this.loadAll();
     }catch(e){ this.setState({ custSaving:false, custErr:'Could not add the note.' }); }
+  };
+
+  // ---------- CATALOGUE (browse everything, not one size at a time) ----------
+  setCatQ = e => this.setState({catQ:e.target.value});
+  onCatKey = e => { if(e.key==='Enter') this.setState({catPage:1}, ()=>this.loadCatalogue()); };
+  setCatSort = e => this.setState({catSort:e.target.value, catPage:1}, ()=>this.loadCatalogue());
+  toggleCatStock = () => this.setState({catStockOnly:!this.state.catStockOnly, catPage:1}, ()=>this.loadCatalogue());
+  pickCatBrand = (name) => this.setState({catBrand:name, catPage:1}, ()=>this.loadCatalogue());
+  catPrev = () => { if(this.state.catPage>1) this.setState({catPage:this.state.catPage-1}, ()=>this.loadCatalogue()); };
+  catNext = () => { if(this.state.catPage<this.state.catPages) this.setState({catPage:this.state.catPage+1}, ()=>this.loadCatalogue()); };
+
+  loadCatalogue = async () => {
+    if(!this.hasServer()) return;
+    this.setState({catBusy:true});
+    const s=this.state;
+    const qs=new URLSearchParams();
+    if((s.catQ||'').trim()) qs.set('q', s.catQ.trim());
+    if(s.catBrand) qs.set('brand', s.catBrand);
+    if(s.catStockOnly) qs.set('stock','1');
+    qs.set('sort', s.catSort||'size');
+    qs.set('page', String(s.catPage||1));
+    try{
+      const r=await this.af('/admin/catalogue?'+qs.toString());
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json();
+      this.setState(st => ({
+        catRaw:d.tyres||[], catPages:d.pages||1, catPage:d.page||1, catTotal:d.total||0,
+        catSummary:d.summary||null, catBusy:false,
+        // Brands are only kept from an UNFILTERED load. Otherwise picking a brand
+        // would replace the chip row with that one brand and there would be no
+        // way back to the rest of them.
+        catBrandList: (!s.catBrand && !(s.catQ||'').trim()) ? (d.brands||[]) : st.catBrandList,
+      }));
+    }catch(e){ this.setState({catBusy:false, catRaw:[], loadErr:'Could not load the catalogue — '+e.message}); }
+  };
+
+  // The card's price box is a controlled input, so keystrokes have to land in
+  // state or the field refuses to type. Same shape the pricing table uses.
+  setCatPrice = (id, v) => this.setState(s => ({catEdit:{...s.catEdit, [id]:v}}));
+
+  // Overrides reuse the pricing endpoint; reload after saving so the margin
+  // recalculates rather than sitting there stale next to a new price.
+  saveCatPrice = async (id, raw) => {
+    if(!this.hasServer()) return;
+    const edited = this.state.catEdit||{};
+    const v = String((raw==null ? edited[id] : raw) ?? '').trim();
+    const row = (this.state.catRaw||[]).find(t=>t.id===id);
+    const was = row && row.priceSource==='override' ? String(row.price) : '';
+    if(v === was) return;                       // nothing typed — don't churn KV
+    try{
+      const r = await this.af('/admin/pricing/override',{method:'POST',body:JSON.stringify({id, price: v===''?null:Number(v)})});
+      if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.error||'Save failed'); }
+      this.setState(st=>{ const e={...st.catEdit}; delete e[id]; return {catEdit:e}; }, ()=>this.loadCatalogue());
+    }catch(e){ this.setState({loadErr:e.message}); }
+  };
+
+  toggleCatStockItem = async (id, inStock) => {
+    if(!this.hasServer()) return;
+    try{
+      const r=await this.af('/admin/pricing/stock',{method:'POST',body:JSON.stringify({id, inStock})});
+      const d=await r.json();
+      if(!r.ok) throw new Error(d.error||'Save failed');
+      this.setState(s=>({
+        pricing:{...s.pricing, inStock:d.inStock},
+        catRaw:(s.catRaw||[]).map(t=>t.id===id?{...t, inStock}:t),
+      }));
+    }catch(e){ this.setState({loadErr:e.message}); }
   };
 
   // ---------- TYRE PRICING ----------
@@ -1843,6 +2013,9 @@ class Component extends DCLogic {
     this.setState({tab}, () => {
       if(tab === 'tracking') this.initMap();
       if(tab === 'pricing') this.loadPricing();
+      // Only fetch the first time — 4,000 priced rows is not something to
+      // re-request every time somebody clicks back onto the tab.
+      if(tab === 'catalogue' && !(this.state.catRaw||[]).length) this.loadCatalogue();
     });
   }
 
@@ -2096,6 +2269,7 @@ class Component extends DCLogic {
       ['tracking','Live Map','LIVE'],
       ['stock','Parts & Ordering',s.stock.length],
       ['pricing','Tyre Pricing',''],
+      ['catalogue','Catalogue',''],
       ['staff','Staff Logins',s.staff.length],
       ['calendar','Calendar','']
     ];
@@ -2169,6 +2343,76 @@ class Component extends DCLogic {
       onTracking:s.tab==='tracking', initMap:this.initMap,
       onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',
       onPricing:s.tab==='pricing',
+      onCatalogue:s.tab==='catalogue',
+      catQ:s.catQ, setCatQ:this.setCatQ, onCatKey:this.onCatKey,
+      catSort:s.catSort, setCatSort:this.setCatSort,
+      loadCatalogue:()=>this.setState({catPage:1},()=>this.loadCatalogue()),
+      catSearchLabel: s.catBusy ? 'Loading…' : 'Search',
+      catBusy: s.catBusy,
+      catEmpty: !s.catBusy && (s.catRaw||[]).length===0,
+      catHasRows: (s.catRaw||[]).length>0,
+      catInverted: !!(s.catSummary && s.catSummary.inverted),
+      catInvertedHeadline: (() => {
+        const n = (s.catSummary && s.catSummary.invertedCount) || 0;
+        return n === 1 ? '1 size is priced upside down.' : n + ' sizes are priced upside down.';
+      })(),
+      catInvertedList: ((s.catSummary && s.catSummary.invertedSizes) || [])
+        .slice(0, 5).map(v => v.size + ' (budget up to £' + Math.round(v.budgetMax) + ', premium from £' + Math.round(v.premiumMin) + ')').join(', '),
+      toggleCatStock:this.toggleCatStock,
+      catStockBtnLabel: s.catStockOnly ? 'In the van only' : 'All tyres',
+      catStockBtnStyle: 'font-weight:700;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14px;border:1.5px solid '
+        + (s.catStockOnly?'#39a854':'#3a322d') + ';background:' + (s.catStockOnly?'rgba(57,168,84,.14)':'#0f0c0b')
+        + ';color:' + (s.catStockOnly?'#7fe09a':'#9a918a'),
+      catStats: (() => {
+        const m = s.catSummary || {};
+        const t = m.tiers || {};
+        const band = (x) => (!x || x.n===0) ? '—' : ('£'+Math.round(x.min)+'–'+Math.round(x.max));
+        return [
+          {value:String(m.total ?? 0), label:'tyres shown', colour:'#e8791a'},
+          {value:band(t.B), label:'budget price range', colour:'#d9d2cc'},
+          {value:band(t.M), label:'mid-range', colour:'#d9d2cc'},
+          {value:band(t.P), label:'premium', colour:'#d9d2cc'},
+          {value:String(m.overridden ?? 0), label:'manually priced', colour:'#f4a04a'},
+        ];
+      })(),
+      catBrands: [{name:'', count:0}].concat(s.catBrandList||[]).map(b=>({
+        label: b.name ? (b.name + ' ' + b.count) : 'All brands',
+        pick: ()=>this.pickCatBrand(b.name),
+        style: 'border-radius:20px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;border:1px solid '
+          + (s.catBrand===b.name ? '#e8791a' : '#3a322d') + ';background:' + (s.catBrand===b.name ? '#e8791a' : '#0f0c0b')
+          + ';color:' + (s.catBrand===b.name ? '#14100e' : '#9a918a'),
+      })),
+      catRows: (s.catRaw||[]).map(t=>{
+        const tierColour = {B:'#6f6862',M:'#e8791a',P:'#0d5bd4'}[t.tier] || '#6f6862';
+        const overridden = t.priceSource === 'override';
+        // Green above £20 a tyre, amber above £10, red below — the same bands the
+        // pricing table uses, so the two screens never disagree.
+        const marginColour = t.margin==null ? '#6f6862' : (t.margin>=20 ? '#7fe09a' : (t.margin>=10 ? '#f4a04a' : '#f0a884'));
+        return {
+          ...t,
+          tierLabel: t.tierLabel || '—',
+          priceLabel: t.price==null ? '—' : '£'+Number(t.price).toFixed(2),
+          costLabel: t.cost==null ? '—' : '£'+Number(t.cost).toFixed(2),
+          marginLabel: t.margin==null ? 'no wholesale cost on file' : ('margin £'+Number(t.margin).toFixed(2)+(t.marginPct!=null?' · '+t.marginPct+'%':'')),
+          marginStyle: 'margin-top:4px;font-size:12px;font-weight:700;color:'+marginColour,
+          priceNote: overridden ? 'manual price' : (t.markupPct!=null ? t.markupPct+'% markup' : 'catalogue price'),
+          tierStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:10.5px;letter-spacing:.06em;color:#fff;background:'+tierColour+';border-radius:5px;padding:2px 7px',
+          cardStyle: 'background:#14100e;border:1px solid '+(t.inStock?'rgba(57,168,84,.45)':'#2a2320')+';border-radius:13px;padding:13px',
+          priceInput: (s.catEdit||{})[t.id] !== undefined ? (s.catEdit||{})[t.id] : (overridden ? String(t.price) : ''),
+          pricePlaceholder: 'override £',
+          priceInputStyle: 'flex:1;min-width:0;border:1.5px solid '+(overridden?'#e8791a':'#3a322d')+';background:#0f0c0b;color:#fff;border-radius:8px;padding:7px 9px;font-size:13px;font-weight:700',
+          setPrice: (e)=>this.setCatPrice(t.id, e.target.value),
+          onPriceKey: (e)=>{ if(e.key==='Enter') this.saveCatPrice(t.id, e.target.value); },
+          savePrice: (e)=>this.saveCatPrice(t.id, e.target.value),
+          toggleStock: (e)=>this.toggleCatStockItem(t.id, e.target.checked),
+        };
+      }),
+      catPageLabel: 'Page '+(s.catPage||1)+' of '+(s.catPages||1)+' · '+(s.catTotal||0)+' tyres',
+      catPrev:this.catPrev, catNext:this.catNext,
+      catPrevStyle: 'border:1px solid #3a322d;background:#14100e;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;color:'
+        + ((s.catPage||1)>1 ? '#d9d2cc;cursor:pointer' : '#4a423d;cursor:default'),
+      catNextStyle: 'border:1px solid #3a322d;background:#14100e;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;color:'
+        + ((s.catPage||1)<(s.catPages||1) ? '#d9d2cc;cursor:pointer' : '#4a423d;cursor:default'),
       onStaff:s.tab==='staff',
       invMinStock: String(s.invSettings.defaultMinStock ?? 3),
       invReorderQty: String(s.invSettings.defaultReorderQty ?? 10),

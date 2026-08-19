@@ -1459,6 +1459,81 @@ try {
     assert.equal(rec.marketing, false, 'withdrawal did not reach the contact record');
   });
 
+  // The pricing tab could only ever show one size at a time, so a bad markup on
+  // a range nobody thinks to type stayed invisible. The catalogue endpoint is
+  // how that becomes findable — and it carries cost and margin, so it must be
+  // admin-only and must never be reachable from the public API.
+  await check('the admin catalogue lists every tyre, paginated', async () => {
+    const tok = await adminTok();
+    const r = await api('/api/admin/catalogue?perPage=24', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    assert.ok(d.total > 3000, 'expected the whole catalogue, got ' + d.total);
+    assert.equal(d.tyres.length, 24, 'perPage was not honoured');
+    assert.ok(d.pages > 1, 'pagination missing');
+    assert.ok(d.brands.length > 5, 'brand list missing');
+    const t = d.tyres[0];
+    for (const f of ['id', 'brand', 'model', 'size', 'image', 'sku', 'tier']) {
+      assert.ok(t[f] !== undefined, 'catalogue row missing ' + f);
+    }
+  });
+
+  await check('the catalogue exposes cost and margin, and requires admin auth', async () => {
+    const anon = await api('/api/admin/catalogue');
+    assert.equal(anon.status, 403, 'wholesale costs must not be public');
+    const tok = await adminTok();
+    const d = await (await api('/api/admin/catalogue?perPage=40', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const withCost = d.tyres.filter(t => t.cost != null);
+    assert.ok(withCost.length > 0, 'no wholesale costs came back');
+    for (const t of withCost) {
+      assert.equal(Math.round((t.price - t.cost) * 100) / 100, t.margin, 'margin does not equal price minus cost');
+    }
+  });
+
+  await check('the catalogue can be searched, filtered and sorted', async () => {
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok };
+    const all = await (await api('/api/admin/catalogue?perPage=200', { headers: h })).json();
+    const brand = all.brands[0].name;
+
+    const byBrand = await (await api('/api/admin/catalogue?perPage=200&brand=' + encodeURIComponent(brand), { headers: h })).json();
+    assert.ok(byBrand.total > 0, 'brand filter returned nothing');
+    assert.ok(byBrand.tyres.every(t => t.brand === brand), 'brand filter leaked other brands');
+
+    const q = await (await api('/api/admin/catalogue?q=195%2F65R15&perPage=200', { headers: h })).json();
+    assert.ok(q.total > 0, 'size search returned nothing');
+    assert.ok(q.tyres.every(t => t.size === '195/65R15'), 'size search leaked other sizes');
+
+    // Worst-margin-first is the whole point: it surfaces the mispriced lines
+    // without anyone having to guess which size to look at.
+    const worst = await (await api('/api/admin/catalogue?sort=marginAsc&perPage=50', { headers: h })).json();
+    const m = worst.tyres.map(t => t.margin).filter(x => x != null);
+    for (let i = 1; i < m.length; i++) assert.ok(m[i] >= m[i - 1], 'marginAsc is not sorted');
+  });
+
+  await check('the catalogue flags upside-down pricing per size, not across sizes', async () => {
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok };
+
+    // One size, sane markups: budget must not top the cheapest premium.
+    const one = await (await api('/api/admin/catalogue?q=195%2F65R15&perPage=200', { headers: h })).json();
+    assert.ok(one.summary, 'no summary returned');
+    assert.equal(one.summary.invertedCount, 0, 'unexpected inversion in 195/65R15');
+    assert.equal(one.summary.inverted, false);
+
+    // The whole catalogue must NOT report an inversion merely because a budget
+    // 285/35R21 costs more than a premium 155/70R13. Comparing across sizes
+    // would light the warning on every page and make it worthless.
+    const all = await (await api('/api/admin/catalogue?perPage=12', { headers: h })).json();
+    const { B, P } = all.summary.tiers;
+    assert.ok(B.max > P.min, 'test assumes the catalogue-wide ranges overlap');
+    assert.ok(Array.isArray(all.summary.invertedSizes), 'invertedSizes missing');
+    for (const v of all.summary.invertedSizes) {
+      assert.ok(v.budgetMax > v.premiumMin, 'a listed size is not actually inverted');
+    }
+    assert.equal(all.summary.inverted, all.summary.invertedCount > 0);
+  });
+
   await check('repeated bad admin logins get rate limited', async () => {
     let sawLimit = false;
     for (let i = 0; i < 12; i++) {

@@ -262,6 +262,113 @@ export function search(catalogue, costMap, query, limit = 100, pricing) {
   return { query: q, total: results.length, tyres: results.slice(0, limit) };
 }
 
+/**
+ * The whole catalogue, priced, for the admin screen.
+ *
+ * The pricing tab could only ever show one size at a time — you had to already
+ * know which size to type. That makes a mispriced range invisible: nobody types
+ * 275/50R19 on the off-chance. This walks every size, assigns tiers, prices each
+ * line and hands back a filtered, sorted page of the lot, plus the facts you need
+ * to spot a bad rule (worst margins first, tier price ranges, inversions).
+ *
+ * Trade-only fields are included, so this must stay behind admin auth.
+ */
+export function adminCatalogue(catalogue, costMap, pricing, opts = {}) {
+  const q = String(opts.q || '').toLowerCase().trim();
+  const brandWanted = String(opts.brand || '').toLowerCase().trim();
+  const tierWanted = String(opts.tier || '').trim().toUpperCase();
+  const stockOnly = opts.stock === true || opts.stock === 'true' || opts.stock === '1';
+  const sort = String(opts.sort || 'size').trim();
+  const perPage = Math.min(200, Math.max(12, Number(opts.perPage) || 60));
+  const page = Math.max(1, Number(opts.page) || 1);
+  const p = normalisePricing(pricing);
+
+  const rows = [];
+  const brandCounts = new Map();
+  for (const [sizeKey, list] of Object.entries(catalogue)) {
+    if (!Array.isArray(list) || !list.length) continue;
+    const tiers = assignTiers(list, costMap);
+    for (const item of list) {
+      brandCounts.set(item.b, (brandCounts.get(item.b) || 0) + 1);
+      if (brandWanted && String(item.b || '').toLowerCase() !== brandWanted) continue;
+      const tier = tiers.get(item.id);
+      if (tierWanted && tier !== tierWanted) continue;
+      if (q && !(
+        sizeKey.toLowerCase().includes(q) ||
+        String(item.b || '').toLowerCase().includes(q) ||
+        String(item.m || '').toLowerCase().includes(q) ||
+        String(item.l || '').toLowerCase().includes(q) ||
+        String(item.k || '').toLowerCase().includes(q)
+      )) continue;
+      const pub = enrich(item, costMap, sizeKey, tier, p);
+      if (stockOnly && !pub.inStock) continue;
+      rows.push(forAdmin(pub, item, costMap, p));
+    }
+  }
+
+  // Summary over the FILTERED set, so narrowing to one brand tells you about
+  // that brand rather than about the catalogue.
+  const priced = rows.filter(r => r.price != null);
+  const range = t => {
+    const v = priced.filter(r => r.tier === t).map(r => r.price);
+    return v.length ? { n: v.length, min: Math.min(...v), max: Math.max(...v) } : { n: 0, min: null, max: null };
+  };
+  const B = range('B'), M = range('M'), P = range('P');
+
+  // The inversion check has to be done WITHIN a size and never across the
+  // catalogue. A budget 285/35R21 outpricing a premium 155/70R13 is not a
+  // pricing fault, it is just a bigger tyre — comparing the two would light a
+  // warning on every single page. What is a fault is a customer being shown a
+  // budget tyre dearer than a premium one for the car they actually drive.
+  const bySize = new Map();
+  for (const r of priced) {
+    if (!r.tier || (r.tier !== 'B' && r.tier !== 'P')) continue;
+    const e = bySize.get(r.size) || { bMax: null, pMin: null };
+    if (r.tier === 'B') e.bMax = e.bMax == null ? r.price : Math.max(e.bMax, r.price);
+    else e.pMin = e.pMin == null ? r.price : Math.min(e.pMin, r.price);
+    bySize.set(r.size, e);
+  }
+  const invertedSizes = [...bySize.entries()]
+    .filter(([, e]) => e.bMax != null && e.pMin != null && e.bMax > e.pMin)
+    .map(([size, e]) => ({ size, budgetMax: e.bMax, premiumMin: e.pMin }))
+    .sort((a, b) => (b.budgetMax - b.premiumMin) - (a.budgetMax - a.premiumMin));
+
+  const summary = {
+    total: rows.length,
+    priced: priced.length,
+    noCost: rows.filter(r => r.cost == null).length,
+    overridden: rows.filter(r => r.priceSource === 'override').length,
+    inStock: rows.filter(r => r.inStock).length,
+    sizes: bySize.size,
+    tiers: { B, M, P },
+    invertedCount: invertedSizes.length,
+    invertedSizes: invertedSizes.slice(0, 12),
+    inverted: invertedSizes.length > 0,
+  };
+
+  const num = (v, hi) => (v == null ? (hi ? Infinity : -Infinity) : v);
+  const sorters = {
+    size: (a, b) => String(a.size).localeCompare(String(b.size)) || num(a.price, true) - num(b.price, true),
+    priceAsc: (a, b) => num(a.price, true) - num(b.price, true),
+    priceDesc: (a, b) => num(b.price, false) - num(a.price, false),
+    marginAsc: (a, b) => num(a.margin, true) - num(b.margin, true),
+    marginDesc: (a, b) => num(b.margin, false) - num(a.margin, false),
+    marginPctDesc: (a, b) => num(b.marginPct, false) - num(a.marginPct, false),
+    brand: (a, b) => String(a.brand).localeCompare(String(b.brand)) || String(a.size).localeCompare(String(b.size)),
+  };
+  rows.sort(sorters[sort] || sorters.size);
+
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const start = (Math.min(page, pages) - 1) * perPage;
+
+  return {
+    total: rows.length, page: Math.min(page, pages), pages, perPage,
+    brands: [...brandCounts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count })),
+    summary,
+    tyres: rows.slice(start, start + perPage),
+  };
+}
+
 export function byId(catalogue, costMap, id, pricing) {
   const target = Number(id);
   if (!Number.isFinite(target)) return null;

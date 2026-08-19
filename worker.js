@@ -1,6 +1,6 @@
 import {
   lookupBySize, lookupBySizeAdmin, search as searchCatalogue, byId as tyreById,
-  normalisePricing, DEFAULT_PRICING, assignTiers, forAdmin,
+  normalisePricing, DEFAULT_PRICING, assignTiers, forAdmin, adminCatalogue,
 } from "./tyre-data.js";
 
 /*
@@ -38,8 +38,12 @@ import {
  *      GCAL_CALENDAR_ID      calendar id the invites land on (share it with the service account)
  *      RESEND_API_KEY        Resend API key (resend.com — free 3,000 emails/mo)
  *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
- *      RESEND_AUDIENCE_ID    Resend Audience id — optional. Only consented contacts are pushed to it;
- *                            leave unset and the marketing tick is still recorded in KV but nothing is synced.
+ *      RESEND_AUDIENCE_ID          Resend Audience id for MARKETING — optional. Only contacts who ticked
+ *                                  the box are pushed here. Leave unset and the tick is still recorded in KV.
+ *      RESEND_CUSTOMER_AUDIENCE_ID Resend Audience id for ALL CUSTOMERS — optional. Everyone who books or
+ *                                  confirms an account lands here regardless of the marketing tick. This is
+ *                                  an address book, NOT a mailing list: never send a marketing broadcast to
+ *                                  it. Service notices about work already booked are fine.
  *      RESEND_WEBHOOK_SECRET Signing secret (whsec_...) from Resend → Webhooks. Required for /api/resend-webhook;
  *                            unset means the endpoint refuses every request rather than trusting forged bounces.
  *      TURNSTILE_SITE_KEY    Cloudflare Turnstile public site key — sent to the browser to render the widget.
@@ -1023,8 +1027,27 @@ async function upsertContact(env, order) {
 async function syncResendAudience(env, contact) {
   if (!env.RESEND_API_KEY || !env.RESEND_AUDIENCE_ID) return { skipped: true, reason: "audience not configured" };
   if (!contact || !contact.marketing) return { skipped: true, reason: "no marketing consent" };
+  return pushToAudience(env, env.RESEND_AUDIENCE_ID, contact);
+}
+
+/**
+ * Push a contact into the ALL-CUSTOMERS audience.
+ *
+ * No consent check, because this is not a marketing list — it is the address
+ * book for people we have a contract with, and the lawful basis is that
+ * contract. The consent rule lives on what you SEND, not on what you store, so
+ * the one thing that must never happen is a marketing broadcast aimed at this
+ * audience. Name it something that makes that obvious in the Resend UI.
+ */
+async function syncCustomerAudience(env, contact) {
+  if (!env.RESEND_API_KEY || !env.RESEND_CUSTOMER_AUDIENCE_ID) return { skipped: true, reason: "customer audience not configured" };
+  if (!contact || !contact.email) return { skipped: true, reason: "no email" };
+  return pushToAudience(env, env.RESEND_CUSTOMER_AUDIENCE_ID, contact);
+}
+
+async function pushToAudience(env, audienceId, contact) {
   const parts = String(contact.name || "").trim().split(/\s+/);
-  const r = await fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts", {
+  const r = await fetch("https://api.resend.com/audiences/" + audienceId + "/contacts", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
     body: JSON.stringify({
@@ -1298,6 +1321,7 @@ async function api(request, env, url, ctx) {
 
     // Mirror it to Resend so a broadcast can't reach them either. Best effort —
     // our own record is the one that governs.
+    // Marketing audience only — an unsubscribe is not an erasure request.
     if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
       ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(em), {
         method: "PATCH",
@@ -1397,6 +1421,7 @@ async function api(request, env, url, ctx) {
     }).catch(() => null);
     if (signupContact && signupContact.contact) {
       signupContact.contact.source = signupContact.contact.source || "account";
+      ctx.waitUntil(syncCustomerAudience(env, signupContact.contact).catch(() => null));
       if (user.marketing === true) {
         ctx.waitUntil(syncResendAudience(env, signupContact.contact).catch(() => null));
       }
@@ -1547,6 +1572,9 @@ async function api(request, env, url, ctx) {
           c.contact.unsubscribedAt = Date.now();
           await env.CMS_KV.put("contact:" + u.email, JSON.stringify(c.contact));
         }
+        // Marketing only. They stay in the customer address book — withdrawing
+        // consent to marketing is not a request to be forgotten, and we still
+        // need to email them about the job they booked.
         if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
           ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(u.email), {
             method: "DELETE", headers: { authorization: "Bearer " + env.RESEND_API_KEY },
@@ -1588,12 +1616,17 @@ async function api(request, env, url, ctx) {
     const inbox = JSON.parse((await env.CMS_KV.get("inbox")) || "{}");
     if (inbox[u.email]) { delete inbox[u.email]; await env.CMS_KV.put("inbox", JSON.stringify(inbox)); }
 
-    // Marketing suppression at Resend, so an erased customer is not later
-    // re-added by a stale broadcast list.
-    if (env.RESEND_API_KEY && env.RESEND_AUDIENCE_ID) {
-      ctx.waitUntil(fetch("https://api.resend.com/audiences/" + env.RESEND_AUDIENCE_ID + "/contacts/" + encodeURIComponent(u.email), {
-        method: "DELETE", headers: { authorization: "Bearer " + env.RESEND_API_KEY },
-      }).catch(() => null));
+    // Suppression at Resend, so an erased customer is not later re-added by a
+    // stale list. Erasure is total: BOTH audiences, not just the marketing one.
+    // Leaving them in the address book would mean a route advertised as Art. 17
+    // erasure still had their name and address sitting at a processor.
+    if (env.RESEND_API_KEY) {
+      for (const aud of [env.RESEND_AUDIENCE_ID, env.RESEND_CUSTOMER_AUDIENCE_ID]) {
+        if (!aud) continue;
+        ctx.waitUntil(fetch("https://api.resend.com/audiences/" + aud + "/contacts/" + encodeURIComponent(u.email), {
+          method: "DELETE", headers: { authorization: "Bearer " + env.RESEND_API_KEY },
+        }).catch(() => null));
+      }
     }
 
     const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
@@ -2062,6 +2095,10 @@ async function processTyreStockForOrder(env, order) {
     // customer list was built only from "user:" records, so anyone who booked
     // without signing up was invisible to the admin.
     const contactRes = (await safe("contact", () => upsertContact(env, order))) || {};
+
+    // The address book gets everyone who books, tick or no tick. It is a record
+    // of people we are doing work for, not a mailing list.
+    if (contactRes.contact) ctx.waitUntil(syncCustomerAudience(env, contactRes.contact).catch(() => null));
 
     // Resend audience — only on an explicit marketing tick, and only the first
     // time it goes from off to on, so a repeat customer is not re-POSTed on
@@ -3552,7 +3589,24 @@ async function processTyreStockForOrder(env, order) {
      * POST /admin/pricing/stock      mark tyres in / out of stock
      * GET  /admin/tyres?size=...     the size, priced, WITH cost, margin and the
      *                                direct ctyres.co.uk link for reordering
+     * GET  /admin/catalogue          EVERY tyre, priced, paginated and filterable
      * ------------------------------------------------------------------- */
+    /*
+     * The whole catalogue, browsable. The size lookup below needs you to already
+     * know which size is wrong, so a bad markup on a range nobody thinks to type
+     * stays invisible. This lists everything with cost, sell price and margin,
+     * and can sort worst-margin-first.
+     */
+    if (p === "/admin/catalogue" && request.method === "GET") {
+      const { catalogue, costMap } = await tyreData(env);
+      const qp = url.searchParams;
+      return json(adminCatalogue(catalogue, costMap, await getPricing(env), {
+        q: qp.get("q"), brand: qp.get("brand"), tier: qp.get("tier"),
+        stock: qp.get("stock"), sort: qp.get("sort"),
+        page: qp.get("page"), perPage: qp.get("perPage"),
+      }));
+    }
+
     if (p === "/admin/pricing") {
       if (request.method === "GET") {
         return json({ pricing: await getPricing(env), defaults: DEFAULT_PRICING });
@@ -3665,21 +3719,25 @@ async function processTyreStockForOrder(env, order) {
       // plain UUIDs. Pointing this at a segment means every consented contact
       // sync silently 404s, which is invisible until someone asks why the
       // mailing list is empty.
-      results.audience = await (async () => {
-        if (!env.RESEND_AUDIENCE_ID) return { skipped: true, reason: "RESEND_AUDIENCE_ID not set — consent is recorded, nothing is synced" };
+      const checkAudience = async (id, what, whenMissing) => {
+        if (!id) return { skipped: true, reason: whenMissing };
         if (!env.RESEND_API_KEY) return { skipped: true, reason: "RESEND_API_KEY not set" };
         try {
-          const r = await fetch("https://api.resend.com/audiences/" + encodeURIComponent(env.RESEND_AUDIENCE_ID), {
+          const r = await fetch("https://api.resend.com/audiences/" + encodeURIComponent(id), {
             headers: { authorization: "Bearer " + env.RESEND_API_KEY },
           });
           if (r.ok) {
             const d = await r.json().catch(() => ({}));
-            return { ok: true, reason: "Audience found: " + (d.name || d.id || "unnamed") };
+            return { ok: true, reason: what + " audience found: " + (d.name || d.id || "unnamed") };
           }
-          if (r.status === 404) return { ok: false, reason: "No audience with that id. It is probably a SEGMENT id — open Resend → Audience and take the id from the audience itself." };
+          if (r.status === 404) return { ok: false, reason: "No audience with that id. It is probably a SEGMENT id — open Resend → Audience → Contacts and take the id from the audience itself, not the Segments tab." };
           return { ok: false, reason: "Resend returned " + r.status };
         } catch (err) { return { ok: false, reason: "Could not reach Resend: " + err.message }; }
-      })();
+      };
+      results.audience = await checkAudience(env.RESEND_AUDIENCE_ID, "Marketing",
+        "RESEND_AUDIENCE_ID not set — the marketing tick is recorded, nothing is synced");
+      results.customerAudience = await checkAudience(env.RESEND_CUSTOMER_AUDIENCE_ID, "Customer",
+        "RESEND_CUSTOMER_AUDIENCE_ID not set — customers are kept in the dashboard only, nothing is synced");
 
       results.email = env.RESEND_API_KEY && env.MAIL_FROM
         ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
