@@ -33,8 +33,44 @@ export const DEFAULT_PRICING = {
   priceEnding: null,   // e.g. 0.99 to make prices end .99; null = plain rounding
   overrides: {},       // { "<tyreId>": 89.5 }
   inStock: [],         // tyre ids the admin has marked as physically in stock
+
+  // The floor. No offer, sale or manual override may ever price a tyre below
+  // cost + this, in pounds. It exists so a sale can be run without anyone
+  // having to check every line by hand: the discount is applied, and where it
+  // would eat the margin the price simply stops falling.
+  minMargin: 25,
+
+  // Offers. Several can be live at once; the customer gets the best one they
+  // qualify for, never several stacked, because stacking is how a 20% sale and
+  // a 20% clearance quietly become 36% off.
+  promos: [],
   updatedAt: null,
 };
+
+/** An empty scope means "everything" — that is the common case for a sale. */
+export function promoApplies(promo, tyre, now) {
+  if (!promo || promo.active === false) return false;
+  const t = Number(now == null ? 0 : now);
+  if (promo.starts && t && t < Number(promo.starts)) return false;
+  if (promo.ends && t && t > Number(promo.ends)) return false;
+  const s = promo.scope || {};
+  const has = a => Array.isArray(a) && a.length > 0;
+  if (has(s.ids) && !s.ids.map(Number).includes(Number(tyre.id))) return false;
+  if (has(s.tiers) && !s.tiers.includes(tyre.tier)) return false;
+  if (has(s.brands) && !s.brands.map(x => String(x).toLowerCase()).includes(String(tyre.brand || '').toLowerCase())) return false;
+  if (has(s.sizes) && !s.sizes.map(x => normaliseSize(x)).includes(normaliseSize(tyre.size))) return false;
+  return true;
+}
+
+/** What one offer would charge for a tyre currently priced at `base`. */
+export function promoPrice(promo, base) {
+  const v = Number(promo.value);
+  if (!Number.isFinite(v) || v < 0) return base;
+  if (promo.kind === 'percent') return base * (1 - Math.min(100, v) / 100);
+  if (promo.kind === 'amount') return base - v;
+  if (promo.kind === 'fixed') return v;
+  return base;
+}
 
 export const TIER_LABELS = { B: 'Budget', M: 'Mid-range', P: 'Premium' };
 
@@ -47,6 +83,8 @@ export function normalisePricing(p) {
     markupPct: { ...DEFAULT_PRICING.markupPct, ...(s.markupPct || {}) },
     overrides: s.overrides || {},
     inStock: Array.isArray(s.inStock) ? s.inStock : [],
+    minMargin: Number.isFinite(Number(s.minMargin)) ? Number(s.minMargin) : DEFAULT_PRICING.minMargin,
+    promos: Array.isArray(s.promos) ? s.promos : [],
   };
 }
 
@@ -105,25 +143,68 @@ function applyRounding(value, pricing) {
  * Returns the number plus how it was arrived at, so the admin screen can show
  * the margin without recomputing it.
  */
-export function retailPrice(item, costInfo, tier, pricing) {
+export function retailPrice(item, costInfo, tier, pricing, ctx = {}) {
   const p = normalisePricing(pricing);
+  const cost = costInfo?.cost ?? null;
   const override = p.overrides[String(item.id)];
+  const now = ctx.now == null ? Date.now() : ctx.now;
 
+  let base, source, markupPct = null;
   if (override != null && override !== '' && Number.isFinite(Number(override))) {
-    const price = Math.round(Number(override) * 100) / 100;
-    return { price, source: 'override', cost: costInfo?.cost ?? null, markupPct: null };
-  }
-
-  const cost = costInfo?.cost;
-  if (cost == null) {
+    base = Number(override);
+    source = 'override';
+  } else if (cost == null) {
     // No wholesale cost for this line — fall back to the scraped catalogue price
-    // rather than inventing one.
-    return { price: item.price ?? null, source: 'catalogue', cost: null, markupPct: null };
+    // rather than inventing one. With no cost there is no floor to enforce
+    // either, so offers are skipped: discounting a price we cannot check the
+    // margin on is exactly what the floor exists to prevent.
+    return { price: item.price ?? null, source: 'catalogue', cost: null, markupPct: null, was: null, promo: null, floored: false };
+  } else {
+    markupPct = Number(p.markupPct[tier] ?? p.markupPct.M ?? 50);
+    base = cost * (1 + markupPct / 100) + Number(p.fittingFee || 0);
+    source = 'calculated';
   }
 
-  const markupPct = Number(p.markupPct[tier] ?? p.markupPct.M ?? 50);
-  const raw = cost * (1 + markupPct / 100) + Number(p.fittingFee || 0);
-  return { price: applyRounding(raw, p), source: 'calculated', cost, markupPct };
+  // An override means "charge exactly this". Rounding it to the nearest pound
+  // would quietly turn £199.50 into £200, which is not what the person typing
+  // it asked for — so the rounding rules apply to CALCULATED prices only.
+  const listPrice = source === 'override' ? Math.round(base * 100) / 100 : applyRounding(base, p);
+
+  // Best single offer, never several stacked.
+  const candidate = { id: item.id, tier, brand: item.b, size: ctx.size || '' };
+  let best = null, bestPrice = base;
+  for (const promo of p.promos) {
+    if (!promoApplies(promo, candidate, now)) continue;
+    const next = promoPrice(promo, base);
+    if (next < bestPrice) { bestPrice = next; best = promo; }
+  }
+
+  // The floor, applied last so it beats offers AND manual overrides. An
+  // override typed below cost is a slip of the keyboard far more often than it
+  // is a decision, and either way the business cannot carry it.
+  const floor = cost == null ? null : cost + Number(p.minMargin || 0);
+  let finalRaw = best ? bestPrice : base;
+  let floored = false;
+  if (floor != null && finalRaw < floor) { finalRaw = floor; floored = true; }
+
+  let price = (source === 'override' && !best) ? Math.round(finalRaw * 100) / 100 : applyRounding(finalRaw, p);
+  // Rounding runs after the floor, so a "round to nearest £1" could hand back
+  // 48p less than the floor allows. Where the floor is doing the work, round UP
+  // instead — a floor that rounds down is not a floor.
+  if (floor != null && price < floor) {
+    const step = Number(p.roundTo) > 0 ? Number(p.roundTo) : 1;
+    price = Math.ceil(floor / step) * step;
+    if (p.priceEnding != null && p.priceEnding !== '') price = Math.floor(price) + Number(p.priceEnding);
+    price = Math.round(price * 100) / 100;
+    floored = true;
+  }
+  return {
+    price, source, cost, markupPct, floored,
+    // `was` is only set when the customer is actually paying less, so the site
+    // never shows a struck-through price identical to the one next to it.
+    was: price < listPrice ? listPrice : null,
+    promo: best && price < listPrice ? { id: best.id, name: best.name || 'Offer' } : null,
+  };
 }
 
 /**
@@ -155,7 +236,7 @@ export function normaliseSize(rawSize) {
 function enrich(item, costMap, size, tier, pricing) {
   const cost = costMap[String(item.id)] || {};
   const p = normalisePricing(pricing);
-  const { price } = retailPrice(item, cost, tier, p);
+  const priced = retailPrice(item, cost, tier, p, { size });
 
   return {
     id: item.id,
@@ -166,7 +247,11 @@ function enrich(item, costMap, size, tier, pricing) {
     tier: tier || null,
     tierLabel: tier ? TIER_LABELS[tier] : null,
     image: item.img && item.img !== 'no_image.jpg' ? `/images/${item.img}` : FALLBACK_IMAGE,
-    price,
+    price: priced.price,
+    // Customer-facing sale fields. `wasPrice` is the pre-offer price and is null
+    // unless there really is a saving, so the site cannot render a fake discount.
+    wasPrice: priced.was,
+    offer: priced.promo ? priced.promo.name : null,
     inStock: p.inStock.includes(item.id),
     size,
   };
@@ -179,7 +264,7 @@ function enrich(item, costMap, size, tier, pricing) {
  */
 export function forAdmin(publicTyre, item, costMap, pricing) {
   const cost = costMap[String(publicTyre.id)] || {};
-  const detail = retailPrice(item, cost, publicTyre.tier, pricing);
+  const detail = retailPrice(item, cost, publicTyre.tier, pricing, { size: publicTyre.size });
   const margin = detail.price != null && detail.cost != null ? detail.price - detail.cost : null;
 
   return {
@@ -193,6 +278,11 @@ export function forAdmin(publicTyre, item, costMap, pricing) {
     margin: margin == null ? null : Math.round(margin * 100) / 100,
     marginPct: margin == null || !detail.cost ? null : Math.round((margin / detail.cost) * 1000) / 10,
     cataloguePrice: item.price ?? null,
+    // `floored` means an offer or an override wanted to go lower and the margin
+    // floor stopped it. Worth showing: it is the difference between "the sale is
+    // running" and "the sale is running but not on this line".
+    floored: !!detail.floored,
+    promoName: detail.promo ? detail.promo.name : null,
   };
 }
 

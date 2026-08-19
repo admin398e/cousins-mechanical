@@ -1459,6 +1459,167 @@ try {
     assert.equal(rec.marketing, false, 'withdrawal did not reach the contact record');
   });
 
+  /* -------------------------------------------------------------------
+   * OFFERS AND THE MARGIN FLOOR
+   *
+   * The whole point of the floor is that a sale can be run without anyone
+   * auditing 4,128 lines by hand. So the tests that matter are the ones that
+   * try to break it: an absurd percentage, a flat price below cost, and a
+   * manual override typed below cost.
+   * ----------------------------------------------------------------- */
+  const SIZE = '195/65R15';
+  const setRules = async (tok, body) => {
+    const r = await api('/api/admin/pricing', { method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+      body: JSON.stringify(body) });
+    return r;
+  };
+  const adminTyres = async (tok) =>
+    (await (await api('/api/admin/tyres?size=' + encodeURIComponent(SIZE), { headers: { authorization: 'Bearer ' + tok } })).json()).tyres;
+  const addPromo = async (tok, body) => {
+    const r = await api('/api/admin/pricing/promo', { method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+      body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json() };
+  };
+  const delPromo = async (tok, id) =>
+    api('/api/admin/pricing/promo/' + encodeURIComponent(id), { method: 'DELETE', headers: { authorization: 'Bearer ' + tok } });
+
+  await check('an offer discounts the customer price and says so', async () => {
+    const tok = await adminTok();
+    const before = await (await api('/api/tyres/lookup?size=' + encodeURIComponent(SIZE))).json();
+    assert.ok(before.tyres.every(t => t.wasPrice == null), 'a was-price is showing with no offer running');
+
+    const { status, body } = await addPromo(tok, { name: 'Test sale', kind: 'percent', value: 20 });
+    assert.equal(status, 200, JSON.stringify(body));
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      const after = await (await api('/api/tyres/lookup?size=' + encodeURIComponent(SIZE))).json();
+      const discounted = after.tyres.filter(t => t.wasPrice != null);
+      assert.ok(discounted.length > 0, 'the offer changed nothing');
+      for (const t of discounted) {
+        assert.ok(t.price < t.wasPrice, 'was-price is not higher than the price paid');
+        assert.equal(t.offer, 'Test sale', 'the offer name is not shown to the customer');
+      }
+    } finally { await delPromo(tok, id); }
+  });
+
+  await check('the margin floor survives an absurd discount', async () => {
+    const tok = await adminTok();
+    await setRules(tok, { minMargin: 25 });
+    const { body } = await addPromo(tok, { name: 'Everything must go', kind: 'percent', value: 90 });
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      for (const t of await adminTyres(tok)) {
+        if (t.cost == null) continue;
+        assert.ok(t.margin >= 25, `${t.brand} ${t.model} fell to £${t.margin} margin under a 90% sale`);
+        assert.ok(t.floored, 'a 90% discount should have hit the floor on every line');
+      }
+    } finally { await delPromo(tok, id); }
+  });
+
+  await check('a flat sale price below cost is lifted to the floor', async () => {
+    const tok = await adminTok();
+    await setRules(tok, { minMargin: 25 });
+    const { body } = await addPromo(tok, { name: 'Ten pound tyres', kind: 'fixed', value: 10 });
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      const tyres = await adminTyres(tok);
+      for (const t of tyres) {
+        if (t.cost == null) continue;
+        assert.ok(t.price > 10, 'a £10 flat price was actually charged, below wholesale cost');
+        assert.ok(t.margin >= 25, `margin fell to £${t.margin}`);
+      }
+    } finally { await delPromo(tok, id); }
+  });
+
+  await check('a manual override below cost is lifted to the floor too', async () => {
+    const tok = await adminTok();
+    await setRules(tok, { minMargin: 25 });
+    const tyre = (await adminTyres(tok)).find(t => t.cost != null);
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    await api('/api/admin/pricing/override', { method: 'POST', headers: h, body: JSON.stringify({ id: tyre.id, price: 1 }) });
+    try {
+      const after = (await adminTyres(tok)).find(t => t.id === tyre.id);
+      // Typing 1 into a price box is a slip far more often than a decision, and
+      // either way the business cannot carry it.
+      assert.ok(after.margin >= 25, `an override of £1 produced a £${after.margin} margin`);
+      assert.ok(after.floored, 'the override was not flagged as held at the floor');
+    } finally {
+      await api('/api/admin/pricing/override', { method: 'POST', headers: h, body: JSON.stringify({ id: tyre.id, price: null }) });
+    }
+  });
+
+  await check('offers do not stack — the best single one wins', async () => {
+    const tok = await adminTok();
+    await setRules(tok, { minMargin: 0 });
+    const a = (await addPromo(tok, { name: 'Sale A', kind: 'percent', value: 10 })).body;
+    const idA = a.promos[a.promos.length - 1].id;
+    const b = (await addPromo(tok, { name: 'Sale B', kind: 'percent', value: 20 })).body;
+    const idB = b.promos[b.promos.length - 1].id;
+    try {
+      const tyres = await adminTyres(tok);
+      const t = tyres.find(x => x.cost != null && x.wasPrice != null) || tyres.find(x => x.cost != null);
+      const listed = t.wasPrice != null ? t.wasPrice : t.price;
+      // 10% then 20% stacked would be 28% off. Only the better one may apply.
+      assert.ok(t.price >= Math.round(listed * 0.79), `${t.price} looks like two discounts stacked on ${listed}`);
+      assert.equal(t.promoName, 'Sale B', 'the deeper discount did not win');
+    } finally { await delPromo(tok, idA); await delPromo(tok, idB); await setRules(tok, { minMargin: 25 }); }
+  });
+
+  await check('an offer can be limited to one brand', async () => {
+    const tok = await adminTok();
+    const all = await adminTyres(tok);
+    const brand = all.find(t => t.cost != null).brand;
+    const { body } = await addPromo(tok, { name: 'One brand only', kind: 'percent', value: 15, scope: { brands: [brand] } });
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      for (const t of await adminTyres(tok)) {
+        if (t.brand === brand) continue;
+        assert.equal(t.promoName, null, `${t.brand} got a discount scoped to ${brand}`);
+      }
+    } finally { await delPromo(tok, id); }
+  });
+
+  await check('a scheduled offer does not apply before it starts', async () => {
+    const tok = await adminTok();
+    const soon = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const { body } = await addPromo(tok, { name: 'Next week', kind: 'percent', value: 30, starts: soon, ends: soon + 86400000 });
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      for (const t of await adminTyres(tok)) assert.equal(t.promoName, null, 'a future offer is already discounting');
+    } finally { await delPromo(tok, id); }
+  });
+
+  await check('the offer endpoints refuse rubbish and require admin auth', async () => {
+    assert.equal((await api('/api/admin/pricing/promo', { method: 'POST', body: '{}' })).status, 403);
+    assert.equal((await api('/api/admin/pricing/promo/anything', { method: 'DELETE' })).status, 403);
+    const tok = await adminTok();
+    assert.equal((await addPromo(tok, { kind: 'percent', value: 10 })).status, 400, 'a nameless offer was accepted');
+    assert.equal((await addPromo(tok, { name: 'x', kind: 'nonsense', value: 10 })).status, 400);
+    assert.equal((await addPromo(tok, { name: 'x', kind: 'percent', value: -5 })).status, 400);
+    assert.equal((await addPromo(tok, { name: 'x', kind: 'percent', value: 99 })).status, 400, 'a 99% discount should be refused as a typo');
+    assert.equal((await addPromo(tok, { name: 'x', kind: 'percent', value: 10, starts: 2000, ends: 1000 })).status, 400);
+    const neg = await setRules(tok, { minMargin: -10 });
+    assert.equal(neg.status, 400, 'a negative margin floor licences selling below cost');
+  });
+
+  await check('wholesale cost never leaks through the sale fields', async () => {
+    const tok = await adminTok();
+    const { body } = await addPromo(tok, { name: 'Leak check', kind: 'percent', value: 20 });
+    const id = body.promos[body.promos.length - 1].id;
+    try {
+      const d = await (await api('/api/tyres/lookup?size=' + encodeURIComponent(SIZE))).json();
+      const raw = JSON.stringify(d);
+      assert.ok(!raw.includes('ctyres.co.uk'), 'supplier URL leaked');
+      for (const t of d.tyres) {
+        assert.equal(t.cost, undefined, 'wholesale cost leaked');
+        assert.equal(t.margin, undefined, 'margin leaked');
+        assert.equal(t.floored, undefined, 'the floor flag tells a competitor what your cost is');
+      }
+    } finally { await delPromo(tok, id); }
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

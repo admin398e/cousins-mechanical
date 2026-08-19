@@ -843,6 +843,11 @@
                 <input value="{{ pFitting }}" onInput="{{ setFitting }}" type="number" style="{{ pInputStyle }}"/>
               </div>
               <div>
+                <label style="display:block;font-size:11.5px;color:#f4a04a;font-weight:700;margin-bottom:5px">MIN MARGIN £</label>
+                <input value="{{ pMinMargin }}" onInput="{{ setMinMargin }}" type="number" style="{{ pInputStyle }}"/>
+                <div style="color:#6f6862;font-size:11px;margin-top:4px">The floor. No sale goes below it.</div>
+              </div>
+              <div>
                 <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">ROUND TO £</label>
                 <input value="{{ pRound }}" onInput="{{ setRound }}" type="number" style="{{ pInputStyle }}"/>
               </div>
@@ -856,6 +861,91 @@
             </sc-if>
             <sc-if value="{{ pErr }}" hint-placeholder-val="{{ false }}">
               <div style="margin-top:12px;background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;font-weight:600">{{ pErr }}</div>
+            </sc-if>
+          </div>
+
+          <!-- offers & sales -->
+          <div style="background:#14100e;border:1px solid #2a2320;border-radius:13px;padding:18px 20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:16px;color:#f4a04a;letter-spacing:.06em">OFFERS &amp; SALES</div>
+              <div style="color:#8a817b;font-size:12px">Nothing here can breach the £{{ pMinMargin }} minimum margin.</div>
+            </div>
+            <div style="color:#9a918a;font-size:12.5px;line-height:1.55;margin-bottom:14px">Run a sale without checking every line. A tyre takes the <strong>best single offer</strong> it qualifies for — offers never stack. Where a discount would eat into your minimum margin, the price simply stops falling and the tyre is marked <span style="color:#f4a04a">floor</span> in the catalogue.</div>
+
+            <!-- new / edit -->
+            <div style="display:grid;grid-template-columns:2fr 1.1fr 1fr;gap:10px;margin-bottom:10px" class="adm-grid3">
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">OFFER NAME (CUSTOMERS SEE THIS)</label>
+                <input value="{{ prName }}" onInput="{{ setPrName }}" placeholder="e.g. Winter sale" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">TYPE</label>
+                <select value="{{ prKind }}" onChange="{{ setPrKind }}" style="width:100%;background:#0f0c0b;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:9px;padding:11px 12px;font-size:15px">
+                  <option value="percent">% off</option>
+                  <option value="amount">£ off</option>
+                  <option value="fixed">Fixed price £</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">{{ prValueLabel }}</label>
+                <input value="{{ prValue }}" onInput="{{ setPrValue }}" type="number" style="{{ pInputStyle }}"/>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px" class="adm-grid3">
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">TIERS (BLANK = ALL)</label>
+                <input value="{{ prTiers }}" onInput="{{ setPrTiers }}" placeholder="B, M, P" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">BRANDS (BLANK = ALL)</label>
+                <input value="{{ prBrands }}" onInput="{{ setPrBrands }}" placeholder="Michelin, Nankang" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">SIZES (BLANK = ALL)</label>
+                <input value="{{ prSizes }}" onInput="{{ setPrSizes }}" placeholder="195/65R15, 205/55R16" style="{{ pInputStyle }}"/>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px" class="adm-grid3">
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">STARTS (BLANK = NOW)</label>
+                <input value="{{ prStarts }}" onInput="{{ setPrStarts }}" type="date" style="{{ pInputStyle }}"/>
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:#9a918a;font-weight:700;margin-bottom:5px">ENDS (BLANK = NO END)</label>
+                <input value="{{ prEnds }}" onInput="{{ setPrEnds }}" type="date" style="{{ pInputStyle }}"/>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button onClick="{{ savePromo }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px 22px;cursor:pointer;font-size:14.5px">{{ prSaveLabel }}</button>
+              <sc-if value="{{ prEditing }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ cancelPromo }}" style="background:none;border:1px solid #3a322d;color:#9a918a;font-weight:700;border-radius:9px;padding:11px 18px;cursor:pointer;font-size:13.5px">Cancel</button>
+              </sc-if>
+              <sc-if value="{{ prErr }}" hint-placeholder-val="{{ false }}">
+                <div style="color:#f0a884;font-size:13px;font-weight:600">{{ prErr }}</div>
+              </sc-if>
+            </div>
+
+            <!-- live list -->
+            <sc-if value="{{ hasPromos }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:16px;border-top:1px solid #241d19;padding-top:14px;display:flex;flex-direction:column;gap:8px">
+                <sc-for list="{{ promoRows }}" as="o" hint-placeholder-count="2">
+                  <div style="{{ o.rowStyle }}">
+                    <div style="flex:1;min-width:0">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span style="font-weight:700;color:#fff;font-size:14px">{{ o.name }}</span>
+                        <span style="{{ o.stateStyle }}">{{ o.state }}</span>
+                      </div>
+                      <div style="color:#8a817b;font-size:12px;margin-top:3px">{{ o.detail }}</div>
+                    </div>
+                    <button onClick="{{ o.edit }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;font-size:12.5px">Edit</button>
+                    <button onClick="{{ o.toggle }}" style="{{ o.toggleStyle }}">{{ o.toggleLabel }}</button>
+                    <button onClick="{{ o.remove }}" style="border:1px solid #6b3520;background:rgba(165,64,26,.16);color:#f0a884;font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;font-size:12.5px">Delete</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ noPromos }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px;border-top:1px solid #241d19;padding-top:14px;color:#6f6862;font-size:13px">No offers running. Everyone pays the calculated price.</div>
             </sc-if>
           </div>
 
@@ -982,10 +1072,12 @@
                 <div style="color:#8a817b;font-size:12px;margin-top:2px">{{ t.label }}</div>
                 <div style="font-family:monospace;font-size:11px;color:#6f6862;margin-top:3px">{{ t.sku }}</div>
 
-                <div style="display:flex;align-items:baseline;gap:8px;margin-top:10px">
+                <div style="display:flex;align-items:baseline;gap:8px;margin-top:10px;flex-wrap:wrap">
                   <span style="font-family:'Barlow Condensed';font-weight:800;font-size:25px;color:#7fe09a;line-height:1">{{ t.priceLabel }}</span>
+                  <span style="{{ t.wasStyle }}">{{ t.wasLabel }}</span>
                   <span style="color:#6f6862;font-size:11.5px">cost {{ t.costLabel }}</span>
                 </div>
+                <div style="{{ t.offerStyle }}">{{ t.offerLabel }}</div>
                 <div style="{{ t.marginStyle }}">{{ t.marginLabel }}</div>
 
                 <div style="display:flex;gap:7px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid #241d19">
@@ -1055,6 +1147,9 @@ class Component extends DCLogic {
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
+    // Offers & sales
+    prId:'', prName:'', prKind:'percent', prValue:'10', prTiers:'', prBrands:'', prSizes:'',
+    prStarts:'', prEnds:'', prErr:'',
     // Catalogue browser
     catQ:'', catBrand:'', catSort:'size', catStockOnly:false, catPage:1, catPages:1,
     catTotal:0, catRaw:[], catBrandList:[], catSummary:null, catBusy:false, catEdit:{},
@@ -1403,6 +1498,93 @@ class Component extends DCLogic {
     }catch(e){ this.setState({ custSaving:false, custErr:'Could not add the note.' }); }
   };
 
+  // ---------- OFFERS & SALES ----------
+  setPrName   = e => this.setState({prName:e.target.value, prErr:''});
+  setPrKind   = e => this.setState({prKind:e.target.value});
+  setPrValue  = e => this.setState({prValue:e.target.value});
+  setPrTiers  = e => this.setState({prTiers:e.target.value});
+  setPrBrands = e => this.setState({prBrands:e.target.value});
+  setPrSizes  = e => this.setState({prSizes:e.target.value});
+  setPrStarts = e => this.setState({prStarts:e.target.value});
+  setPrEnds   = e => this.setState({prEnds:e.target.value});
+
+  blankPromo = () => ({prId:'', prName:'', prKind:'percent', prValue:'10',
+                       prTiers:'', prBrands:'', prSizes:'', prStarts:'', prEnds:'', prErr:''});
+  cancelPromo = () => this.setState(this.blankPromo());
+
+  // A date box gives "2026-08-19". Ends has to mean the END of that day or an
+  // offer set to finish today would already be over by breakfast.
+  dayStart(v){ return v ? new Date(v + 'T00:00:00').getTime() : null; }
+  dayEnd(v){ return v ? new Date(v + 'T23:59:59').getTime() : null; }
+  splitList(v){ return String(v||'').split(',').map(x=>x.trim()).filter(Boolean); }
+
+  savePromo = async () => {
+    if(!this.hasServer()) return;
+    const s = this.state;
+    if(!s.prName.trim()){ this.setState({prErr:'Give the offer a name — the customer sees it.'}); return; }
+    const body = {
+      id: s.prId || undefined,
+      name: s.prName.trim(),
+      kind: s.prKind,
+      value: Number(s.prValue),
+      starts: this.dayStart(s.prStarts),
+      ends: this.dayEnd(s.prEnds),
+      scope: {
+        tiers: this.splitList(s.prTiers).map(x=>x.toUpperCase()),
+        brands: this.splitList(s.prBrands),
+        sizes: this.splitList(s.prSizes),
+        ids: [],
+      },
+    };
+    try{
+      const r = await this.af('/admin/pricing/promo',{method:'POST',body:JSON.stringify(body)});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'Could not save the offer');
+      this.setState({...this.blankPromo(), pricing:{...s.pricing, promos:d.promos}, pMsg:'Offer saved.'});
+      this.refreshPricedViews();
+    }catch(e){ this.setState({prErr:e.message}); }
+  };
+
+  editPromo = (o) => this.setState({
+    prId:o.id, prName:o.name, prKind:o.kind, prValue:String(o.value),
+    prTiers:(o.scope&&o.scope.tiers||[]).join(', '),
+    prBrands:(o.scope&&o.scope.brands||[]).join(', '),
+    prSizes:(o.scope&&o.scope.sizes||[]).join(', '),
+    prStarts:o.starts?new Date(o.starts).toISOString().slice(0,10):'',
+    prEnds:o.ends?new Date(o.ends).toISOString().slice(0,10):'',
+    prErr:'',
+  });
+
+  togglePromo = async (o) => {
+    if(!this.hasServer()) return;
+    try{
+      const r = await this.af('/admin/pricing/promo',{method:'POST',body:JSON.stringify({...o, active:!o.active})});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'Could not change the offer');
+      this.setState(s=>({pricing:{...s.pricing, promos:d.promos}}));
+      this.refreshPricedViews();
+    }catch(e){ this.setState({prErr:e.message}); }
+  };
+
+  removePromo = async (o) => {
+    if(!this.hasServer()) return;
+    if(!confirm('Delete the offer "'+o.name+'"? Prices go back to normal straight away.')) return;
+    try{
+      const r = await this.af('/admin/pricing/promo/'+encodeURIComponent(o.id),{method:'DELETE'});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||'Could not delete the offer');
+      this.setState(s=>({pricing:{...s.pricing, promos:d.promos}}));
+      this.refreshPricedViews();
+    }catch(e){ this.setState({prErr:e.message}); }
+  };
+
+  // Any price change has to be reflected in whichever tyre list is on screen,
+  // or the offer looks like it did not save.
+  refreshPricedViews(){
+    if((this.state.pRaw||[]).length) this.loadSizeTyres();
+    if((this.state.catRaw||[]).length) this.loadCatalogue();
+  }
+
   // ---------- CATALOGUE (browse everything, not one size at a time) ----------
   setCatQ = e => this.setState({catQ:e.target.value});
   onCatKey = e => { if(e.key==='Enter') this.setState({catPage:1}, ()=>this.loadCatalogue()); };
@@ -1485,6 +1667,7 @@ class Component extends DCLogic {
         pMarkB: String(p.markupPct?.B ?? 60),
         pMarkM: String(p.markupPct?.M ?? 50),
         pMarkP: String(p.markupPct?.P ?? 42),
+        pMinMargin: String(p.minMargin ?? 25),
         pFitting: String(p.fittingFee ?? 15),
         pCallout: String(p.calloutFee ?? 0),
         pHourly: String(p.hourlyRate ?? 0),
@@ -1498,6 +1681,7 @@ class Component extends DCLogic {
   setMarkM = e => this.setState({pMarkM:e.target.value});
   setMarkP = e => this.setState({pMarkP:e.target.value});
   setFitting = e => this.setState({pFitting:e.target.value});
+  setMinMargin = e => this.setState({pMinMargin:e.target.value});
   setCallout = e => this.setState({pCallout:e.target.value});
   setHourly = e => this.setState({pHourly:e.target.value});
   setRound = e => this.setState({pRound:e.target.value});
@@ -1509,6 +1693,7 @@ class Component extends DCLogic {
     try{
       const body = {
         markupPct: { B:Number(this.state.pMarkB), M:Number(this.state.pMarkM), P:Number(this.state.pMarkP) },
+        minMargin: Number(this.state.pMinMargin),
         fittingFee: Number(this.state.pFitting),
         calloutFee: Number(this.state.pCallout) || 0,
         hourlyRate: Number(this.state.pHourly) || 0,
@@ -2396,6 +2581,14 @@ class Component extends DCLogic {
           marginLabel: t.margin==null ? 'no wholesale cost on file' : ('margin £'+Number(t.margin).toFixed(2)+(t.marginPct!=null?' · '+t.marginPct+'%':'')),
           marginStyle: 'margin-top:4px;font-size:12px;font-weight:700;color:'+marginColour,
           priceNote: overridden ? 'manual price' : (t.markupPct!=null ? t.markupPct+'% markup' : 'catalogue price'),
+          wasLabel: t.wasPrice==null ? '' : 'was £'+Number(t.wasPrice).toFixed(2),
+          wasStyle: t.wasPrice==null ? 'display:none' : 'color:#8a817b;font-size:12px;text-decoration:line-through',
+          // Two different things worth saying: the offer is on, or the offer hit
+          // the floor and this line is not discounted as far as the sale says.
+          offerLabel: t.floored ? ((t.promoName||'Price')+' — held at the margin floor') : (t.promoName || ''),
+          offerStyle: (t.floored || t.promoName)
+            ? ('margin-top:5px;font-size:11.5px;font-weight:700;color:'+(t.floored?'#f4a04a':'#7fe09a'))
+            : 'display:none',
           tierStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:10.5px;letter-spacing:.06em;color:#fff;background:'+tierColour+';border-radius:5px;padding:2px 7px',
           cardStyle: 'background:#14100e;border:1px solid '+(t.inStock?'rgba(57,168,84,.45)':'#2a2320')+';border-radius:13px;padding:13px',
           priceInput: (s.catEdit||{})[t.id] !== undefined ? (s.catEdit||{})[t.id] : (overridden ? String(t.price) : ''),
@@ -2456,6 +2649,44 @@ class Component extends DCLogic {
       setMarkB:this.setMarkB, setMarkM:this.setMarkM, setMarkP:this.setMarkP,
       setFitting:this.setFitting, setRound:this.setRound,
       savePricing:this.savePricing, pSaveLabel: s.pSaving ? 'Saving…' : 'Save pricing',
+      pMinMargin:s.pMinMargin, setMinMargin:this.setMinMargin,
+      prName:s.prName, setPrName:this.setPrName, prKind:s.prKind, setPrKind:this.setPrKind,
+      prValue:s.prValue, setPrValue:this.setPrValue,
+      prTiers:s.prTiers, setPrTiers:this.setPrTiers, prBrands:s.prBrands, setPrBrands:this.setPrBrands,
+      prSizes:s.prSizes, setPrSizes:this.setPrSizes,
+      prStarts:s.prStarts, setPrStarts:this.setPrStarts, prEnds:s.prEnds, setPrEnds:this.setPrEnds,
+      prErr:s.prErr, prEditing:!!s.prId, savePromo:this.savePromo, cancelPromo:this.cancelPromo,
+      prSaveLabel: s.prId ? 'Save changes' : 'Add offer',
+      prValueLabel: s.prKind==='percent' ? 'PERCENT OFF' : (s.prKind==='amount' ? 'POUNDS OFF' : 'PRICE £'),
+      hasPromos: ((s.pricing&&s.pricing.promos)||[]).length>0,
+      noPromos: ((s.pricing&&s.pricing.promos)||[]).length===0,
+      promoRows: ((s.pricing&&s.pricing.promos)||[]).map(o=>{
+        const now=Date.now();
+        const notYet = o.starts && now < o.starts;
+        const over   = o.ends && now > o.ends;
+        // "Live" has to mean live. An offer that is switched on but dated for
+        // next month is not running, and saying so avoids the obvious support
+        // call about a sale that "isn't working".
+        const state = o.active===false ? 'Off' : (notYet ? 'Scheduled' : (over ? 'Finished' : 'Live'));
+        const colour = state==='Live' ? '#39a854' : (state==='Off' ? '#6f6862' : '#e8791a');
+        const scope=[];
+        if((o.scope&&o.scope.tiers||[]).length) scope.push(o.scope.tiers.map(t=>({B:'Budget',M:'Mid-range',P:'Premium'}[t]||t)).join('/'));
+        if((o.scope&&o.scope.brands||[]).length) scope.push(o.scope.brands.join(', '));
+        if((o.scope&&o.scope.sizes||[]).length) scope.push(o.scope.sizes.join(', '));
+        const amount = o.kind==='percent' ? o.value+'% off' : (o.kind==='amount' ? '£'+o.value+' off' : '£'+o.value+' flat');
+        const dates=[];
+        if(o.starts) dates.push('from '+new Date(o.starts).toLocaleDateString('en-GB'));
+        if(o.ends) dates.push('until '+new Date(o.ends).toLocaleDateString('en-GB'));
+        return {
+          name:o.name,
+          state, detail: amount+' · '+(scope.length?scope.join(' · '):'every tyre')+(dates.length?' · '+dates.join(' '):''),
+          rowStyle:'display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#0f0c0b;border:1px solid #241d19;border-radius:10px;padding:11px 13px',
+          stateStyle:'font-family:\'Barlow Condensed\';font-weight:800;font-size:11px;letter-spacing:.06em;color:#14100e;background:'+colour+';border-radius:5px;padding:2px 8px',
+          toggleLabel: o.active===false ? 'Switch on' : 'Switch off',
+          toggleStyle:'border:1px solid #3a322d;background:#14100e;color:'+(o.active===false?'#7fe09a':'#f4a04a')+';font-weight:700;border-radius:8px;padding:8px 13px;cursor:pointer;font-size:12.5px',
+          edit:()=>this.editPromo(o), toggle:()=>this.togglePromo(o), remove:()=>this.removePromo(o),
+        };
+      }),
       pSize:s.pSize, setPSize:this.setPSize, onPSizeKey:this.onPSizeKey,
       loadSizeTyres:this.loadSizeTyres, pLookupLabel: s.pLoading ? 'Loading…' : 'Look up',
       pMsg:s.pMsg, pErr:s.pErr, hasPTyres: (s.pRaw||[]).length>0,

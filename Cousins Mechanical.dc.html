@@ -284,12 +284,14 @@
                   <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
                     <span style="{{ t.badgeStyle }}">{{ t.tierLabel }}</span>
                     <sc-if value="{{ t.inStock }}" hint-placeholder-val="{{ true }}"><span style="background:#39a854;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.06em;border-radius:5px;padding:2px 7px">IN STOCK</span></sc-if>
+                    <span style="{{ t.offerStyle }}">{{ t.offer }}</span>
                   </div>
                   <div style="font-weight:700;font-size:15.5px;color:#1c1817;margin-top:5px">{{ t.brand }} {{ t.model }}</div>
                   <div style="color:#8a817b;font-size:12.5px">{{ t.label }} &middot; {{ t.sku }}</div>
                 </div>
                 <div style="text-align:right;min-width:96px">
-                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:29px;color:#1c1817;line-height:1">{{ t.priceEach }}</div>
+                  <div style="{{ t.wasStyle }}">{{ t.wasEach }}</div>
+                  <div style="{{ t.priceStyle }}">{{ t.priceEach }}</div>
                   <div style="font-size:11.5px;color:#8a817b;font-weight:600">per tyre fitted</div>
                 </div>
                 <button onClick="{{ t.book }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14.5px;white-space:nowrap" style-hover="background:#f78c30">Book fitting</button>
@@ -1200,6 +1202,16 @@ class Component extends DCLogic {
     return list.map(t => ({
       ...t,
       priceEach: t.price == null ? 'POA' : '£' + t.price,
+      // Only ever shown when the API says there is a real saving. The site does
+      // not work out its own discount — a struck-through price the customer
+      // never could have paid is the oldest trick in retail and it is illegal.
+      wasEach: t.wasPrice == null ? '' : '£' + t.wasPrice,
+      wasStyle: t.wasPrice == null ? 'display:none' : 'font-size:14px;color:#8a817b;text-decoration:line-through;font-weight:600',
+      priceStyle: "font-family:'Barlow Condensed';font-weight:800;font-size:29px;line-height:1;color:" + (t.wasPrice != null ? '#c2410c' : '#1c1817'),
+      offer: t.offer || '',
+      offerStyle: t.offer
+        ? "display:inline-block;background:#c2410c;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.06em;border-radius:5px;padding:2px 7px"
+        : 'display:none',
       tierLabel: t.tierLabel || '',
       cardStyle: 'display:flex;flex-wrap:wrap;align-items:center;gap:14px;border:'+(t.inStock?'1.5px solid #39a854':'1.5px solid #eee3d8')+';border-radius:13px;padding:14px 16px;background:'+(t.inStock?'#f6fbf7':'#fff'),
       badgeStyle: "display:inline-block;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.08em;color:#fff;background:"+(accent[t.tier]||'#6f6862')+";border-radius:5px;padding:2px 8px",

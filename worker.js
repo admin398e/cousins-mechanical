@@ -3626,6 +3626,8 @@ async function processTyreStockForOrder(env, order) {
             P: numOr(b.markupPct && b.markupPct.P, current.markupPct.P),
           },
           fittingFee: numOr(b.fittingFee, current.fittingFee),
+          // The floor every offer, sale and override is clamped to.
+          minMargin: numOr(b.minMargin, current.minMargin),
           // Labour rates shown on the booking form. 0/absent means "not set", and
           // the site then promises a quote before work instead of inventing a price.
           calloutFee: numOr(b.calloutFee, current.calloutFee || 0),
@@ -3637,6 +3639,9 @@ async function processTyreStockForOrder(env, order) {
           if (next.markupPct[t] < 0 || next.markupPct[t] > 500) return bad(`Markup for ${t} must be between 0 and 500%`, 400);
         }
         if (next.fittingFee < 0 || next.fittingFee > 200) return bad("Fitting fee must be between 0 and 200", 400);
+        // A floor of 0 is allowed — it means "no floor" — but a negative one
+        // would licence selling below cost, which is never what anybody meant.
+        if (next.minMargin < 0 || next.minMargin > 500) return bad("Minimum margin must be between 0 and 500", 400);
         if (next.calloutFee < 0 || next.calloutFee > 1000) return bad("Call-out fee must be between 0 and 1000", 400);
         if (next.hourlyRate < 0 || next.hourlyRate > 1000) return bad("Hourly rate must be between 0 and 1000", 400);
 
@@ -3644,6 +3649,71 @@ async function processTyreStockForOrder(env, order) {
         await audit(env, "admin", "pricing_updated", JSON.stringify(saved.markupPct));
         return json({ pricing: saved });
       }
+    }
+
+    /*
+     * OFFERS AND SALES
+     *
+     * Several offers can be live at once; a tyre takes the best single one it
+     * qualifies for. They are never stacked — a 20% sale plus a 20% clearance
+     * is 36% off, which is not what anyone setting the second one intended.
+     *
+     * None of them can breach the margin floor. That is enforced in
+     * retailPrice(), not here, so a promo written straight into KV by some
+     * future script cannot get round it either.
+     */
+    if (p === "/admin/pricing/promos" && request.method === "GET") {
+      const cur = await getPricing(env);
+      return json({ promos: cur.promos, minMargin: cur.minMargin });
+    }
+
+    if (p === "/admin/pricing/promo" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const current = await getPricing(env);
+      const promos = [...current.promos];
+
+      const name = String(b.name || "").trim().slice(0, 80);
+      if (!name) return bad("Give the offer a name — it is what the customer sees.", 400);
+      const kind = ["percent", "amount", "fixed"].includes(b.kind) ? b.kind : null;
+      if (!kind) return bad("Offer type must be percent, amount or fixed", 400);
+      const value = Number(b.value);
+      if (!Number.isFinite(value) || value < 0) return bad("Offer value must be a positive number", 400);
+      if (kind === "percent" && value > 90) return bad("A discount over 90% is almost certainly a typo. The margin floor would swallow it anyway.", 400);
+
+      const strList = (v, n) => (Array.isArray(v) ? v : []).map(x => String(x).trim()).filter(Boolean).slice(0, n);
+      const promo = {
+        id: b.id ? String(b.id) : "promo_" + token().slice(0, 10),
+        name, kind, value: Math.round(value * 100) / 100,
+        active: b.active !== false,
+        starts: b.starts ? Number(b.starts) : null,
+        ends: b.ends ? Number(b.ends) : null,
+        scope: {
+          tiers: strList(b.scope && b.scope.tiers, 3).filter(t => ["B", "M", "P"].includes(t)),
+          brands: strList(b.scope && b.scope.brands, 40),
+          sizes: strList(b.scope && b.scope.sizes, 60),
+          ids: (Array.isArray(b.scope && b.scope.ids) ? b.scope.ids : []).map(Number).filter(Number.isFinite).slice(0, 500),
+        },
+      };
+      if (promo.starts && promo.ends && promo.ends < promo.starts) return bad("The offer ends before it starts", 400);
+
+      const at = promos.findIndex(x => x.id === promo.id);
+      if (at >= 0) promos[at] = promo; else promos.push(promo);
+      if (promos.length > 40) return bad("That is a lot of offers. Delete some old ones first.", 400);
+
+      const saved = await savePricing(env, { ...current, promos });
+      await audit(env, "admin", "promo_saved", promo.name + " " + promo.kind + " " + promo.value);
+      return json({ promos: saved.promos });
+    }
+
+    const promoDel = p.match(/^\/admin\/pricing\/promo\/(.+)$/);
+    if (promoDel && request.method === "DELETE") {
+      const id = decodeURIComponent(promoDel[1]);
+      const current = await getPricing(env);
+      const promos = current.promos.filter(x => x.id !== id);
+      if (promos.length === current.promos.length) return bad("No offer with that id", 404);
+      const saved = await savePricing(env, { ...current, promos });
+      await audit(env, "admin", "promo_deleted", id);
+      return json({ promos: saved.promos });
     }
 
     if (p === "/admin/pricing/override" && request.method === "POST") {
