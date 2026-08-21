@@ -273,7 +273,7 @@ async function sendVerifyCode(env, ctx, em, name, keyPrefix) {
     + `nothing has been set up and nobody can use your address without this code.\n\n`
     + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`;
 
-  ctx.waitUntil(sendEmail(env, em, subject, text));
+  sendEmailTracked(env, ctx, em, subject, text);
   return code;
 }
 
@@ -577,17 +577,75 @@ async function sendWhatsAppTemplate(env, to, templateName, params, lang = "en_GB
   }
   return { ok: true };
 }
+/**
+ * Send a message to a customer's mobile.
+ *
+ * WhatsApp first because it is cheaper, but it MUST fall through to Twilio when
+ * it fails. Meta only allows free-form text inside 24 hours of the customer
+ * messaging you first; a booking confirmation is business-initiated, so for
+ * anyone who has never WhatsApp'd Cousins it is rejected every time. The old
+ * version returned that rejection and stopped, which is why customers were
+ * getting no updates at all while the config looked complete.
+ */
 async function sendSMS(env, to, body) {
-  // WhatsApp first (cheaper); Twilio only if WhatsApp isn't configured but Twilio is.
-  if (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID) return sendWhatsApp(env, to, body);
-  if (!env.TWILIO_SID || !env.TWILIO_TOKEN || !env.TWILIO_FROM || !to) return { skipped: true };
-  const form = new URLSearchParams({ To: to, From: env.TWILIO_FROM, Body: body });
-  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) },
-    body: form,
-  }).catch(() => null);
-  return { ok: r && r.ok };
+  if (!to) return { skipped: true, reason: "no phone number" };
+  const attempts = [];
+
+  if (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID) {
+    const wa = await sendWhatsApp(env, to, body);
+    if (wa && wa.ok) return { ok: true, channel: "whatsapp" };
+    attempts.push("WhatsApp: " + ((wa && (wa.reason || wa.detail)) || "rejected"));
+  }
+
+  if (env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM) {
+    const form = new URLSearchParams({ To: "+" + toE164(to), From: env.TWILIO_FROM, Body: body });
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) },
+      body: form,
+    }).catch(() => null);
+    if (r && r.ok) return { ok: true, channel: "sms" };
+    const detail = r ? await r.text().catch(() => "") : "network error";
+    attempts.push("Twilio: " + String(detail).slice(0, 200));
+  }
+
+  if (!attempts.length) return { skipped: true, reason: "no messaging channel configured" };
+  return { ok: false, reason: attempts.join(" | ") };
+}
+
+/**
+ * Text the customer about their own job.
+ *
+ * Takes the number from the BOOKING, not from a user account. Every real
+ * booking so far has been a guest — no account — so every path that looked up
+ * "user:" before texting simply did nothing, and no customer has ever received
+ * a status message.
+ */
+function customerPhone(order, user) {
+  const p = (order && order.phone) || (user && user.phone) || "";
+  return String(p).trim();
+}
+
+function customerWantsTexts(order, user) {
+  if (user && user.smsUpdates === false) return false;
+  if (order && order.smsUpdates === false) return false;
+  return true;
+}
+
+async function notifyCustomer(env, ctx, order, user, text, label) {
+  const to = customerPhone(order, user);
+  if (!to || !customerWantsTexts(order, user)) return { skipped: true };
+  const task = sendSMS(env, to, text).then(async (r) => {
+    if (r && r.ok === false) {
+      await noteMailFailure(env, to, (label || "message") + " " + ((order && order.ref) || ""), { ...r, channel: "sms" });
+    }
+    return r;
+  }).catch(async (err) => {
+    await noteMailFailure(env, to, (label || "message"), { reason: err && err.message, channel: "sms" });
+    return { ok: false };
+  });
+  if (ctx && ctx.waitUntil) ctx.waitUntil(task);
+  return task;
 }
 
 // ---------- Google Calendar (service account, JWT -> access token) ----------
@@ -701,9 +759,88 @@ async function addCalendarEvent(env, o, customerEmail) {
  * Failures are logged with Resend's own error body; a silent false here is what
  * makes "why did the confirmation never arrive" impossible to debug.
  */
+/**
+ * Is this actually an email address?
+ *
+ * Deliberately strict about the things that silently break a send: a stray
+ * space, a trailing newline pasted in from a terminal, a display name, or a
+ * phone number typed into the wrong secret. OWNER_EMAIL was set to a value
+ * Resend rejected with a 422, and because nothing checked and nothing logged
+ * the result, every "new job" alert for every booking vanished while the
+ * dashboard, the driver app and /api/health all reported healthy.
+ */
+function validEmail(v) {
+  const s = String(v == null ? "" : v);
+  if (s !== s.trim()) return false;                 // leading/trailing whitespace
+  if (/[\s<>,;]/.test(s)) return false;             // spaces, display names, lists
+  return /^[^@]+@[^@.]+(\.[^@.]+)+$/.test(s);
+}
+
+/**
+ * Keep the last 50 send failures where an admin can read them.
+ *
+ * Any send that fails must leave a trace. The whole reason this outage lasted
+ * is that sendEmail() returned a perfectly good error object to a caller that
+ * threw it away inside ctx.waitUntil().
+ */
+async function noteMailFailure(env, to, subject, result) {
+  try {
+    const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
+    log.unshift({
+      t: Date.now(), to: String(to || "").slice(0, 200), subject: String(subject || "").slice(0, 160),
+      reason: String(result && (result.reason || result.detail) || "unknown").slice(0, 300),
+      status: result && result.status ? result.status : null,
+    });
+    await env.CMS_KV.put("maillog", JSON.stringify(log.slice(0, 50)));
+  } catch (e) { /* logging must never break the caller */ }
+}
+
+/**
+ * Write the outcome of a send back onto the booking, so "did the customer
+ * actually get their confirmation?" is answerable from the dashboard instead of
+ * being a question only the Resend logs could settle.
+ */
+async function recordJobMail(env, listKey, ref, which, sendPromise) {
+  const r = await sendPromise.catch((e) => ({ ok: false, reason: e && e.message }));
+  try {
+    const arr = JSON.parse((await env.CMS_KV.get(listKey)) || "[]");
+    const i = arr.findIndex(o => o.ref === ref);
+    if (i < 0) return r;
+    arr[i].mail = arr[i].mail || {};
+    arr[i].mail[which] = r && r.ok ? { ok: true, t: Date.now() }
+      : { ok: false, t: Date.now(), reason: String((r && (r.reason || r.detail)) || (r && r.skipped ? "skipped" : "unknown")).slice(0, 300) };
+    await env.CMS_KV.put(listKey, JSON.stringify(arr));
+  } catch (e) { /* never break a booking over bookkeeping */ }
+  return r;
+}
+
+/** Fire and forget, but never fail silently. Use instead of a bare waitUntil. */
+function sendEmailTracked(env, ctx, to, subject, text, ics, opts) {
+  const task = sendEmail(env, to, subject, text, ics, opts).then(async (r) => {
+    if (r && r.ok === false) await noteMailFailure(env, to, subject, r);
+    return r;
+  }).catch(async (err) => {
+    await noteMailFailure(env, to, subject, { reason: err && err.message });
+    return { ok: false, reason: err && err.message };
+  });
+  if (ctx && ctx.waitUntil) ctx.waitUntil(task);
+  return task;
+}
+
 async function sendEmail(env, to, subject, text, ics, opts) {
   if (!env.RESEND_API_KEY || !env.MAIL_FROM || !to) return { skipped: true };
   const o = opts || {};
+
+  // Check the addresses BEFORE spending a call on them, so the reason reads
+  // "OWNER_EMAIL is not an email address" rather than a 422 nobody sees.
+  if (!validEmail(to)) {
+    console.error("[email] refusing to send: the recipient is not a valid address", JSON.stringify(String(to).slice(0, 80)));
+    return { ok: false, reason: "Not a valid email address: " + String(to).slice(0, 80) };
+  }
+  if (!validEmail(env.MAIL_FROM)) {
+    console.error("[email] MAIL_FROM is not a valid address", JSON.stringify(String(env.MAIL_FROM).slice(0, 80)));
+    return { ok: false, reason: "MAIL_FROM is not a valid email address" };
+  }
 
   // Never send to an address we already know is dead or hostile. Repeatedly
   // mailing a hard-bouncing address is precisely what got this domain's
@@ -747,7 +884,10 @@ async function sendEmail(env, to, subject, text, ics, opts) {
   if (!r.ok) {
     const detail = await r.text().catch(() => "");
     console.error("[email] Resend rejected the send", r.status, detail.slice(0, 400));
-    return { ok: false, status: r.status, detail };
+    const reason = r.status === 403
+      ? "Resend refused the send — usually the sending domain is not verified, or the API key has no send permission."
+      : "Resend returned " + r.status + ": " + detail.slice(0, 200);
+    return { ok: false, status: r.status, detail, reason };
   }
   return { ok: true };
 }
@@ -1073,7 +1213,7 @@ async function runAutomations(env, u, o) {
   if (u.smsUpdates !== false)
     jobs.push(sendSMS(env, u.phone, `Cousins Mechanical: booking ${o.ref} confirmed for ${when}. We'll message you when the van's on the way.`));
   jobs.push(addCalendarEvent(env, o, u.email));
-  jobs.push(sendEmail(env, u.email,
+  jobs.push(sendEmailTracked(env, null, u.email,
     `Booking confirmed — ${o.ref}`,
     `Hi ${u.name},\n\nYour ${o.svcLabel || "mobile job"} is booked for ${when}.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\nCousins Mechanical`,
     buildICS(o, env.MAIL_FROM)));
@@ -1106,7 +1246,7 @@ async function notifyOwner(env, u, o, when) {
   const out = [];
   if (env.OWNER_PHONE) out.push(sendSMS(env, env.OWNER_PHONE, summary));
   if (env.OWNER_EMAIL || env.MAIL_FROM) {
-    out.push(sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM, `New booking ${o.ref} — ${when}`, summary));
+    out.push(sendEmailTracked(env, null, validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM, `New booking ${o.ref} — ${when}`, summary));
   }
   const settled = await Promise.allSettled(out);
   return { notified: settled.length };
@@ -1186,12 +1326,21 @@ async function api(request, env, url, ctx) {
       assets: !!env.ASSETS,
       configured: {
         vehicleLookup: !!env.UKVD_API_KEY,
-        email: !!env.RESEND_API_KEY,
+        // "email: true" while every single send came back 422 is exactly how
+        // the missing-confirmations outage stayed invisible. A flag that cannot
+        // go false is not a health check, so the address shapes are checked
+        // here — the one failure mode that costs nothing to detect.
+        email: !!env.RESEND_API_KEY && validEmail(env.MAIL_FROM),
+        ownerAlerts: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
         // NOTE: every flag here means "a value is configured", NOT "it works".
         // UKVD_API_KEY is currently set but rejected upstream with
         // UnknownApiKey, and this endpoint still reported vehicleLookup: true.
         // Use /admin/test-channels for a live check that actually calls out.
-        sms: !!(env.TWILIO_SID && env.TWILIO_TOKEN) || !!env.WHATSAPP_TOKEN,
+        sms: !!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM) || !!env.WHATSAPP_TOKEN,
+        // WhatsApp alone cannot start a conversation: Meta rejects free-form
+        // text outside 24 hours of the customer messaging first. Without an SMS
+        // fallback, business-initiated updates do not reach anybody.
+        customerMessaging: !!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -1273,12 +1422,12 @@ async function api(request, env, url, ctx) {
       // confirmation silently not arriving is the failure mode that started
       // all of this.
       if (to.length && (env.OWNER_EMAIL || env.MAIL_FROM)) {
-        ctx.waitUntil(sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
+        sendEmailTracked(env, ctx, validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM,
           `Email problem — ${to[0]}`,
           `${type === "email.complained" ? "A recipient marked our email as spam" : "An email bounced"}.\n\n`
           + `Address: ${to.join(", ")}\n`
           + `Reason: ${(evt.data && (evt.data.reason || "")) || "not given"}\n\n`
-          + `If this is a customer, phone them — they are not getting their confirmations.`));
+          + `If this is a customer, phone them — they are not getting their confirmations.`);
       }
     }
 
@@ -1504,8 +1653,8 @@ async function api(request, env, url, ctx) {
       const rt = token();
       await env.CMS_KV.put("reset:" + rt, em, { expirationTtl: RESET_TOKEN_TTL_SEC });
       const link = (env.SITE_URL || "") + "/#reset=" + rt;
-      ctx.waitUntil(sendEmail(env, em, "Reset your Cousins Mechanical password",
-        `Someone asked to reset your password. Use this link within 1 hour:\n${link}\n\nIf that wasn't you, ignore this email.`));
+      sendEmailTracked(env, ctx, em, "Reset your Cousins Mechanical password",
+        `Someone asked to reset your password. Use this link within 1 hour:\n${link}\n\nIf that wasn't you, ignore this email.`);
       await audit(env, em, "password_reset_requested", "");
     }
     return json({ ok: true }); // always ok — never reveal whether an email exists
@@ -2157,24 +2306,40 @@ async function processTyreStockForOrder(env, order) {
             + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
         });
 
-        ctx.waitUntil(sendEmail(env, order.email, subject,
+        ctx.waitUntil(recordJobMail(env, emailKey, order.ref, "customer",
+          sendEmailTracked(env, null, order.email, subject,
           `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
           + `Track it: ${site}/#track=${order.ref}\n\n`
           + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
           + `Need to change or cancel it? Call 01308 538046 or 07925 340977, or reply to this email.\n\n`
           + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339\n7 Watton Park, Bridport, DT6 5NJ`,
-          ics, { html, unsubscribeUrl: unsub }));
+          ics, { html, unsubscribeUrl: unsub })));
       });
     }
+
+    // The customer's own confirmation text. Until now only the OWNER was texted
+    // on a website booking — the customer got an email or nothing at all.
+    await safe("customer-sms", () => notifyCustomer(env, ctx, order, null,
+      `Cousins Mechanical: booking ${order.ref} confirmed for ${when.trim()}. `
+      + `${order.svcLabel || order.service || "Mobile job"}${order.reg ? " · " + order.reg : ""}. `
+      + `We'll message you when the van is on the way. Questions? 07925 340977.`,
+      "booking confirmation"));
 
     // Owner alert — Josh must hear about a new job even if the customer gave no
     // email and even if he is not looking at the dashboard.
     await safe("owner-alert", async () => {
-      const ownerTo = env.OWNER_EMAIL || env.MAIL_FROM;
+      // Fall back to MAIL_FROM when OWNER_EMAIL is missing OR malformed. A
+      // typo in one secret must not mean nobody at Cousins hears about a job.
+      const ownerTo = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
       if (ownerTo) {
-        ctx.waitUntil(sendEmail(env, ownerTo,
-          `NEW JOB ${order.ref} — ${order.svcLabel || order.service || "Mobile job"} — ${order.reg || ""}`,
-          `New booking taken on the website.\n\n${lines}\n\nOpen the dashboard: ${(env.SITE_URL || "")}/admin.html`));
+        if (!validEmail(env.OWNER_EMAIL) && env.OWNER_EMAIL) {
+          await noteMailFailure(env, env.OWNER_EMAIL, "owner alert " + order.ref,
+            { reason: "OWNER_EMAIL is not a valid email address — alerts were sent to MAIL_FROM instead. Re-set it with: npx wrangler secret put OWNER_EMAIL" });
+        }
+        ctx.waitUntil(recordJobMail(env, emailKey, order.ref, "owner",
+          sendEmailTracked(env, null, ownerTo,
+            `NEW JOB ${order.ref} — ${order.svcLabel || order.service || "Mobile job"} — ${order.reg || ""}`,
+            `New booking taken on the website.\n\n${lines}\n\nOpen the dashboard: ${(env.SITE_URL || "")}/admin`)));
       }
       if (env.OWNER_PHONE) {
         ctx.waitUntil(sendSMS(env, env.OWNER_PHONE,
@@ -2435,13 +2600,13 @@ async function processTyreStockForOrder(env, order) {
 
     // Tell the owner there is somebody waiting, or the driver sits in limbo
     // until he happens to open the Drivers tab.
-    const ownerTo = env.OWNER_EMAIL || env.MAIL_FROM;
+    const ownerTo = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
     if (ownerTo) {
-      ctx.waitUntil(sendEmail(env, ownerTo,
+      sendEmailTracked(env, ctx, ownerTo,
         "Driver awaiting approval — " + drivers[i].name,
         `${drivers[i].name} (${drivers[i].username}) has confirmed their email and is waiting for you to approve them.\n\n`
         + `Email: ${email}\nVan: ${drivers[i].vanReg || "not set"}\n\n`
-        + `They cannot see any jobs until you approve them in the Drivers tab of the dashboard.`));
+        + `They cannot see any jobs until you approve them in the Drivers tab of the dashboard.`);
     }
     return json({ ok: true, emailVerified: true, approved: !!drivers[i].approved });
   }
@@ -2772,9 +2937,14 @@ async function processTyreStockForOrder(env, order) {
       if (b.status) arr[i].status = b.status;
       arr[i].updates = [...(arr[i].updates || []), { t: Date.now(), s: b.label || "Status updated", d: b.note || "" }];
       await env.CMS_KV.put(key, JSON.stringify(arr));
-      // notify the customer by SMS if they're opted in
-      const uraw = await env.CMS_KV.get("user:" + email);
-      if (uraw) { const u = JSON.parse(uraw); if (u.smsUpdates !== false && b.sms) ctx.waitUntil(sendSMS(env, u.phone, b.sms)); }
+      // Notify the customer. The number comes off the booking, so this works
+      // for the guests who make up nearly every job — the old lookup went to
+      // "user:" only and silently did nothing for them.
+      if (b.sms) {
+        const uraw = await env.CMS_KV.get("user:" + email);
+        const u = uraw ? JSON.parse(uraw) : null;
+        await notifyCustomer(env, ctx, arr[i], u, b.sms, "status update");
+      }
       return json({ job: arr[i] });
     }
 
@@ -2926,9 +3096,12 @@ async function processTyreStockForOrder(env, order) {
         const thread = JSON.parse((await env.CMS_KV.get(key)) || "[]");
         thread.push({ t: Date.now(), from: "admin", text, read: true });
         await env.CMS_KV.put(key, JSON.stringify(thread.slice(-200)));
-        // push the reply to the customer by WhatsApp/SMS if opted in
+        // Push the reply to the customer's mobile. Falls back to the phone on
+        // their most recent booking when they have no account.
         const uraw = await env.CMS_KV.get("user:" + email);
-        if (uraw) { const u = JSON.parse(uraw); if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, "Cousins Mechanical: " + text)); }
+        const u = uraw ? JSON.parse(uraw) : null;
+        const bookings = JSON.parse((await env.CMS_KV.get("bookings:" + email)) || "[]");
+        await notifyCustomer(env, ctx, bookings[0] || null, u, "Cousins Mechanical: " + text, "reply");
         return json({ messages: thread });
       }
     }
@@ -3023,6 +3196,25 @@ async function processTyreStockForOrder(env, order) {
     // downloads the whole business state as JSON. Transient keys (sessions,
     // rate-limit counters, reset tokens) are deliberately excluded — restoring
     // them would be wrong, and sessions are secrets.
+    /*
+     * Recent email failures. Everything else in this system tells you a booking
+     * succeeded; nothing told you the confirmation for it never left.
+     */
+    if (p === "/admin/mail-failures" && request.method === "GET") {
+      const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
+      return json({
+        failures: log,
+        ownerEmailValid: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
+        mailFromValid: validEmail(env.MAIL_FROM),
+        calendarConfigured: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
+      });
+    }
+
+    if (p === "/admin/mail-failures" && request.method === "DELETE") {
+      await env.CMS_KV.delete("maillog");
+      return json({ ok: true });
+    }
+
     if (p === "/admin/backup" && request.method === "GET") {
             // Sessions, rate-limit counters and reset tokens are transient. The rest
       // of this list is credential material: exporting it turns "download a

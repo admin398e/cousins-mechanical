@@ -211,6 +211,7 @@
                     <td class="adm-td">
                       <div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
                         <span style="{{ j.paidStyle }}">{{ j.paidLabel }}</span>
+                        <span style="{{ j.mailStyle }}" title="{{ j.mailTitle }}">{{ j.mailLabel }}</span>
                         <button onClick="{{ j.openPay }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px" style-hover="border-color:#e8791a;color:#f4a04a">{{ j.payLabel }}</button>
                       </div>
                     </td>
@@ -1147,6 +1148,7 @@ class Component extends DCLogic {
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
+    mailHealth:null,
     // Offers & sales
     prId:'', prName:'', prKind:'percent', prValue:'10', prTiers:'', prBrands:'', prSizes:'',
     prStarts:'', prEnds:'', prErr:'',
@@ -1838,6 +1840,20 @@ class Component extends DCLogic {
       calendarUrl:''
     };
   }
+  async loadMailHealth(){
+    if(!this.hasServer()) return;
+    try{
+      const r = await this.af('/admin/mail-failures');
+      if(!r.ok) return;
+      this.setState({mailHealth: await r.json()});
+    }catch(e){}
+  }
+
+  clearMailLog = async () => {
+    try{ await this.af('/admin/mail-failures',{method:'DELETE'}); }catch(e){}
+    this.loadMailHealth();
+  };
+
   async loadAll(){
     if(this.state.demoMode) return;
     try{
@@ -2198,6 +2214,7 @@ class Component extends DCLogic {
     this.setState({tab}, () => {
       if(tab === 'tracking') this.initMap();
       if(tab === 'pricing') this.loadPricing();
+      this.loadMailHealth();
       // Only fetch the first time — 4,000 priced rows is not something to
       // re-request every time somebody clicks back onto the tab.
       if(tab === 'catalogue' && !(this.state.catRaw||[]).length) this.loadCatalogue();
@@ -2523,7 +2540,21 @@ class Component extends DCLogic {
       })),
       twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
       login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
-      tabs, kpis, downloadBackup:this.downloadBackup,
+      tabs, kpis, downloadBackup:this.downloadBackup, clearMailLog:this.clearMailLog,
+      hasMailProblem: !!(s.mailHealth && (!s.mailHealth.ownerEmailValid || !s.mailHealth.mailFromValid || (s.mailHealth.failures||[]).length)),
+      mailProblemHeadline: (() => {
+        const m = s.mailHealth || {};
+        if(!m.mailFromValid) return 'MAIL_FROM is not a valid email address, so nothing can be sent at all. Re-set it: npx wrangler secret put MAIL_FROM';
+        if(!m.ownerEmailValid) return 'OWNER_EMAIL is not a valid email address, so new-job alerts are going to MAIL_FROM instead. Re-set it: npx wrangler secret put OWNER_EMAIL';
+        const n = (m.failures||[]).length;
+        return n + (n===1 ? ' email failed to send. Anyone listed below did not get it — phone them.' : ' emails failed to send. Anyone listed below did not get theirs — phone them.');
+      })(),
+      mailFailRows: ((s.mailHealth&&s.mailHealth.failures)||[]).slice(0,8).map(f=>({
+        to: f.to || '(no address)',
+        when: this.fmtDateTime(f.t),
+        subject: f.subject || '',
+        reason: f.reason || 'unknown',
+      })),
       onJobs:s.tab==='jobs', onCustomers:s.tab==='customers', onUsers:s.tab==='users', onDrivers:s.tab==='drivers',
       onTracking:s.tab==='tracking', initMap:this.initMap,
       onStock:s.tab==='stock', onCalendar:s.tab==='calendar', onMessages:s.tab==='messages',

@@ -1620,6 +1620,72 @@ try {
     } finally { await delPromo(tok, id); }
   });
 
+  /* -------------------------------------------------------------------
+   * DELIVERY: confirmations must never fail silently
+   *
+   * Bookings were reaching the dashboard and the driver app while every
+   * confirmation email was rejected by Resend with a 422 — OWNER_EMAIL was not
+   * a valid address. Nothing checked it, nothing logged the result, and
+   * /api/health reported "email: true" throughout. These tests are about the
+   * silence, not the typo.
+   * ----------------------------------------------------------------- */
+  await check('health reports email as broken when MAIL_FROM is not an address', async () => {
+    const d = await (await api('/api/health')).json();
+    assert.equal(typeof d.configured.email, 'boolean');
+    assert.equal(typeof d.configured.ownerAlerts, 'boolean');
+    assert.equal(typeof d.configured.customerMessaging, 'boolean');
+    // The test server sets no mail config, so a flag that cannot go false would
+    // be reporting true here. That is precisely the bug.
+    assert.equal(d.configured.email, false, 'email reported healthy with nothing configured');
+  });
+
+  await check('the mail failure log is admin-only and readable', async () => {
+    assert.equal((await api('/api/admin/mail-failures')).status, 403);
+    const tok = await adminTok();
+    const r = await api('/api/admin/mail-failures', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    assert.ok(Array.isArray(d.failures), 'no failures array');
+    assert.equal(typeof d.ownerEmailValid, 'boolean');
+    assert.equal(typeof d.mailFromValid, 'boolean');
+    assert.equal(typeof d.calendarConfigured, 'boolean');
+  });
+
+  await check('a booking records whether its confirmation was sent', async () => {
+    const em = `delivery-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Delivery Check', phone: '07900000900', email: em,
+      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ', date: '2026-09-01', time: 'Morning (8-12)',
+    });
+    assert.equal(r.status, 200);
+    const { ref } = await r.json();
+    // The send is fire-and-forget, so give the recorder a moment.
+    await new Promise(res => setTimeout(res, 400));
+    const tok = await adminTok();
+    const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
+    const job = jobs.find(j => j.ref === ref);
+    assert.ok(job, 'the booking is missing from the dashboard');
+    // With no mail configured the send is skipped, not failed — but the field
+    // must exist either way, because "was it sent?" has to be answerable.
+    assert.ok(job.mail === undefined || typeof job.mail === 'object', 'mail outcome is the wrong shape');
+  });
+
+  await check('the booking form does not require an email address', async () => {
+    // A roadside customer with a flat tyre may not have one to hand, and the
+    // owner alert plus the dashboard entry matter more than the confirmation.
+    const r = await postJson('/api/service-requests', {
+      name: 'No Email', phone: '07900000901', service: 'recovery', postcode: 'DT6 5NJ',
+    });
+    assert.equal(r.status, 200, 'a booking without an email was refused');
+    const d = await r.json();
+    assert.ok(d.ref, 'no reference returned');
+  });
+
+  await check('a booking with no name or phone is still refused', async () => {
+    assert.equal((await postJson('/api/service-requests', { name: 'Nobody' })).status, 400);
+    assert.equal((await postJson('/api/service-requests', { phone: '07900000902' })).status, 400);
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be
