@@ -1739,6 +1739,120 @@ try {
     assert.deepEqual((await r.json()).warnings, [], 'an unset CRM produced a booking warning');
   });
 
+  /* -------------------------------------------------------------------
+   * AVAILABILITY — two customers must not be able to book the same window
+   * ----------------------------------------------------------------- */
+  const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  // Every booking here comes from its own IP. The 20-per-IP limiter is correct
+  // production behaviour and the suite has already spent the shared budget by
+  // this point; two different customers really are two different addresses.
+  let ipSeq = 0;
+  const bookAs = (body) => api('/api/service-requests', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.' + (++ipSeq) },
+    body: JSON.stringify(body),
+  });
+  const MORNING = 'Morning (8\u201312)';
+
+  await check('availability is public, validated and shaped', async () => {
+    assert.equal((await api('/api/availability')).status, 400, 'a missing date was accepted');
+    assert.equal((await api('/api/availability?date=next-tuesday')).status, 400, 'a junk date was accepted');
+    const d = await (await api('/api/availability?date=' + FUTURE)).json();
+    assert.equal(d.date, FUTURE);
+    assert.ok(Array.isArray(d.slots) && d.slots.length >= 3, 'no slots returned');
+    for (const s of d.slots) {
+      assert.equal(typeof s.available, 'boolean');
+      assert.ok(s.key, 'slot has no key');
+    }
+    // With no Google calendar configured it must say so rather than pretending.
+    assert.equal(d.calendarChecked, false);
+  });
+
+  await check('a window fills up and then refuses further bookings', async () => {
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2 }) });
+
+    const book = (n) => bookAs({
+      name: 'Slot ' + n, phone: '0790000' + (2000 + n), email: `slot${n}-${Date.now()}@example.com`,
+      service: 'tyre', postcode: 'DT6 5NJ', date: FUTURE, time: MORNING,
+    });
+
+    assert.equal((await book(1)).status, 200, 'first booking refused');
+    assert.equal((await book(2)).status, 200, 'second booking refused while capacity was 2');
+
+    const mid = await (await api('/api/availability?date=' + FUTURE)).json();
+    const slot = mid.slots.find(s => s.key === MORNING);
+    assert.equal(slot.available, false, 'the window is still offered after filling it');
+    assert.equal(slot.reason, 'fully booked');
+
+    const third = await book(3);
+    assert.equal(third.status, 409, 'a third booking got into a full window');
+    assert.match((await third.json()).error, /has just gone/i);
+  });
+
+  await check('an emergency is always accepted, however full the day is', async () => {
+    // Somebody at the roadside is not helped by being told the morning is full.
+    const r = await bookAs({
+      name: 'Roadside', phone: '07900002999', email: `asap-${Date.now()}@example.com`,
+      service: 'recovery', postcode: 'DT6 5NJ', date: FUTURE, time: 'ASAP / Emergency',
+    });
+    assert.equal(r.status, 200, 'an emergency was refused');
+    const d = await (await api('/api/availability?date=' + FUTURE)).json();
+    const asap = d.slots.find(s => s.key === 'ASAP / Emergency');
+    assert.equal(asap.available, true, 'the emergency option stopped being offered');
+  });
+
+  await check('cancelling a job hands its window back', async () => {
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const em = `release-${Date.now()}@example.com`;
+    const day = new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10);
+    await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 1 }) });
+
+    const first = await bookAs({
+      name: 'Will Cancel', phone: '07900003000', email: em,
+      service: 'tyre', postcode: 'DT6 5NJ', date: day, time: MORNING,
+    });
+    const { ref } = await first.json();
+
+    let d = await (await api('/api/availability?date=' + day)).json();
+    assert.equal(d.slots.find(s => s.key === MORNING).available, false, 'capacity 1 did not fill');
+
+    await api('/api/admin/jobs/' + ref, { method: 'PATCH', headers: h,
+      body: JSON.stringify({ customerEmail: em, status: 'cancelled', label: 'Cancelled' }) });
+
+    d = await (await api('/api/availability?date=' + day)).json();
+    assert.equal(d.slots.find(s => s.key === MORNING).available, true, 'a cancelled job still blocks its window');
+
+    await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2 }) });
+  });
+
+  await check('the slot index can be rebuilt from the bookings themselves', async () => {
+    const tok = await adminTok();
+    const h = { authorization: 'Bearer ' + tok };
+    assert.equal((await api('/api/admin/rebuild-slots', { method: 'POST' })).status, 403);
+    const r = await api('/api/admin/rebuild-slots', { method: 'POST', headers: h });
+    assert.equal(r.status, 200);
+    const d = await r.json();
+    assert.ok(d.ok && typeof d.dates === 'number', 'rebuild returned nothing useful');
+    // And the rebuilt counts must agree with what availability reports.
+    const av = await (await api('/api/availability?date=' + FUTURE)).json();
+    assert.equal(av.slots.find(s => s.key === MORNING).booked, (d.counts[FUTURE] || {})[MORNING] || 0);
+  });
+
+  await check('booking settings are admin-only and bounded', async () => {
+    assert.equal((await api('/api/admin/booking-settings')).status, 403);
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const r = await api('/api/admin/booking-settings', { method: 'POST', headers: h,
+      body: JSON.stringify({ slotCapacity: 9999, leadTimeHours: -5 }) });
+    const { settings } = await r.json();
+    assert.ok(settings.slotCapacity <= 20, 'capacity was not clamped');
+    assert.ok(settings.leadTimeHours >= 0, 'a negative lead time was accepted');
+    await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2, leadTimeHours: 2 }) });
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

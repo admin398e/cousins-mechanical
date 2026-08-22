@@ -643,6 +643,139 @@ async function sendSMS(env, to, body) {
 }
 
 /* =========================================================================
+ * AVAILABILITY
+ *
+ * Two independent things can make a slot unbookable, and both have to be
+ * checked or the promise is worthless:
+ *
+ *   1. Cousins is already doing enough jobs in that window. That is OUR data,
+ *      so it works with nothing configured — which matters, because until now
+ *      two customers could book the same morning and nothing anywhere noticed.
+ *   2. Something else is in the Google calendar — a holiday, a dentist, a job
+ *      taken over the phone. Only visible once GCAL_* is set, so the calendar
+ *      check degrades to "not busy" rather than blocking bookings when it is
+ *      unavailable. Refusing work because a third party is unreachable would be
+ *      a worse failure than the double-booking it prevents.
+ * ====================================================================== */
+const SLOTS = [
+  { key: "Morning (8–12)",   start: 8,  end: 12 },
+  { key: "Afternoon (12–5)", start: 12, end: 17 },
+  { key: "Evening (5–7)",    start: 17, end: 19 },
+];
+// Not a real window — an emergency is taken whenever it comes in, so it is
+// never counted against capacity and never blocked.
+const ASAP_SLOT = "ASAP / Emergency";
+
+const DEFAULT_BOOKING_SETTINGS = {
+  slotCapacity: 2,      // jobs per window
+  leadTimeHours: 2,     // no booking closer than this
+  daysAhead: 60,
+  closedDays: [0],      // 0 = Sunday
+};
+
+async function bookingSettings(env) {
+  const raw = await env.CMS_KV.get("booking_settings");
+  const s = raw ? JSON.parse(raw) : {};
+  return {
+    ...DEFAULT_BOOKING_SETTINGS, ...s,
+    closedDays: Array.isArray(s.closedDays) ? s.closedDays : DEFAULT_BOOKING_SETTINGS.closedDays,
+  };
+}
+
+/**
+ * How many jobs are already booked into each window on a date.
+ *
+ * Kept as its own small key per date rather than counted by walking every
+ * customer's booking list. Availability is read on every date change in the
+ * booking form; listing all of KV to answer it would be slow and would get
+ * slower as the business grows.
+ */
+async function slotCounts(env, date) {
+  const raw = await env.CMS_KV.get("slots:" + date);
+  return raw ? JSON.parse(raw) : {};
+}
+
+async function bumpSlot(env, date, time, delta) {
+  if (!date || !time || time === ASAP_SLOT) return;
+  const counts = await slotCounts(env, date);
+  counts[time] = Math.max(0, (Number(counts[time]) || 0) + delta);
+  await env.CMS_KV.put("slots:" + date, JSON.stringify(counts));
+}
+
+/** Google free/busy for one day. Returns [] when the calendar is not set up. */
+async function googleBusy(env, date) {
+  if (!env.GCAL_CALENDAR_ID) return { configured: false, busy: [] };
+  const tok = await googleToken(env);
+  if (!tok) return { configured: false, busy: [] };
+  const r = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+    method: "POST",
+    headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
+    body: JSON.stringify({
+      timeMin: date + "T00:00:00Z",
+      timeMax: date + "T23:59:59Z",
+      timeZone: "Europe/London",
+      items: [{ id: env.GCAL_CALENDAR_ID }],
+    }),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    console.error("[gcal] freeBusy failed", r && r.status);
+    // Deliberately NOT treated as "everything is busy". See the note above.
+    return { configured: false, busy: [] };
+  }
+  const d = await r.json().catch(() => ({}));
+  const cal = d.calendars && d.calendars[env.GCAL_CALENDAR_ID];
+  return { configured: true, busy: (cal && cal.busy) || [] };
+}
+
+/** Does a busy block overlap the window? Both in London local hours. */
+function busyCovers(busy, date, startHour, endHour) {
+  const winStart = new Date(date + "T" + String(startHour).padStart(2, "0") + ":00:00Z").getTime();
+  const winEnd = new Date(date + "T" + String(endHour).padStart(2, "0") + ":00:00Z").getTime();
+  for (const b of busy) {
+    const s = new Date(b.start).getTime(), e = new Date(b.end).getTime();
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    // Any overlap at all counts — a two-hour job in the middle of the morning
+    // makes that morning unusable, not half-usable.
+    if (s < winEnd && e > winStart) return true;
+  }
+  return false;
+}
+
+async function availabilityFor(env, date) {
+  const set = await bookingSettings(env);
+  const counts = await slotCounts(env, date);
+  const gb = await googleBusy(env, date);
+  const day = new Date(date + "T12:00:00Z");
+  const closed = set.closedDays.includes(day.getUTCDay());
+  const now = Date.now();
+
+  const slots = SLOTS.map(s => {
+    const booked = Number(counts[s.key]) || 0;
+    const tooLate = new Date(date + "T" + String(s.end).padStart(2, "0") + ":00:00Z").getTime()
+      < now + set.leadTimeHours * 3600 * 1000;
+    const calendarBusy = busyCovers(gb.busy, date, s.start, s.end);
+    let reason = null;
+    if (closed) reason = "closed";
+    else if (tooLate) reason = "too soon";
+    else if (booked >= set.slotCapacity) reason = "fully booked";
+    else if (calendarBusy) reason = "unavailable";
+    return { key: s.key, label: s.key, available: !reason, reason, booked };
+  });
+
+  // The emergency option is always offered. Somebody at the roadside is not
+  // helped by being told the morning is full.
+  slots.push({ key: ASAP_SLOT, label: ASAP_SLOT, available: true, reason: null, booked: 0 });
+
+  return {
+    date,
+    slots,
+    calendarChecked: gb.configured,
+    capacity: set.slotCapacity,
+    anyAvailable: slots.some(s => s.available && s.key !== ASAP_SLOT),
+  };
+}
+
+/* =========================================================================
  * HUBSPOT
  *
  * A Private App token, not OAuth. HubSpot OAuth exists for public apps that
@@ -1486,6 +1619,19 @@ async function api(request, env, url, ctx) {
      * secret — it appears in the script tag on every page — but serving it from
      * config rather than hardcoding means it moves with the environment.
      */
+  /*
+   * What the booking form asks before it offers a time. Public on purpose —
+   * it exposes only whether a window is free, never who booked it or why.
+   */
+  if (p === "/availability" && request.method === "GET") {
+    const date = String(url.searchParams.get("date") || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return bad("Give a date as YYYY-MM-DD", 400);
+    if (await edgeLimited(env, "RL_LOOKUP", "avail:" + clientIp(request))) {
+      return bad("Too many requests — try again shortly.", 429);
+    }
+    return json(await availabilityFor(env, date));
+  }
+
   if (p === "/crm-config" && request.method === "GET") {
     if (!env.HUBSPOT_PORTAL_ID) return bad("CRM not configured", 404);
     return json({ portalId: String(env.HUBSPOT_PORTAL_ID) });
@@ -2369,6 +2515,17 @@ async function processTyreStockForOrder(env, order) {
     // A booking with no way to contact the customer back is worse than no booking.
     if (!b.name || !b.phone) return bad("Name and mobile number are required.");
 
+    // The slot has to still be free NOW, not when the form was opened. Two
+    // people filling in the same window at the same time is exactly how a
+    // double-booking happens, and the front-end check cannot catch it.
+    if (b.date && b.time && b.time !== ASAP_SLOT && /^\d{4}-\d{2}-\d{2}$/.test(String(b.date))) {
+      const av = await availabilityFor(env, String(b.date));
+      const slot = av.slots.find(s => s.key === b.time);
+      if (slot && !slot.available) {
+        return bad("Sorry — " + b.time.toLowerCase() + " on " + b.date + " has just gone. Pick another time, or call 07925 340977 and we will fit you in.", 409);
+      }
+    }
+
     // Public endpoint — no login. It must not send email without limit, or it
     // is an open relay for our own domain's reputation.
     if (await edgeLimited(env, "RL_WRITE", "book:" + clientIp(request))
@@ -2411,6 +2568,11 @@ async function processTyreStockForOrder(env, order) {
     const existing = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
     if (!existing.some(o => o.ref === order.ref)) existing.unshift(order); // idempotent on retry
     await env.CMS_KV.put(emailKey, JSON.stringify(existing));
+
+    // Hold the slot immediately, before any of the optional work below. A
+    // booking that is saved but not counted is a double-booking waiting to
+    // happen on the next request.
+    await bumpSlot(env, order.date, order.time, +1).catch(() => null);
 
     // From here on, nothing may throw out of the handler.
     const warnings = [];
@@ -3136,6 +3298,14 @@ async function processTyreStockForOrder(env, order) {
       const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
       const i = arr.findIndex(o => o.ref === jm[1]);
       if (i < 0) return bad("Not found", 404);
+      // Cancelling frees the window. Without this a cancelled job would go on
+      // blocking the slot forever and the day would silently fill up.
+      if (b.status && b.status !== arr[i].status) {
+        const wasLive = arr[i].status !== "cancelled";
+        const nowCancelled = b.status === "cancelled";
+        if (wasLive && nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, -1).catch(() => null);
+        if (!wasLive && !nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, +1).catch(() => null);
+      }
       if (b.status) arr[i].status = b.status;
       arr[i].updates = [...(arr[i].updates || []), { t: Date.now(), s: b.label || "Status updated", d: b.note || "" }];
       await env.CMS_KV.put(key, JSON.stringify(arr));
@@ -3167,6 +3337,8 @@ async function processTyreStockForOrder(env, order) {
       const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
       const job = arr.find(o => o.ref === ref);
       if (!job) return bad("Job not found", 404);
+      // Deleting a live job hands its window back, same as cancelling one.
+      if (job.status !== "cancelled") await bumpSlot(env, job.date, job.time, -1).catch(() => null);
 
       // Refuse to erase a job that has money against it. Deleting the record
       // would destroy the only trace of a payment or refund, and that is an
@@ -3414,6 +3586,71 @@ async function processTyreStockForOrder(env, order) {
      * Recent email failures. Everything else in this system tells you a booking
      * succeeded; nothing told you the confirmation for it never left.
      */
+    /* Capacity rules. How many jobs fit in a window is a business decision
+     * that changes with the van count, so it lives in KV, not in the code. */
+    if (p === "/admin/booking-settings") {
+      if (request.method === "GET") return json({ settings: await bookingSettings(env), defaults: DEFAULT_BOOKING_SETTINGS });
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const cur = await bookingSettings(env);
+        const numOr = (v, f, lo, hi) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : f;
+        };
+        const next = {
+          slotCapacity: numOr(b.slotCapacity, cur.slotCapacity, 1, 20),
+          leadTimeHours: numOr(b.leadTimeHours, cur.leadTimeHours, 0, 168),
+          daysAhead: numOr(b.daysAhead, cur.daysAhead, 1, 365),
+          closedDays: Array.isArray(b.closedDays)
+            ? b.closedDays.map(Number).filter(n => n >= 0 && n <= 6)
+            : cur.closedDays,
+        };
+        await env.CMS_KV.put("booking_settings", JSON.stringify(next));
+        await audit(env, "admin", "booking_settings_updated", JSON.stringify(next));
+        return json({ settings: next });
+      }
+    }
+
+    /*
+     * Rebuild the slot index from the bookings themselves.
+     *
+     * The index is incremented as jobs come and go, so it can drift — a job
+     * edited straight in KV, or a delete that half-failed. This walks the real
+     * bookings and rewrites the counts, which is the only honest way to fix a
+     * count nobody can see.
+     */
+    if (p === "/admin/rebuild-slots" && request.method === "POST") {
+      const counts = {};
+      let cursor;
+      do {
+        const page = await env.CMS_KV.list({ prefix: "bookings:", cursor });
+        for (const k of page.keys) {
+          const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
+          for (const o of arr) {
+            if (!o.date || !o.time || o.time === ASAP_SLOT) continue;
+            if (o.status === "cancelled") continue;
+            counts[o.date] = counts[o.date] || {};
+            counts[o.date][o.time] = (counts[o.date][o.time] || 0) + 1;
+          }
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+
+      // Clear stale keys first, or a date that emptied keeps its old count.
+      let c2;
+      do {
+        const page = await env.CMS_KV.list({ prefix: "slots:", cursor: c2 });
+        for (const k of page.keys) if (!counts[k.name.slice(6)]) await env.CMS_KV.delete(k.name);
+        c2 = page.list_complete ? undefined : page.cursor;
+      } while (c2);
+
+      for (const [date, byslot] of Object.entries(counts)) {
+        await env.CMS_KV.put("slots:" + date, JSON.stringify(byslot));
+      }
+      await audit(env, "admin", "slots_rebuilt", Object.keys(counts).length + " dates");
+      return json({ ok: true, dates: Object.keys(counts).length, counts });
+    }
+
     if (p === "/admin/mail-failures" && request.method === "GET") {
       const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
       return json({

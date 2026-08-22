@@ -580,10 +580,26 @@
             <div style="display:flex;gap:10px">
               <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Date</label>
                 <input type="date" value="{{ book.date }}" onInput="{{ setBookDate }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px"/></div>
-              <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Preferred time</label>
-                <select value="{{ book.time }}" onChange="{{ setBookTime }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px;background:#fff">
-                  <option value="">Choose…</option><option>Morning (8–12)</option><option>Afternoon (12–5)</option><option>Evening (5–7)</option><option>ASAP / Emergency</option>
-                </select></div>
+            </div>
+            <div>
+              <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Preferred time</label>
+              <sc-if value="{{ slotsLoading }}" hint-placeholder-val="{{ false }}">
+                <div style="color:#8a817b;font-size:13px;padding:10px 0">Checking what is free…</div>
+              </sc-if>
+              <sc-if value="{{ needDateFirst }}" hint-placeholder-val="{{ true }}">
+                <div style="color:#8a817b;font-size:13px;padding:10px 0">Pick a date and we will show you what is still free.</div>
+              </sc-if>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <sc-for list="{{ slotRows }}" as="sl" hint-placeholder-count="4">
+                  <button onClick="{{ sl.pick }}" disabled="{{ sl.disabled }}" style="{{ sl.style }}">
+                    <span>{{ sl.label }}</span>
+                    <span style="{{ sl.noteStyle }}">{{ sl.note }}</span>
+                  </button>
+                </sc-for>
+              </div>
+              <sc-if value="{{ dayFull }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#fdf2ec;border:1px solid #f0c9b0;color:#8a4a22;border-radius:10px;padding:10px 13px;font-size:13px;margin-top:8px;line-height:1.5">That day is fully booked. Try another date, or choose <strong>ASAP / Emergency</strong> and we will call you back — we keep room for breakdowns.</div>
+              </sc-if>
             </div>
           </div>
         </sc-if>
@@ -957,6 +973,8 @@ class Component extends DCLogic {
     inStockOnly: false, tyreLoading: false, tyreErr: '', noStockMatch: false,
     tyreOptions: [],
     bookOpen: false, bookStep: 1, bookDone: false, lastRef: '', bookBusy: false, bookErr: '', svcPricing: {},
+    // Availability for the chosen date
+    slots: [], slotsLoading: false, slotCalendar: false,
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
     locHint: 'We use this to route the van straight to you.',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
@@ -1256,7 +1274,29 @@ class Component extends DCLogic {
   // prefers coordinates over the postcode, so pressing "use my location" and
   // then correcting the address sent the van to the abandoned GPS fix.
   setBookPostcode = e => { const v=e.target.value; this.setState(s=>({book:{...s.book,postcode:v,lat:null,lng:null}})); };
-  setBookDate = e => this.setState(s=>({book:{...s.book,date:e.target.value}}));
+  setBookDate = e => {
+    const date = e.target.value;
+    // Clear the chosen time whenever the date moves. Keeping it would let
+    // someone carry a morning that was free on Tuesday onto a full Wednesday.
+    this.setState(s=>({book:{...s.book,date,time:''}, slots:[], slotsLoading:!!date}), ()=>this.loadSlots(date));
+  };
+
+  async loadSlots(date){
+    if(!date || !this.hasServer()){ this.setState({slotsLoading:false}); return; }
+    try{
+      const r = await fetch(this.apiBase()+'/api/availability?date='+encodeURIComponent(date));
+      if(!r.ok) throw new Error('unavailable');
+      const d = await r.json();
+      this.setState({slots:d.slots||[], slotsLoading:false, slotCalendar:!!d.calendarChecked});
+    }catch(e){
+      // Never block a booking because the check failed — offer everything and
+      // let the server have the final say when the form is submitted.
+      this.setState({slots:[], slotsLoading:false});
+    }
+  }
+
+  pickSlot(key){ this.setState(s=>({book:{...s.book,time:key}})); }
+
   setBookTime = e => this.setState(s=>({book:{...s.book,time:e.target.value}}));
   setBookName = e => this.setState(s=>({book:{...s.book,name:e.target.value}}));
   setBookPhone = e => this.setState(s=>({book:{...s.book,phone:e.target.value}}));
@@ -1900,6 +1940,32 @@ class Component extends DCLogic {
       step1:s.bookStep===1&&!s.bookDone, step2:s.bookStep===2&&!s.bookDone, step3:s.bookStep===3&&!s.bookDone,
       stepBars:bars, serviceChoices, book:s.book, locHint:s.locHint,
       setBookReg:this.setBookReg, setBookPostcode:this.setBookPostcode, setBookDate:this.setBookDate, setBookTime:this.setBookTime,
+      slotsLoading: s.slotsLoading,
+      needDateFirst: !s.book.date && !s.slotsLoading,
+      // Every window on the day is spoken for. The emergency option is not
+      // counted — it is always offered, so it must not make the day look free.
+      dayFull: !!(s.book.date && !s.slotsLoading && s.slots.length
+                  && !s.slots.some(x => x.available && x.key !== 'ASAP / Emergency')),
+      slotRows: (s.slots || []).map(sl => {
+        const chosen = s.book.time === sl.key;
+        const note = sl.available
+          ? (sl.key === 'ASAP / Emergency' ? 'we will call you' : 'available')
+          : ({ 'fully booked':'fully booked', 'closed':'closed', 'too soon':'too soon to book', 'unavailable':'not available' }[sl.reason] || 'not available');
+        return {
+          label: sl.label,
+          note,
+          disabled: !sl.available,
+          pick: () => this.pickSlot(sl.key),
+          style: 'flex:1;min-width:150px;display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;'
+            + 'border-radius:10px;padding:11px 13px;font-size:14.5px;font-weight:700;'
+            + (sl.available
+                ? ('cursor:pointer;border:1.5px solid ' + (chosen ? '#c2410c' : '#ddd4cb')
+                   + ';background:' + (chosen ? '#c2410c' : '#fff') + ';color:' + (chosen ? '#fff' : '#1c1817'))
+                : 'cursor:not-allowed;border:1.5px dashed #e3dbd2;background:#f7f4f1;color:#a89f98'),
+          noteStyle: 'font-size:11.5px;font-weight:600;opacity:.75;color:'
+            + (sl.available ? (chosen ? '#fff' : '#8a817b') : '#a89f98'),
+        };
+      }),
       setBookName:this.setBookName, setBookPhone:this.setBookPhone, setBookEmail:this.setBookEmail, setBookNotes:this.setBookNotes,
       toggleCalendar:this.toggleCalendar, useMyLocation:this.useMyLocation,
       bookBack:this.bookBack, bookNext:this.bookNext, canBack:s.bookStep>1, nextLabel,
