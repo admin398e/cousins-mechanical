@@ -1703,6 +1703,42 @@ try {
     }
   });
 
+  await check('a booking confirmation survives non-ASCII text', async () => {
+    // buildICS() puts a literal em-dash in the SUMMARY line of every invite,
+    // and btoa() throws on anything above U+00FF. So attaching the .ics threw
+    // BEFORE the send and every customer confirmation carrying an email
+    // address failed — invisibly, because the caller discarded the result.
+    // An accented name or a curly quote in the notes would do it too.
+    const em = `unicode-${Date.now()}@example.com`;
+    const r = await postJson('/api/service-requests', {
+      name: 'Renée O\u2019Brien', phone: '07900000910', email: em,
+      service: 'tyre', svcLabel: 'Tyre fitting — mobile',
+      postcode: 'DT6 5NJ', date: '2026-09-02', time: 'Morning (8-12)',
+      notes: 'Curly quote \u201Cparked round the back\u201D and a £ sign.',
+    });
+    assert.equal(r.status, 200);
+    const { ref, warnings } = await r.json();
+    assert.deepEqual(warnings, [], 'the booking reported warnings: ' + JSON.stringify(warnings));
+    await new Promise(res => setTimeout(res, 400));
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/mail-failures', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const latin1 = (dump.failures || []).filter(f => /Latin1|Invalid character/i.test(f.reason || ''));
+    assert.equal(latin1.length, 0, 'base64 still throws on non-ASCII: ' + JSON.stringify(latin1[0] || {}));
+    assert.ok(ref, 'no reference returned');
+  });
+
+  await check('the CRM sync is off until a private-app token is set', async () => {
+    const d = await (await api('/api/health')).json();
+    assert.equal(d.configured.crmSync, false, 'CRM sync reported ready with no token');
+    // And it must stay best-effort: a booking still succeeds with HubSpot unset.
+    const r = await postJson('/api/service-requests', {
+      name: 'No CRM', phone: '07900000911', email: `nocrm-${Date.now()}@example.com`,
+      service: 'brakes', postcode: 'DT6 5NJ',
+    });
+    assert.equal(r.status, 200);
+    assert.deepEqual((await r.json()).warnings, [], 'an unset CRM produced a booking warning');
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

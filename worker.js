@@ -45,6 +45,11 @@ import {
  *                                  without a deploy. Falls back to the Messages API.
  *      HUBSPOT_PORTAL_ID           Optional. Numeric portal id; switches on the tracking
  *                                  script on the public site and the CRM links in admin.
+ *      HUBSPOT_TOKEN               Optional. Private App token (NOT OAuth). Switches on the
+ *                                  contact-on-booking and deal-on-payment sync. Needs the
+ *                                  crm.objects.contacts.write and crm.objects.deals.write scopes.
+ *      HUBSPOT_PIPELINE            Optional, default "default".
+ *      HUBSPOT_WON_STAGE           Optional, default "closedwon".
  *      RESEND_AUDIENCE_ID          Resend Audience id for MARKETING — optional. Only contacts who ticked
  *                                  the box are pushed here. Leave unset and the tick is still recorded in KV.
  *      RESEND_CUSTOMER_AUDIENCE_ID Resend Audience id for ALL CUSTOMERS — optional. Everyone who books or
@@ -504,6 +509,23 @@ async function audit(env, email, event, detail) {
 }
 
 // ---------- .ics ----------
+/**
+ * Base64 for text that may contain anything a human typed.
+ *
+ * btoa() throws on any character above U+00FF, and buildICS() puts a literal
+ * em-dash in the SUMMARY line of every invite. So attaching the .ics threw
+ * before the send, and EVERY customer booking confirmation with an email
+ * address on it failed — silently, because the caller discarded the result.
+ * A customer name with an accent or a note with a curly quote would have done
+ * the same thing. Encode to UTF-8 bytes first, then base64 those.
+ */
+function b64utf8(str) {
+  const bytes = new TextEncoder().encode(String(str));
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
 function buildICS(o, org) {
   const d = (o.date || "").replace(/-/g, "");
   const start = d ? d + "T090000" : new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
@@ -618,6 +640,107 @@ async function sendSMS(env, to, body) {
 
   if (!attempts.length) return { skipped: true, reason: "no messaging channel configured" };
   return { ok: false, reason: attempts.join(" | ") };
+}
+
+/* =========================================================================
+ * HUBSPOT
+ *
+ * A Private App token, not OAuth. HubSpot OAuth exists for public apps that
+ * many different HubSpot accounts install, which is why it has a redirect URI
+ * and a consent screen. Cousins is one account integrating with itself, so a
+ * private-app token is the whole of the authentication story.
+ *
+ * Everything here is best-effort. A CRM that is down, rate-limited or
+ * misconfigured must never stop a booking being taken — but it must also never
+ * fail quietly, so failures land in the same log as the email ones.
+ * ====================================================================== */
+async function hubspot(env, path, method, body) {
+  if (!env.HUBSPOT_TOKEN) return { skipped: true, reason: "HUBSPOT_TOKEN not set" };
+  const r = await fetch("https://api.hubapi.com" + path, {
+    method,
+    headers: { authorization: "Bearer " + env.HUBSPOT_TOKEN, "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error reaching HubSpot" };
+  const text = await r.text().catch(() => "");
+  if (!r.ok) {
+    console.error("[hubspot]", method, path, r.status, text.slice(0, 300));
+    return { ok: false, status: r.status, reason: "HubSpot returned " + r.status + ": " + text.slice(0, 200) };
+  }
+  let data = null;
+  try { data = JSON.parse(text); } catch { /* some endpoints return no body */ }
+  return { ok: true, data };
+}
+
+/**
+ * Create or update the contact, keyed on email.
+ *
+ * Upsert rather than search-then-write: a repeat customer must not become a
+ * second record, and two bookings arriving together must not race into
+ * duplicates. Returns the contact id so a deal can be attached to it.
+ */
+async function hubspotUpsertContact(env, order) {
+  const email = String(order.email || "").trim().toLowerCase();
+  if (!email) return { skipped: true, reason: "no email — HubSpot keys contacts on it" };
+  const parts = String(order.name || "").trim().split(/\s+/);
+  const res = await hubspot(env, "/crm/v3/objects/contacts/batch/upsert", "POST", {
+    inputs: [{
+      idProperty: "email",
+      id: email,
+      properties: {
+        email,
+        firstname: parts[0] || "",
+        lastname: parts.slice(1).join(" ") || "",
+        phone: order.phone || "",
+        zip: order.postcode || "",
+      },
+    }],
+  });
+  if (!res.ok) return res;
+  const id = res.data && res.data.results && res.data.results[0] && res.data.results[0].id;
+  return { ok: true, contactId: id || null };
+}
+
+/**
+ * Log the job as a deal, already Closed Won.
+ *
+ * A booking is not a sales opportunity that might not land — by the time it
+ * exists the work is agreed. Running it through Appointment Scheduled →
+ * Qualified To Buy → Decision Maker Bought-In would be pure theatre in a
+ * two-person mobile mechanic business. So the deal is created at the point
+ * money is recorded, at the value actually taken.
+ */
+async function hubspotCreateDeal(env, order, pence, contactId) {
+  const amount = Number(pence || 0) / 100;
+  const body = {
+    properties: {
+      dealname: (order.svcLabel || order.service || "Mobile job") + " — " + order.ref,
+      pipeline: env.HUBSPOT_PIPELINE || "default",
+      dealstage: env.HUBSPOT_WON_STAGE || "closedwon",
+      amount: amount ? String(amount) : "0",
+    },
+  };
+  if (contactId) {
+    // 3 is HubSpot's built-in deal→contact association type.
+    body.associations = [{
+      to: { id: contactId },
+      types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 3 }],
+    }];
+  }
+  return hubspot(env, "/crm/v3/objects/deals", "POST", body);
+}
+
+/** Push to HubSpot without ever blocking or silently swallowing the outcome. */
+function hubspotSync(env, ctx, label, fn) {
+  const task = fn().then(async (r) => {
+    if (r && r.ok === false) await noteMailFailure(env, "HubSpot", label, { ...r, channel: "crm" });
+    return r;
+  }).catch(async (err) => {
+    await noteMailFailure(env, "HubSpot", label, { reason: err && err.message, channel: "crm" });
+    return { ok: false };
+  });
+  if (ctx && ctx.waitUntil) ctx.waitUntil(task);
+  return task;
 }
 
 /**
@@ -919,7 +1042,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     };
   }
-  if (ics) body.attachments = [{ filename: "booking.ics", content: btoa(ics) }];
+  if (ics) body.attachments = [{ filename: "booking.ics", content: b64utf8(ics) }];
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
@@ -1399,6 +1522,7 @@ async function api(request, env, url, ctx) {
         customerMessaging: !!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         studioFlow: !!(env.TWILIO_STUDIO_FLOW_SID && env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         crm: !!env.HUBSPOT_PORTAL_ID,
+        crmSync: !!env.HUBSPOT_TOKEN,
         calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -2307,6 +2431,10 @@ async function processTyreStockForOrder(env, order) {
     // of people we are doing work for, not a mailing list.
     if (contactRes.contact) ctx.waitUntil(syncCustomerAudience(env, contactRes.contact).catch(() => null));
 
+    // HubSpot contact. Created on the booking, not on payment, because the
+    // point of a CRM record is to have it BEFORE you need to chase someone.
+    if (order.email) hubspotSync(env, ctx, "contact " + order.ref, () => hubspotUpsertContact(env, order));
+
     // Resend audience — only on an explicit marketing tick, and only the first
     // time it goes from off to on, so a repeat customer is not re-POSTed on
     // every job.
@@ -3104,6 +3232,18 @@ async function processTyreStockForOrder(env, order) {
       }];
       await env.CMS_KV.put(key, JSON.stringify(arr));
       await audit(env, email, "job_" + kind, job.ref + " £" + (pence / 100).toFixed(2));
+
+      // The deal goes to HubSpot when money is taken, at the value actually
+      // taken — a booking is not a sales opportunity that might not land, so
+      // there is no pipeline to walk it through. A refund is not a new deal;
+      // it belongs against the one already there, which is a reporting job for
+      // HubSpot, not something to model with a second record here.
+      if (kind === "payment" && env.HUBSPOT_TOKEN) {
+        hubspotSync(env, ctx, "deal " + job.ref, async () => {
+          const c = await hubspotUpsertContact(env, job);
+          return hubspotCreateDeal(env, job, pence, c && c.contactId);
+        });
+      }
 
       // Receipt. Best effort — the money is recorded either way, and a failed
       // send must not make Josh think the payment did not save.
