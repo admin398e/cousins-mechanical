@@ -38,6 +38,13 @@ import {
  *      GCAL_CALENDAR_ID      calendar id the invites land on (share it with the service account)
  *      RESEND_API_KEY        Resend API key (resend.com — free 3,000 emails/mo)
  *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
+ *      TWILIO_SID / TWILIO_TOKEN   Twilio subaccount credentials.
+ *      TWILIO_FROM                 The Twilio number in +44… form, e.g. +447576549872.
+ *      TWILIO_STUDIO_FLOW_SID      Optional. FW… — when set, booking confirmations run
+ *                                  through the Studio flow so the wording can be edited
+ *                                  without a deploy. Falls back to the Messages API.
+ *      HUBSPOT_PORTAL_ID           Optional. Numeric portal id; switches on the tracking
+ *                                  script on the public site and the CRM links in admin.
  *      RESEND_AUDIENCE_ID          Resend Audience id for MARKETING — optional. Only contacts who ticked
  *                                  the box are pushed here. Leave unset and the tick is still recorded in KV.
  *      RESEND_CUSTOMER_AUDIENCE_ID Resend Audience id for ALL CUSTOMERS — optional. Everyone who books or
@@ -611,6 +618,44 @@ async function sendSMS(env, to, body) {
 
   if (!attempts.length) return { skipped: true, reason: "no messaging channel configured" };
   return { ok: false, reason: attempts.join(" | ") };
+}
+
+/**
+ * Start a Twilio Studio Flow execution.
+ *
+ * Studio is where Josh edits the wording of the confirmation without a deploy,
+ * and it is the same flow that already handles call forwarding and inbound SMS.
+ * Worth knowing: on a REST trigger there is no inbound message, so
+ * `trigger.message.ChannelSid` and `trigger.message.InstanceSid` are empty
+ * inside the flow — the send widget must not bind its channel/service to them
+ * or it fails with nothing useful in the log. `contact.channel.address` is set
+ * from the `To` below and does work.
+ */
+async function triggerStudioFlow(env, to, params) {
+  if (!env.TWILIO_SID || !env.TWILIO_TOKEN || !env.TWILIO_FROM || !env.TWILIO_STUDIO_FLOW_SID) {
+    return { skipped: true, reason: "Studio flow not configured" };
+  }
+  if (!to) return { skipped: true, reason: "no phone number" };
+  const form = new URLSearchParams({
+    To: "+" + toE164(to),
+    From: env.TWILIO_FROM,
+    Parameters: JSON.stringify(params || {}),
+  });
+  const r = await fetch(`https://studio.twilio.com/v2/Flows/${env.TWILIO_STUDIO_FLOW_SID}/Executions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN),
+    },
+    body: form,
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error reaching Twilio Studio" };
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    console.error("[studio] execution failed", r.status, detail.slice(0, 400));
+    return { ok: false, status: r.status, reason: "Studio returned " + r.status + ": " + detail.slice(0, 200) };
+  }
+  return { ok: true, channel: "studio" };
 }
 
 /**
@@ -1312,6 +1357,17 @@ async function api(request, env, url, ctx) {
   }
 
   // Health probe — confirms the catalogue actually loaded in production.
+    /*
+     * The public site needs the HubSpot portal id to load the tracking script,
+     * and the admin needs it to build deep links into the CRM. It is not a
+     * secret — it appears in the script tag on every page — but serving it from
+     * config rather than hardcoding means it moves with the environment.
+     */
+  if (p === "/crm-config" && request.method === "GET") {
+    if (!env.HUBSPOT_PORTAL_ID) return bad("CRM not configured", 404);
+    return json({ portalId: String(env.HUBSPOT_PORTAL_ID) });
+  }
+
   if (p === "/health" && request.method === "GET") {
     let tyres = 0, sizes = 0;
     try {
@@ -1341,6 +1397,8 @@ async function api(request, env, url, ctx) {
         // text outside 24 hours of the customer messaging first. Without an SMS
         // fallback, business-initiated updates do not reach anybody.
         customerMessaging: !!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
+        studioFlow: !!(env.TWILIO_STUDIO_FLOW_SID && env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
+        crm: !!env.HUBSPOT_PORTAL_ID,
         calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -2319,11 +2377,27 @@ async function processTyreStockForOrder(env, order) {
 
     // The customer's own confirmation text. Until now only the OWNER was texted
     // on a website booking — the customer got an email or nothing at all.
-    await safe("customer-sms", () => notifyCustomer(env, ctx, order, null,
-      `Cousins Mechanical: booking ${order.ref} confirmed for ${when.trim()}. `
-      + `${order.svcLabel || order.service || "Mobile job"}${order.reg ? " · " + order.reg : ""}. `
-      + `We'll message you when the van is on the way. Questions? 07925 340977.`,
-      "booking confirmation"));
+    //
+    // Studio first, so the wording lives somewhere Josh can edit without a
+    // deploy, then the plain Messages API if Studio is unset or errors. A
+    // confirmation is too important to depend on one path.
+    await safe("customer-sms", async () => {
+      const studio = await triggerStudioFlow(env, order.phone, {
+        customer_name: String(order.name || "there").trim().split(/\s+/)[0],
+        booking_time: when.trim(),
+        booking_ref: order.ref,
+        service: order.svcLabel || order.service || "Mobile job",
+      });
+      if (studio && studio.ok) return studio;
+      if (studio && !studio.skipped) {
+        await noteMailFailure(env, order.phone, "Studio confirmation " + order.ref, { ...studio, channel: "studio" });
+      }
+      return notifyCustomer(env, ctx, order, null,
+        `Cousins Mechanical: booking ${order.ref} confirmed for ${when.trim()}. `
+        + `${order.svcLabel || order.service || "Mobile job"}${order.reg ? " · " + order.reg : ""}. `
+        + `We'll message you when the van is on the way. Questions? 07925 340977.`,
+        "booking confirmation");
+    });
 
     // Owner alert — Josh must hear about a new job even if the customer gave no
     // email and even if he is not looking at the dashboard.

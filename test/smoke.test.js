@@ -1686,6 +1686,23 @@ try {
     assert.equal((await postJson('/api/service-requests', { phone: '07900000902' })).status, 400);
   });
 
+  await check('the CRM config endpoint is 404 when HubSpot is not set up', async () => {
+    // The public site asks for this on every page load. A 404 has to be the
+    // quiet "no CRM here" answer, not an error the page has to handle.
+    const r = await api('/api/crm-config');
+    assert.equal(r.status, 404);
+    const d = await r.json();
+    assert.ok(d.error, 'no reason given');
+  });
+
+  await check('health reports the messaging and CRM channels it can actually use', async () => {
+    const d = await (await api('/api/health')).json();
+    for (const k of ['customerMessaging', 'studioFlow', 'crm']) {
+      assert.equal(typeof d.configured[k], 'boolean', k + ' missing from health');
+      assert.equal(d.configured[k], false, k + ' reported ready with nothing configured');
+    }
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

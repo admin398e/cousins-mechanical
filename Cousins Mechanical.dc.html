@@ -972,6 +972,22 @@ class Component extends DCLogic {
     confirmVehicle: null, confirmReg: '', notMyCarOpen: false
   };
 
+  // HubSpot's tracker, loaded from config rather than hardcoded so it moves
+  // with the environment and simply does not load when the CRM is not set up.
+  // Injected after mount, and never blocking: a roadside customer on a bad
+  // signal must get the booking form whether or not marketing analytics loads.
+  loadHubSpot(){
+    if(document.getElementById('hs-script-loader')) return;
+    if(!this.hasServer()) return;
+    fetch(this.apiBase()+'/api/crm-config').then(r=>r.ok?r.json():null).then(d=>{
+      if(!d || !d.portalId) return;
+      const el=document.createElement('script');
+      el.type='text/javascript'; el.id='hs-script-loader'; el.async=true; el.defer=true;
+      el.src='//js-eu1.hs-scripts.com/'+d.portalId+'.js';
+      document.body.appendChild(el);
+    }).catch(()=>{});
+  }
+
   componentDidMount(){
     window.CMS_CONFIG = window.CMS_CONFIG || {};
     this.loadConfig();
@@ -991,6 +1007,7 @@ class Component extends DCLogic {
     setTimeout(()=>this.loadSizes(), 60);
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);
+    setTimeout(()=>this.loadHubSpot(), 1200);
   }
   componentWillUnmount(){ clearInterval(this._tick); if(this._trackTimer) clearInterval(this._trackTimer); if(this._liveTimer) clearInterval(this._liveTimer); if(this._geoWatch!=null && navigator.geolocation) navigator.geolocation.clearWatch(this._geoWatch); }
   showMobCta(){ try{ const el=document.querySelector('.cms-mobcta'); if(el&&window.innerWidth<=860) el.style.display='block'; }catch(e){} }
