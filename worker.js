@@ -1,3 +1,4 @@
+import { BUSINESS } from "./business.js";
 import {
   lookupBySize, lookupBySizeAdmin, search as searchCatalogue, byId as tyreById,
   normalisePricing, DEFAULT_PRICING, assignTiers, forAdmin, adminCatalogue,
@@ -358,13 +359,13 @@ async function sendVerifyCode(env, ctx, em, name, keyPrefix) {
   await env.CMS_KV.put((keyPrefix || "verify:") + em, JSON.stringify({ hash, salt, tries: 0, sentAt: Date.now() }),
     { expirationTtl: VERIFY_TTL_SEC });
 
-  const subject = "Your Cousins Mechanical confirmation code: " + code;
+  const subject = "Your " + BUSINESS.shortName + " confirmation code: " + code;
   const text = `Hi ${name || "there"},\n\n`
     + `Your confirmation code is ${code}\n\n`
     + `Enter it on the site to finish setting up your account. It expires in 30 minutes.\n\n`
-    + `If you did not try to create an account with Cousins Mechanical Services, you can ignore this email — `
+    + `If you did not try to create an account with ${BUSINESS.name}, you can ignore this email — `
     + `nothing has been set up and nobody can use your address without this code.\n\n`
-    + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`;
+    + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}`;
 
   sendEmailTracked(env, ctx, em, subject, text);
   return code;
@@ -612,12 +613,12 @@ function buildICS(o, org) {
   const start = d ? d + "T090000" : new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
   const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
   return [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Cousins Mechanical//EN", "METHOD:REQUEST",
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//" + BUSINESS.shortName + "//EN", "METHOD:REQUEST",
     "BEGIN:VEVENT", "UID:" + o.ref + "@cousinsmechanical", "DTSTAMP:" + stamp, "DTSTART:" + start,
-    "SUMMARY:Cousins Mechanical — " + (o.svcLabel || "Mobile job"),
+    "SUMMARY:" + BUSINESS.shortName + " — " + (o.svcLabel || "Mobile job"),
     "DESCRIPTION:Ref " + o.ref + ". " + (o.svcLabel || "") + " for " + (o.reg || "") + ". " + (o.notes || ""),
     "LOCATION:" + (o.postcode || "Your location"),
-    "ORGANIZER;CN=Cousins Mechanical:mailto:" + (org || "bookings@cousinsmechanicalservices.co.uk"),
+    "ORGANIZER;CN=" + BUSINESS.shortName + ":mailto:" + (org || "bookings@cousinsmechanicalservices.co.uk"),
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
 }
@@ -1162,7 +1163,7 @@ async function addCalendarEvent(env, o, customerEmail) {
   const endIso = `${dateStr}T${endTime}`;
 
   const event = {
-    summary: "Cousins Mechanical — " + (o.svcLabel || o.service || "Mobile Service Request"),
+    summary: BUSINESS.shortName + " — " + (o.svcLabel || o.service || "Mobile Service Request"),
     description: `Service Request Ref: ${o.ref || 'NEW'}\nCustomer: ${o.name || 'N/A'}\nPhone: ${o.phone || 'N/A'}\nVehicle Reg: ${o.reg || 'N/A'}\nService: ${o.svcLabel || o.service || ''}\nLocation/Postcode: ${o.postcode || o.location || 'N/A'}\nNotes: ${o.notes || ''}\nTyre Details: ${o.tyreDetails ? (typeof o.tyreDetails === 'string' ? o.tyreDetails : JSON.stringify(o.tyreDetails)) : 'N/A'}`,
     location: o.postcode || o.location || "Bridport & West Dorset",
     start: { dateTime: startIso, timeZone: "Europe/London" },
@@ -1318,7 +1319,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
   } catch (e) { /* KV hiccup must never stop a real email going out */ }
 
   const body = {
-    from: "Cousins Mechanical Services <" + env.MAIL_FROM + ">",
+    from: BUSINESS.name + " <" + env.MAIL_FROM + ">",
     to: [to],
     reply_to: env.MAIL_REPLY_TO || env.MAIL_FROM,
     subject,
@@ -1418,7 +1419,7 @@ const EMAIL_SHELL = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//
               <tbody>
                 <tr>
                   <td style="padding: 30px 20px; text-align: center; border-bottom: 3px solid #ed6b23;">
-                    <img src="https://cousinsmechanicalservices.co.uk/images/logo.png" alt="Cousins Mechanical Services" width="220" style="max-width: 220px; height: auto; display: block; margin: 0 auto;" />
+                    <img src="${BUSINESS.siteUrl}/images/logo.png" alt="${BUSINESS.name}" width="220" style="max-width: 220px; height: auto; display: block; margin: 0 auto;" />
                   </td>
                 </tr>
                 <tr>
@@ -1428,13 +1429,13 @@ const EMAIL_SHELL = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//
                 </tr>
                 <tr>
                   <td style="padding: 30px; text-align: center; background-color: #2a2a2a; color: #9ca3af; font-size: 13px; line-height: 1.5;">
-                    <strong style="color: #ffffff; font-size: 14px; display: block; margin-bottom: 10px;">Cousins Mechanical Services Ltd</strong>
+                    <strong style="color: #ffffff; font-size: 14px; display: block; margin-bottom: 10px;">${BUSINESS.legalName}</strong>
                     Mobile Mechanic &bull; Tyre Fitting &bull; Recovery<br />
                     Bridport, Dorchester &amp; West Dorset<br /><br />
-                    Call: <a href="tel:07925340977" style="color: #ed6b23;">07925 340977</a> | <a href="tel:01308538046" style="color: #ed6b23;">01308 538046</a><br /><br />
+                    Call: <a href="tel:${BUSINESS.phoneHref}" style="color: #ed6b23;">${BUSINESS.phone}</a> | <a href="tel:${BUSINESS.landlineHref}" style="color: #ed6b23;">${BUSINESS.landline}</a><br /><br />
                     <p style="font-size: 12px; color: #6b7280; margin: 0; padding-top: 15px;">
-                      Registered in England &amp; Wales no. 16045339<br />
-                      7 Watton Park, Bridport, DT6 5NJ<br /><br />
+                      Registered in England &amp; Wales no. ${BUSINESS.companyNumber}<br />
+                      ${BUSINESS.registeredOffice}<br /><br />
                       {{{footer_note}}}
                     </p>
                   </td>
@@ -1452,7 +1453,7 @@ const EMAIL_SHELL = `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//
 // renderEmail refuses to send anything with a token left in it.
 const EMAIL_BLOCKS = {
   booking_confirmed: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">You're booked in, {{{firstname}}}!</h1>
-<p style="color: #4a4a4a; margin-bottom: 20px;">Thanks for choosing Cousins Mechanical Services. Your booking is confirmed. We'll text you on the day with a live tracking link so you can see exactly when we're arriving.</p>
+<p style="color: #4a4a4a; margin-bottom: 20px;">Thanks for choosing ${BUSINESS.name}. Your booking is confirmed. We'll text you on the day with a live tracking link so you can see exactly when we're arriving.</p>
 <div class="details-box" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
     <tr>
@@ -1481,7 +1482,7 @@ const EMAIL_BLOCKS = {
 <div style="text-align: center; margin-bottom: 25px;">
   <a href="{{{manage_booking_url}}}" class="btn" style="display: inline-block; background-color: #ed6b23; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; border-radius: 4px; text-decoration: none;">Track &amp; manage booking</a>
 </div>
-<p style="color: #4a4a4a; margin-bottom: 0; font-size: 14px;">Need to change or cancel? Call <a href="tel:07925340977" style="color:#ed6b23;">07925 340977</a> or <a href="tel:01308538046" style="color:#ed6b23;">01308 538046</a>, or just reply to this email.</p>`,
+<p style="color: #4a4a4a; margin-bottom: 0; font-size: 14px;">Need to change or cancel? Call <a href="tel:${BUSINESS.phoneHref}" style="color:#ed6b23;">${BUSINESS.phone}</a> or <a href="tel:${BUSINESS.landlineHref}" style="color:#ed6b23;">${BUSINESS.landline}</a>, or just reply to this email.</p>`,
 
   // Josh's brief pasted the refund markup under both "payment received" and
   // "refund" headings. This is the payment block written properly — a receipt
@@ -1508,7 +1509,7 @@ const EMAIL_BLOCKS = {
     </tr>
   </table>
 </div>
-<p style="color: #4a4a4a; margin-bottom: 0;">Any questions about this payment or the work done, reply to this email or call <a href="tel:07925340977" style="color:#ed6b23;">07925 340977</a>.</p>`,
+<p style="color: #4a4a4a; margin-bottom: 0;">Any questions about this payment or the work done, reply to this email or call <a href="tel:${BUSINESS.phoneHref}" style="color:#ed6b23;">${BUSINESS.phone}</a>.</p>`,
 
   refund_processed: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">Refund processed</h1>
 <p style="color: #4a4a4a; margin-bottom: 20px;">Hi {{{firstname}}}, we've processed a refund for your recent transaction.</p>
@@ -1565,7 +1566,7 @@ function renderEmail(blockName, vars, raw) {
   const html = fill(EMAIL_SHELL, {
     ...escaped,
     content,                                        // already-rendered markup
-    subject: esc((vars && vars.subject) || "Cousins Mechanical Services"),
+    subject: esc((vars && vars.subject) || BUSINESS.name),
     preheader: esc((vars && vars.preheader) || ""),
     footer_note: (raw && raw.footer_note) || "You are receiving this email because you booked a job with us.",
   });
@@ -1674,11 +1675,11 @@ async function runAutomations(env, u, o) {
   const jobs = [];
   const when = o.date ? `${o.date} ${o.time || ""}`.trim() : "soon";
   if (u.smsUpdates !== false)
-    jobs.push(sendSMS(env, u.phone, `Cousins Mechanical: booking ${o.ref} confirmed for ${when}. We'll message you when the van's on the way.`));
+    jobs.push(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${o.ref} confirmed for ${when}. We'll message you when the van's on the way.`));
   jobs.push(addCalendarEvent(env, o, u.email));
   jobs.push(sendEmailTracked(env, null, u.email,
     `Booking confirmed — ${o.ref}`,
-    `Hi ${u.name},\n\nYour ${o.svcLabel || "mobile job"} is booked for ${when}.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\nCousins Mechanical`,
+    `Hi ${u.name},\n\nYour ${o.svcLabel || "mobile job"} is booked for ${when}.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\n${BUSINESS.shortName}`,
     buildICS(o, env.MAIL_FROM)));
 
   // Tell the business about the new job — this is what the owner actually needs
@@ -1849,7 +1850,7 @@ async function api(request, env, url, ctx) {
     });
     if (!res.ok) {
       await noteMailFailure(env, job.email || "(no email)", "Stripe checkout " + ref, { ...res, channel: "stripe" });
-      return bad("Could not start the payment. Please call 07925 340977.", 502);
+      return bad("Could not start the payment. Please call " + BUSINESS.phone + ".", 502);
     }
     return json({ url: res.data.url, id: res.data.id });
   }
@@ -1897,17 +1898,20 @@ async function api(request, env, url, ctx) {
 
     if (job.email) {
       const unsub = await unsubUrl(env, job.email);
-      const subject = "Payment received — " + ref + " — Cousins Mechanical";
+      const subject = "Payment received — " + ref + " — " + BUSINESS.shortName;
       const html = renderEmail("payment_received", {
         subject, preheader: "£" + (pence / 100).toFixed(2) + " received for " + ref,
         firstname: String(job.name || "there").trim().split(/\s+/)[0],
-        booking_ref: ref, amount: "£" + (pence / 100).toFixed(2),
+        // No £ here. The template already prints &pound; in front of {{{amount}}},
+        // so this said "££25.00" on every card receipt the Stripe webhook sent.
+        // The other receipt path, further down, passes it bare and was right.
+        booking_ref: ref, amount: (pence / 100).toFixed(2),
         vehicle_reg: job.reg || "Not given",
         service: job.svcLabel || job.service || "Mobile job",
       }, { footer_note: "This is a receipt for job " + esc(ref) + ", not marketing." + (unsub ? '<br /><a href="' + unsub + '" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>' : "") });
       sendEmailTracked(env, ctx, job.email, subject,
         "Hi " + (job.name || "there") + ",\n\nWe have received your £" + (pence / 100).toFixed(2)
-        + " deposit for job " + ref + ".\n\nThe balance is payable on site when the work is done.\n\nCousins Mechanical Services Ltd",
+        + " deposit for job " + ref + ".\n\nThe balance is payable on site when the work is done.\n\n" + BUSINESS.legalName,
         null, { html, unsubscribeUrl: unsub });
     }
     if (validEmail(env.OWNER_EMAIL) || env.MAIL_FROM) {
@@ -2057,7 +2061,7 @@ async function api(request, env, url, ctx) {
     const page = (title, msg) => new Response(
       `<!doctype html><html lang="en"><head><meta charset="utf-8"/>`
       + `<meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex"/>`
-      + `<title>${title} — Cousins Mechanical Services</title></head>`
+      + `<title>${title} — ${BUSINESS.name}</title></head>`
       + `<body style="margin:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">`
       + `<div style="max-width:520px;margin:60px auto;background:#fff;border-radius:8px;padding:40px 30px;text-align:center">`
       + `<h1 style="font-size:22px;color:#2a2a2a;margin:0 0 14px">${title}</h1>`
@@ -2268,7 +2272,7 @@ async function api(request, env, url, ctx) {
       const rt = token();
       await env.CMS_KV.put("reset:" + rt, em, { expirationTtl: RESET_TOKEN_TTL_SEC });
       const link = (env.SITE_URL || "") + "/#reset=" + rt;
-      sendEmailTracked(env, ctx, em, "Reset your Cousins Mechanical password",
+      sendEmailTracked(env, ctx, em, "Reset your " + BUSINESS.shortName + " password",
         `Someone asked to reset your password. Use this link within 1 hour:\n${link}\n\nIf that wasn't you, ignore this email.`);
       await audit(env, em, "password_reset_requested", "");
     }
@@ -2519,10 +2523,9 @@ Estimated Total PO Cost: £${(orderQty * (item.costPrice || 45)).toFixed(2)}
 
 DELIVERY ADDRESS & INSTRUCTIONS:
 --------------------------------------------------------------------
-Cousins Mechanical Services
-Unit 4, Dreadnought Trading Estate
-Bridport, Dorset, DT6 5BU
-Contact Tel: 07925 340977 / 01308 422000
+${BUSINESS.legalName}
+${BUSINESS.deliveryAddress}
+Contact Tel: ${BUSINESS.phone} / ${BUSINESS.landline}
 Delivery Schedule: Next Business Day Morning (By 8:30 AM)
 
 Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
@@ -2547,7 +2550,7 @@ Automated reorder dispatched via Centralized Tyre Inventory Management System.`;
               description: item.name,
               supplierEmail,
               costPrice: item.costPrice || 45,
-              deliveryAddress: "Unit 4, Dreadnought Trading Estate, Bridport, Dorset, DT6 5BU",
+              deliveryAddress: BUSINESS.deliveryAddress,
               requestedAt: new Date().toISOString()
             };
             const r = await fetch(supplierApiUrl, {
@@ -2809,7 +2812,7 @@ async function processTyreStockForOrder(env, order) {
       const av = await availabilityFor(env, String(b.date));
       const slot = av.slots.find(s => s.key === b.time);
       if (slot && !slot.available) {
-        return bad("Sorry — " + b.time.toLowerCase() + " on " + b.date + " has just gone. Pick another time, or call 07925 340977 and we will fit you in.", 409);
+        return bad("Sorry — " + b.time.toLowerCase() + " on " + b.date + " has just gone. Pick another time, or call " + BUSINESS.phone + " and we will fit you in.", 409);
       }
     }
 
@@ -2817,7 +2820,7 @@ async function processTyreStockForOrder(env, order) {
     // is an open relay for our own domain's reputation.
     if (await edgeLimited(env, "RL_WRITE", "book:" + clientIp(request))
         || await rateLimited(env, "book:" + clientIp(request), 20)) {
-      return bad("Too many booking attempts — please call 07925 340977.", 429);
+      return bad("Too many booking attempts — please call " + BUSINESS.phone + ".", 429);
     }
     await noteFailure(env, "book:" + clientIp(request));
 
@@ -2920,7 +2923,7 @@ async function processTyreStockForOrder(env, order) {
         const ics = buildICS(order, env.MAIL_FROM);
         const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
         const unsub = await unsubUrl(env, order.email);
-        const subject = `Booking confirmed — ${order.ref} — Cousins Mechanical`;
+        const subject = `Booking confirmed — ${order.ref} — ${BUSINESS.shortName}`;
         const html = renderEmail("booking_confirmed", {
           subject,
           // Shown in the inbox list next to the subject. Left blank it gets
@@ -2946,8 +2949,8 @@ async function processTyreStockForOrder(env, order) {
           `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
           + `Track it: ${site}/#track=${order.ref}\n\n`
           + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
-          + `Need to change or cancel it? Call 01308 538046 or 07925 340977, or reply to this email.\n\n`
-          + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339\n7 Watton Park, Bridport, DT6 5NJ`,
+          + `Need to change or cancel it? Call ${BUSINESS.landline} or ${BUSINESS.phone}, or reply to this email.\n\n`
+          + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}\n${BUSINESS.registeredOffice}`,
           ics, { html, unsubscribeUrl: unsub })));
       });
     }
@@ -2970,9 +2973,9 @@ async function processTyreStockForOrder(env, order) {
         await noteMailFailure(env, order.phone, "Studio confirmation " + order.ref, { ...studio, channel: "studio" });
       }
       return notifyCustomer(env, ctx, order, null,
-        `Cousins Mechanical: booking ${order.ref} confirmed for ${when.trim()}. `
+        `${BUSINESS.shortName}: booking ${order.ref} confirmed for ${when.trim()}. `
         + `${order.svcLabel || order.service || "Mobile job"}${order.reg ? " · " + order.reg : ""}. `
-        + `We'll message you when the van is on the way. Questions? 07925 340977.`,
+        + `We'll message you when the van is on the way. Questions? ${BUSINESS.phone}.`,
         "booking confirmation");
     });
 
@@ -3082,14 +3085,14 @@ async function processTyreStockForOrder(env, order) {
       list[i] = { ...list[i], ...patch, updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking amended", d: "Your booking was updated." }] };
       await env.CMS_KV.put(kvKey, JSON.stringify(list));
       await audit(env, u.email, "booking_amended", list[i].ref);
-      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `Cousins Mechanical: booking ${list[i].ref} updated to ${list[i].date || ""} ${list[i].time || ""}.`));
+      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${list[i].ref} updated to ${list[i].date || ""} ${list[i].time || ""}.`));
       return json({ booking: list[i] });
     }
     if (request.method === "DELETE") {
       list[i] = { ...list[i], status: "cancelled", updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking cancelled", d: "This job was cancelled." }] };
       await env.CMS_KV.put(kvKey, JSON.stringify(list));
       await audit(env, u.email, "booking_cancelled", list[i].ref);
-      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `Cousins Mechanical: booking ${list[i].ref} cancelled. Re-book any time.`));
+      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${list[i].ref} cancelled. Re-book any time.`));
       return json({ booking: list[i] });
     }
   }
@@ -3101,7 +3104,7 @@ async function processTyreStockForOrder(env, order) {
     const raw = await env.CMS_KV.get("user:" + (email || "").toLowerCase());
     if (!raw) return bad("Unknown customer", 404);
     const u = JSON.parse(raw);
-    if (u.smsUpdates !== false) await sendSMS(env, u.phone, message || `Cousins Mechanical: update on booking ${r}.`);
+    if (u.smsUpdates !== false) await sendSMS(env, u.phone, message || `${BUSINESS.shortName}: update on booking ${r}.`);
     await audit(env, u.email, "status_sms", r || "");
     return json({ ok: true });
   }
@@ -3522,7 +3525,7 @@ async function processTyreStockForOrder(env, order) {
       return bad("2FA is already enrolled. Use OVERRIDE_TOKEN with reset2fa to re-enrol.", 409);
     }
     const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
-    const label = encodeURIComponent("Cousins Mechanical Admin");
+    const label = encodeURIComponent(BUSINESS.shortName + " Admin");
     const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=Cousins%20Mechanical&algorithm=SHA1&digits=6&period=30`;
     return json({ secret, otpauth, alreadyEnrolled: false });
   }
@@ -3711,8 +3714,8 @@ async function processTyreStockForOrder(env, order) {
         try {
           const amount = (pence / 100).toFixed(2);
           const subject = kind === "refund"
-            ? `Refund processed — ${job.ref} — Cousins Mechanical`
-            : `Payment received — ${job.ref} — Cousins Mechanical`;
+            ? `Refund processed — ${job.ref} — ${BUSINESS.shortName}`
+            : `Payment received — ${job.ref} — ${BUSINESS.shortName}`;
           const unsub = await unsubUrl(env, email);
           const html = renderEmail(kind === "refund" ? "refund_processed" : "payment_received", {
             subject,
@@ -3729,11 +3732,11 @@ async function processTyreStockForOrder(env, order) {
           const text = kind === "refund"
             ? `Hi ${job.name},\n\nWe have processed a refund of £${amount} for job ${job.ref}.\n\n`
               + `It goes back to your original payment method — please allow 3-5 working days.\n\n`
-              + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`
+              + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}`
             : `Hi ${job.name},\n\nThanks — we have received your payment of £${amount}.\n\n`
               + `Job: ${job.ref}\nWork: ${job.svcLabel || job.service || "Mobile job"}\nVehicle: ${job.reg || "-"}\n\n`
               + `Keep this email as your receipt.\n\n`
-              + `Cousins Mechanical Services Ltd\nRegistered in England & Wales no. 16045339`;
+              + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}`;
           emailed = await sendEmail(env, email, subject, text, null, { html, unsubscribeUrl: unsub });
         } catch (err) {
           console.error("[payment:receipt]", job.ref, err && err.stack ? err.stack : err);
@@ -3774,7 +3777,7 @@ async function processTyreStockForOrder(env, order) {
         const uraw = await env.CMS_KV.get("user:" + email);
         const u = uraw ? JSON.parse(uraw) : null;
         const bookings = JSON.parse((await env.CMS_KV.get("bookings:" + email)) || "[]");
-        await notifyCustomer(env, ctx, bookings[0] || null, u, "Cousins Mechanical: " + text, "reply");
+        await notifyCustomer(env, ctx, bookings[0] || null, u, BUSINESS.shortName + ": " + text, "reply");
         return json({ messages: thread });
       }
     }
@@ -3848,13 +3851,13 @@ async function processTyreStockForOrder(env, order) {
         "",
         ...pending.map(i => `  ${i.qty} x ${i.description}${i.sku ? " (" + i.sku + ")" : ""}${i.vehicleReg && i.vehicleReg !== "-" ? "  [veh " + i.vehicleReg + "]" : ""}`),
         "",
-        "Delivery to: Cousins Mechanical Services Ltd, 7 Watton Park, Bridport, DT6 5NJ",
-        "Contact: " + (env.MAIL_FROM || "help@cousinsmechanicalservices.co.uk") + " / 07925 340977",
+        "Delivery to: " + BUSINESS.legalName + ", " + BUSINESS.deliveryAddress,
+        "Contact: " + (env.MAIL_FROM || BUSINESS.email) + " / " + BUSINESS.phone,
         "",
-        "Cousins Mechanical Services Ltd — registered in England & Wales no. 16045339",
+        BUSINESS.legalName + " — registered in England & Wales no. " + BUSINESS.companyNumber,
       ].join("\n");
 
-      const sent = await sendEmail(env, to, `Tyre order — Cousins Mechanical (${pending.length} line${pending.length === 1 ? "" : "s"})`, body);
+      const sent = await sendEmail(env, to, `Tyre order — ${BUSINESS.shortName} (${pending.length} line${pending.length === 1 ? "" : "s"})`, body);
       if (!sent || sent.ok === false) return bad("Could not send the order email — check the email settings.", 502);
 
       for (const i of list) if (i.status === "pending") { i.status = "ordered"; i.orderedAt = Date.now(); }
@@ -4800,12 +4803,12 @@ async function processTyreStockForOrder(env, order) {
 
       results.email = env.RESEND_API_KEY && env.MAIL_FROM
         ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
-            "Cousins Mechanical — test email",
+            BUSINESS.shortName + " — test email",
             `This is a test from your booking system, sent ${stamp}.\n\nIf you can read this, Resend is working and confirmations will reach customers.\nReply to this message to check the inbound forwarding on ${env.MAIL_FROM} as well.`)
         : { skipped: true, reason: "RESEND_API_KEY or MAIL_FROM not set" };
 
       results.phone = env.OWNER_PHONE
-        ? await sendSMS(env, env.OWNER_PHONE, `Cousins Mechanical: test message sent ${stamp}. Your booking alerts are working.`)
+        ? await sendSMS(env, env.OWNER_PHONE, `${BUSINESS.shortName}: test message sent ${stamp}. Your booking alerts are working.`)
         : { skipped: true, reason: "OWNER_PHONE not set" };
 
       results.calendar = await addCalendarEvent(env, {
@@ -5160,7 +5163,7 @@ async function backupSweep(env) {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
     body: JSON.stringify({
-      from: "Cousins Mechanical Services <" + env.MAIL_FROM + ">",
+      from: BUSINESS.name + " <" + env.MAIL_FROM + ">",
       to: [to],
       subject: "Weekly backup — " + stamp + " (" + Object.keys(data).length + " records)",
       text: "Attached is this week's copy of the booking system's data.\n\n"

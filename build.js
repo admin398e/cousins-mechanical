@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { neutralisePlaceholderFetches } from './dc-placeholder.js';
+import { BUSINESS, fillBusinessTokens } from './business.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -27,10 +28,10 @@ const SITE = (process.env.SITE_URL || 'https://cousinsmechanicalservices.co.uk')
 // Legal / info pages. Bodies live in ./legal/<slug>; the shared header + footer
 // (one menu bar for the whole public site) are applied by legalLayout() below.
 const LEGAL = [
-  ['terms.html', 'Terms & Conditions', 'Booking, payment, cancellation, tyre fitting and liability terms for Cousins Mechanical Services.'],
-  ['privacy.html', 'Privacy Policy', 'How Cousins Mechanical Services collects and uses your personal data under UK GDPR.'],
-  ['cookies.html', 'Cookie Policy', 'The cookies and browser storage used on the Cousins Mechanical Services website.'],
-  ['accessibility.html', 'Accessibility Statement', 'How we make the Cousins Mechanical Services website usable for everyone.'],
+  ['terms.html', 'Terms & Conditions', `Booking, payment, cancellation, tyre fitting and liability terms for ${BUSINESS.name}.`],
+  ['privacy.html', 'Privacy Policy', `How ${BUSINESS.name} collects and uses your personal data under UK GDPR.`],
+  ['cookies.html', 'Cookie Policy', `The cookies and browser storage used on the ${BUSINESS.name} website.`],
+  ['accessibility.html', 'Accessibility Statement', `How we make the ${BUSINESS.name} website usable for everyone.`],
 ];
 
 function legalLayout(slug, title, desc, body) {
@@ -43,7 +44,7 @@ function legalLayout(slug, title, desc, body) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} | Cousins Mechanical Services</title>
+<title>${title} | ${BUSINESS.name}</title>
 <meta name="description" content="${desc}">
 <meta name="theme-color" content="#14100e">
 <link rel="canonical" href="${SITE}/${slug}">
@@ -82,7 +83,7 @@ function legalLayout(slug, title, desc, body) {
 <header style="position:sticky;top:0;z-index:60;background:rgba(20,16,14,.96);backdrop-filter:blur(8px);border-bottom:1px solid #2a2320">
   <div class="wrap" style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:11px;padding-bottom:11px">
     <a href="index.html" style="display:flex;align-items:center;gap:12px">
-      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:36px;width:auto;display:block"/></span>
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="${BUSINESS.name}" style="height:36px;width:auto;display:block"/></span>
     </a>
     <nav style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:flex-end">
       ${nav('index.html', 'Home')}
@@ -102,7 +103,7 @@ ${body}
 <footer style="background:#0f0c0b;color:#cfc7c1;padding:56px 0 26px">
   <div class="wrap foot-grid">
     <div>
-      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.3)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:50px;width:auto;display:block"/></span>
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.3)"><img src="images/logo.png" alt="${BUSINESS.name}" style="height:50px;width:auto;display:block"/></span>
       <p style="color:#9a918a;font-size:14px;line-height:1.6;max-width:320px">Mobile mechanic, tyre fitting and 24hr breakdown &amp; recovery covering Bridport, Dorchester &amp; West Dorset. We come to your home, work or the roadside.</p>
       <div style="display:flex;gap:10px;margin-top:16px">
         <a href="https://wa.me/447925340977" target="_blank" rel="noopener" style="background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:9px 15px;font-size:14px;text-decoration:none">WhatsApp</a>
@@ -129,15 +130,15 @@ ${body}
     <div>
       <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:16px;letter-spacing:.08em;margin-bottom:14px">CONTACT</div>
       <div style="display:flex;flex-direction:column;gap:10px;font-size:14px">
-        <a href="tel:07925340977" style="color:#f4a04a;font-weight:700;text-decoration:none">07925 340977</a>
-        <a href="tel:01308538046" style="color:#cfc7c1;text-decoration:none">01308 538046</a>
+        <a href="tel:${BUSINESS.phoneHref}" style="color:#f4a04a;font-weight:700;text-decoration:none">${BUSINESS.phone}</a>
+        <a href="tel:${BUSINESS.landlineHref}" style="color:#cfc7c1;text-decoration:none">${BUSINESS.landline}</a>
         <span style="color:#9a918a">Bridport, West Dorset</span>
         <span style="color:#9a918a">Breakdown &amp; recovery 24 hours</span>
       </div>
     </div>
   </div>
   <div class="wrap" style="margin-top:32px;border-top:1px solid #241e1b;padding-top:18px;display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:space-between;align-items:center;color:#6f6862;font-size:13px">
-    <span>&copy; Cousins Mechanical Services Ltd &middot; Registered in England &amp; Wales no. 16045339 &middot; 7 Watton Park, Bridport, DT6 5NJ</span>
+    <span>&copy; ${BUSINESS.legalName} &middot; Registered in England &amp; Wales no. ${BUSINESS.companyNumber} &middot; ${BUSINESS.registeredOffice}</span>
     <span style="display:flex;flex-wrap:wrap;gap:14px">
       ${legalBar}
     </span>
@@ -196,7 +197,10 @@ for (const [slug, title, desc] of LEGAL) {
     process.exitCode = 1;
     continue;
   }
-  const body = fs.readFileSync(bodyPath, 'utf8');
+  // Legal bodies are plain HTML; {{ business.x }} in them is filled here, so
+  // the company number and address in a privacy notice cannot drift from the
+  // ones in the footer.
+  const body = fillBusinessTokens(fs.readFileSync(bodyPath, 'utf8'));
   fs.writeFileSync(path.join(PUBLIC, slug), legalLayout(slug, title, desc, body));
   console.log(`  legal/${slug}  ->  public/${slug}`);
 }
@@ -209,7 +213,7 @@ for (const [slug, title, desc] of LEGAL) {
   if (fs.existsSync(notFoundBody)) {
     fs.writeFileSync(
       path.join(PUBLIC, '404.html'),
-      legalLayout('404.html', 'Page not found', 'That page does not exist. Find tyre prices, our services, or call Cousins Mechanical Services on 07925 340977.', fs.readFileSync(notFoundBody, 'utf8'))
+      legalLayout('404.html', 'Page not found', `That page does not exist. Find tyre prices, our services, or call ${BUSINESS.name} on ${BUSINESS.phone}.`, fillBusinessTokens(fs.readFileSync(notFoundBody, 'utf8')))
     );
     console.log('  legal/404.html  ->  public/404.html');
   } else {

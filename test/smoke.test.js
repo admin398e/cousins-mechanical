@@ -2311,6 +2311,46 @@ try {
     assert.ok(offset + bytes <= buf.length, 'ICO header points past the end of the file');
   });
 
+  await check('a money amount in an email is printed once, with one pound sign', async () => {
+    // The card receipt read "££25.00". The template prints &pound; in front of
+    // {{{amount}}} and the Stripe path was passing "£25.00" into it. A receipt
+    // is the one email a customer keeps, and it is the one that has to look
+    // like the business knows what it is doing.
+    const { renderEmail } = await import('../worker.js');
+    for (const block of ['payment_received', 'refund_processed']) {
+      const html = renderEmail(block, {
+        subject: 'Receipt', firstname: 'Jane', amount: '25.00',
+        booking_ref: 'CMS-1', service: 'Tyre fitting', vehicle_reg: 'AB12 CDE',
+      });
+      const shown = String(html).replace(/&pound;/g, '£');
+      assert.ok(!/££/.test(shown), `${block} prints a double pound sign`);
+      assert.ok(shown.includes('£25.00'), `${block} does not show the amount at all`);
+    }
+  });
+
+  await check('business details live in business.js, not scattered through the code', async () => {
+    // The phone number was in ten places in worker.js alone. Change it once and
+    // you have nine chances to leave a customer ringing a dead line — and the
+    // supplier purchase order carried an address and a phone number that
+    // matched nothing else in the codebase, which nobody noticed because no
+    // order has ever been sent.
+    const fs = await import('node:fs');
+    const { BUSINESS } = await import('../business.js');
+    const FACTS = [
+      ['phone', BUSINESS.phone],
+      ['companyNumber', BUSINESS.companyNumber],
+      ['registeredOffice', BUSINESS.registeredOffice],
+      ['landline', BUSINESS.landline],
+    ];
+    for (const f of ['worker.js', 'build.js']) {
+      const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+      for (const [field, value] of FACTS) {
+        assert.ok(!src.includes(value),
+          `${f} hardcodes ${field} ("${value}") — use BUSINESS.${field} from business.js`);
+      }
+    }
+  });
+
   await check('no stray cousinsmechanical.co.uk addresses (wrong domain)', async () => {
     const fs = await import('node:fs');
     for (const f of ['worker.js', 'Cousins Mechanical.dc.html', 'Cousins Admin.dc.html']) {
