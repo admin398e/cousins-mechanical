@@ -1853,6 +1853,20 @@ try {
     await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2, leadTimeHours: 2 }) });
   });
 
+  await check('the analytics tracker is not loaded without consent', async () => {
+    // PECR: non-essential cookies may not be set before the visitor agrees, and
+    // "no choice yet" is not consent. The HubSpot tracker sets its own cookies,
+    // so the page must not carry it unconditionally.
+    const html = await (await api('/')).text();
+    // The URL may appear inside the loader that builds it — what must NOT
+    // appear is a plain script tag that fires on page load regardless.
+    assert.ok(!/<script[^>]+src=["']?[^"'>]*hs-scripts\.com/.test(html),
+      'the HubSpot tracker is embedded as an unconditional script tag');
+    assert.ok(/cookieChoice\(\)\s*!==\s*'yes'/.test(html), 'the loader is not gated on a recorded choice');
+    assert.ok(/rejectCookies/.test(html) && /acceptCookies/.test(html), 'the banner has no reject option');
+    assert.ok(/cms_cookie_consent/.test(html), 'no consent value is stored');
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

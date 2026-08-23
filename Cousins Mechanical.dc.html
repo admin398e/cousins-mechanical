@@ -962,6 +962,22 @@
   </div>
 </sc-if>
 
+<!-- Cookie choice. Reject is exactly as easy as Accept, neither is
+     pre-selected, and nothing non-essential loads until one is pressed. -->
+<sc-if value="{{ cookieBanner }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#1c1817;color:#f4f1ee;padding:16px 18px;box-shadow:0 -6px 24px rgba(0,0,0,.3)">
+    <div style="max-width:900px;margin:0 auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px;font-size:13.5px;line-height:1.55">
+        We use cookies that help us see how the site is used. They are not needed to book a job, and we will not set them unless you say yes. <a href="/cookies.html" style="color:#f4a04a;text-decoration:underline">What we use</a>
+      </div>
+      <div style="display:flex;gap:9px">
+        <button onClick="{{ rejectCookies }}" style="background:none;border:1.5px solid #6b625c;color:#f4f1ee;font-weight:700;border-radius:9px;padding:11px 20px;cursor:pointer;font-size:14px">Reject</button>
+        <button onClick="{{ acceptCookies }}" style="background:#e8791a;border:1.5px solid #e8791a;color:#14100e;font-weight:700;border-radius:9px;padding:11px 20px;cursor:pointer;font-size:14px">Accept</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:900}}">
@@ -975,6 +991,7 @@ class Component extends DCLogic {
     bookOpen: false, bookStep: 1, bookDone: false, lastRef: '', bookBusy: false, bookErr: '', svcPricing: {},
     // Availability for the chosen date
     slots: [], slotsLoading: false, slotCalendar: false,
+    cookieBanner: false,
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
     locHint: 'We use this to route the van straight to you.',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
@@ -994,9 +1011,23 @@ class Component extends DCLogic {
   // with the environment and simply does not load when the CRM is not set up.
   // Injected after mount, and never blocking: a roadside customer on a bad
   // signal must get the booking form whether or not marketing analytics loads.
+  // PECR: analytics cookies may not be set before the visitor agrees. HubSpot's
+  // tracker sets its own, so it must not load until a choice is recorded — and
+  // "no choice yet" is not consent.
+  cookieChoice(){ try{ return localStorage.getItem('cms_cookie_consent')||''; }catch(e){ return ''; } }
+
+  setCookieChoice = (v) => {
+    try{ localStorage.setItem('cms_cookie_consent', v); }catch(e){}
+    this.setState({cookieBanner:false});
+    if(v==='yes') this.loadHubSpot();
+    // A later refusal cannot un-set cookies already dropped, so say so plainly
+    // in the notice rather than pretending Reject retroactively cleans up.
+  };
+
   loadHubSpot(){
     if(document.getElementById('hs-script-loader')) return;
     if(!this.hasServer()) return;
+    if(this.cookieChoice() !== 'yes') return;
     fetch(this.apiBase()+'/api/crm-config').then(r=>r.ok?r.json():null).then(d=>{
       if(!d || !d.portalId) return;
       const el=document.createElement('script');
@@ -1025,7 +1056,15 @@ class Component extends DCLogic {
     setTimeout(()=>this.loadSizes(), 60);
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);
-    setTimeout(()=>this.loadHubSpot(), 1200);
+    setTimeout(()=>{
+      if(this.cookieChoice()==='yes') this.loadHubSpot();
+      // Ask only if the site actually has analytics to ask about.
+      else if(!this.cookieChoice() && this.hasServer()){
+        fetch(this.apiBase()+'/api/crm-config').then(r=>r.ok?r.json():null).then(d=>{
+          if(d && d.portalId) this.setState({cookieBanner:true});
+        }).catch(()=>{});
+      }
+    }, 1200);
   }
   componentWillUnmount(){ clearInterval(this._tick); if(this._trackTimer) clearInterval(this._trackTimer); if(this._liveTimer) clearInterval(this._liveTimer); if(this._geoWatch!=null && navigator.geolocation) navigator.geolocation.clearWatch(this._geoWatch); }
   showMobCta(){ try{ const el=document.querySelector('.cms-mobcta'); if(el&&window.innerWidth<=860) el.style.display='block'; }catch(e){} }
@@ -1940,6 +1979,9 @@ class Component extends DCLogic {
       step1:s.bookStep===1&&!s.bookDone, step2:s.bookStep===2&&!s.bookDone, step3:s.bookStep===3&&!s.bookDone,
       stepBars:bars, serviceChoices, book:s.book, locHint:s.locHint,
       setBookReg:this.setBookReg, setBookPostcode:this.setBookPostcode, setBookDate:this.setBookDate, setBookTime:this.setBookTime,
+      cookieBanner: s.cookieBanner,
+      acceptCookies: ()=>this.setCookieChoice('yes'),
+      rejectCookies: ()=>this.setCookieChoice('no'),
       slotsLoading: s.slotsLoading,
       needDateFirst: !s.book.date && !s.slotsLoading,
       // Every window on the day is spoken for. The emergency option is not
