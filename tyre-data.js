@@ -265,7 +265,12 @@ function enrich(item, costMap, size, tier, pricing) {
 export function forAdmin(publicTyre, item, costMap, pricing) {
   const cost = costMap[String(publicTyre.id)] || {};
   const detail = retailPrice(item, cost, publicTyre.tier, pricing, { size: publicTyre.size });
-  const margin = detail.price != null && detail.cost != null ? detail.price - detail.cost : null;
+  // The customer record is the authority on the price. It has already been
+  // through the offer, the margin floor AND the inversion cap; recomputing it
+  // here would report the margin on a price nobody is being charged, which is
+  // the one number on this screen that has to be true.
+  const price = publicTyre.price;
+  const margin = price != null && detail.cost != null ? price - detail.cost : null;
 
   return {
     ...publicTyre,
@@ -283,7 +288,111 @@ export function forAdmin(publicTyre, item, costMap, pricing) {
     // running" and "the sale is running but not on this line".
     floored: !!detail.floored,
     promoName: detail.promo ? detail.promo.name : null,
+    // Set by capSizeInversions(). `capped` means this line was brought down to
+    // stop it outpricing a better tyre in the same size; `inversionUncapped`
+    // means it should have been and could not be — `uncappedReason` says
+    // whether that was the margin floor or a manual override.
+    capped: !!publicTyre.capped,
+    cappedFrom: publicTyre.cappedFrom ?? null,
+    inversionUncapped: !!publicTyre.inversionUncapped,
+    uncappedReason: publicTyre.uncappedReason ?? null,
   };
+}
+
+/**
+ * Stop a budget tyre pricing above a premium one in the same size.
+ *
+ * The tier markups are percentages, so a dear Budget line and a cheap Premium
+ * line in the same size can cross over. In the live catalogue 32 sizes did
+ * exactly that. To a customer it reads as either a mistake or a con, and they
+ * do not write in about it — they just leave.
+ *
+ * The rules, in order of how much they matter:
+ *
+ *   1. This only ever moves a price DOWN. It can never make anything dearer.
+ *   2. It never goes below the margin floor. Where the floor blocks the cap the
+ *      price is left exactly as it was and flagged `inversionUncapped`. That
+ *      flag is a signal the markup percentages are wrong for that size — the
+ *      honest answer is to fix them, not to sell the tyre at a loss to tidy up
+ *      a ladder.
+ *   3. A tyre with no wholesale cost is never touched. No cost means no floor,
+ *      which means no way to know whether a lower price is still profitable.
+ *   4. A manually overridden price is never touched either. This cap exists to
+ *      correct a fault in an AUTOMATIC formula — percentage markups crossing
+ *      over. An override is somebody deciding, in writing, what this tyre
+ *      costs; quietly knocking £114 off it because the formula disagrees is not
+ *      a correction, it is overruling them. If the number really is wrong it
+ *      shows up in the admin's inversion list, which is where a human decision
+ *      belongs. (The margin floor still overrules an override, because that is
+ *      the opposite case: it stops the business losing money on a slip.)
+ *   5. A cap is a correction, not a sale, so it never invents a struck-through
+ *      "was" price. Only a real offer does that.
+ *
+ * An overridden or costless tyre still SETS the ceiling — whatever the reason
+ * for its price, it is the price a customer sees, so it is the real ceiling.
+ * Only capping it is skipped.
+ *
+ * `tyres` must be EVERY enriched tyre for ONE size. The cheapest premium in the
+ * size is the ceiling, so handing this a filtered list — one brand, say — would
+ * compute a ceiling off tyres the customer is not being shown and cap against
+ * the wrong number.
+ */
+export function capSizeInversions(tyres, costMap, pricing) {
+  if (!Array.isArray(tyres) || tyres.length < 2) return Array.isArray(tyres) ? tyres : [];
+  const p = normalisePricing(pricing);
+  const out = tyres.map(t => ({
+    ...t, capped: false, cappedFrom: null, inversionUncapped: false, uncappedReason: null,
+  }));
+
+  const cheapestIn = tier => {
+    let min = null;
+    for (const t of out) {
+      if (t.tier !== tier || t.price == null) continue;
+      min = min == null ? t.price : Math.min(min, t.price);
+    }
+    return min;
+  };
+  const floorFor = t => {
+    const cost = costMap && costMap[String(t.id)] ? costMap[String(t.id)].cost : null;
+    if (cost == null || !Number.isFinite(Number(cost))) return null;
+    return Math.round((Number(cost) + Number(p.minMargin || 0)) * 100) / 100;
+  };
+
+  // Mid-range first, then Budget against whatever Mid has become. Doing Budget
+  // first would cap it against an uncapped Mid and leave the ladder crossed.
+  for (const tier of ['M', 'B']) {
+    const ceiling = (tier === 'M' ? [cheapestIn('P')] : [cheapestIn('M'), cheapestIn('P')])
+      .filter(v => v != null)
+      .reduce((a, b) => (a == null ? b : Math.min(a, b)), null);
+    if (ceiling == null) continue;
+
+    for (const t of out) {
+      if (t.tier !== tier || t.price == null || t.price <= ceiling) continue;
+      const override = p.overrides[String(t.id)];
+      if (override != null && override !== '' && Number.isFinite(Number(override))) {
+        t.inversionUncapped = true;
+        t.uncappedReason = 'override';
+        continue;
+      }
+      const floor = floorFor(t);
+      if (floor == null) continue;
+      if (ceiling < floor) { t.inversionUncapped = true; t.uncappedReason = 'floor'; continue; }
+      t.cappedFrom = t.price;
+      t.price = ceiling;
+      t.capped = true;
+      if (t.wasPrice != null && t.wasPrice <= t.price) { t.wasPrice = null; t.offer = null; }
+    }
+  }
+  return out;
+}
+
+/** Price and cap every tyre in one size. The only correct way to price a size. */
+function pricedSize(list, costMap, sizeKey, pricing) {
+  const tiers = assignTiers(list, costMap);
+  return capSizeInversions(
+    list.map(i => enrich(i, costMap, sizeKey, tiers.get(i.id), pricing)),
+    costMap, pricing,
+  );
 }
 
 export function lookupBySize(catalogue, costMap, rawSize, pricing) {
@@ -305,10 +414,9 @@ export function lookupBySize(catalogue, costMap, rawSize, pricing) {
     }
   }
 
-  // Tier by wholesale cost across the whole size, then price each tyre.
-  const tiers = assignTiers(items, costMap);
-  const tyres = items
-    .map(i => enrich(i, costMap, matchedKey, tiers.get(i.id), pricing))
+  // Tier by wholesale cost across the whole size, price each tyre, then cap any
+  // line that ended up dearer than a better tyre in the same size.
+  const tyres = pricedSize(items, costMap, matchedKey, pricing)
     .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
 
   return { size: matchedKey, total: tyres.length, tyres };
@@ -332,7 +440,16 @@ export function search(catalogue, costMap, query, limit = 100, pricing) {
   if (!q) return { query: '', total: 0, tyres: [] };
 
   const results = [];
-  const tierCache = {};
+  // Cached per size, because a search hit has to be priced against its WHOLE
+  // size — the cheapest premium in it sets the inversion ceiling — not against
+  // the handful of tyres that happened to match the query.
+  const sizeCache = {};
+  const priceIn = sizeKey => (
+    sizeCache[sizeKey] ||
+    (sizeCache[sizeKey] = new Map(
+      pricedSize(catalogue[sizeKey] || [], costMap, sizeKey, pricing).map(t => [t.id, t]),
+    ))
+  );
   for (const [sizeKey, list] of Object.entries(catalogue)) {
     const sizeHit = sizeKey.toLowerCase().includes(q);
     for (const item of list) {
@@ -343,8 +460,8 @@ export function search(catalogue, costMap, query, limit = 100, pricing) {
         (item.l || '').toLowerCase().includes(q) ||
         (item.k || '').toLowerCase().includes(q)
       ) {
-        const tier = tierCache[sizeKey] || (tierCache[sizeKey] = assignTiers(list, costMap));
-        results.push(enrich(item, costMap, sizeKey, tier.get(item.id), pricing));
+        const hit = priceIn(sizeKey).get(item.id);
+        if (hit) results.push(hit);
       }
     }
   }
@@ -377,12 +494,16 @@ export function adminCatalogue(catalogue, costMap, pricing, opts = {}) {
   const brandCounts = new Map();
   for (const [sizeKey, list] of Object.entries(catalogue)) {
     if (!Array.isArray(list) || !list.length) continue;
-    const tiers = assignTiers(list, costMap);
-    for (const item of list) {
+    // Price and cap the WHOLE size before any filter is applied. Filtering
+    // first would hand the inversion cap a ceiling computed from a subset —
+    // filter to one brand and the cheapest premium in the size disappears.
+    const pubs = pricedSize(list, costMap, sizeKey, p);
+    const items = new Map(list.map(i => [i.id, i]));
+    for (const pub of pubs) {
+      const item = items.get(pub.id) || {};
       brandCounts.set(item.b, (brandCounts.get(item.b) || 0) + 1);
       if (brandWanted && String(item.b || '').toLowerCase() !== brandWanted) continue;
-      const tier = tiers.get(item.id);
-      if (tierWanted && tier !== tierWanted) continue;
+      if (tierWanted && pub.tier !== tierWanted) continue;
       if (q && !(
         sizeKey.toLowerCase().includes(q) ||
         String(item.b || '').toLowerCase().includes(q) ||
@@ -390,7 +511,6 @@ export function adminCatalogue(catalogue, costMap, pricing, opts = {}) {
         String(item.l || '').toLowerCase().includes(q) ||
         String(item.k || '').toLowerCase().includes(q)
       )) continue;
-      const pub = enrich(item, costMap, sizeKey, tier, p);
       if (stockOnly && !pub.inStock) continue;
       rows.push(forAdmin(pub, item, costMap, p));
     }
@@ -431,6 +551,11 @@ export function adminCatalogue(catalogue, costMap, pricing, opts = {}) {
     inStock: rows.filter(r => r.inStock).length,
     sizes: bySize.size,
     tiers: { B, M, P },
+    // How much work the cap is doing, and where it could not. A non-zero
+    // `uncappedInversions` is the number that wants acting on: those lines are
+    // still crossed and the only fix is the markup percentages.
+    capped: rows.filter(r => r.capped).length,
+    uncappedInversions: rows.filter(r => r.inversionUncapped).length,
     invertedCount: invertedSizes.length,
     invertedSizes: invertedSizes.slice(0, 12),
     inverted: invertedSizes.length > 0,
@@ -463,9 +588,9 @@ export function byId(catalogue, costMap, id, pricing) {
   const target = Number(id);
   if (!Number.isFinite(target)) return null;
   for (const [sizeKey, list] of Object.entries(catalogue)) {
-    for (const item of list) {
-      if (item.id === target) return enrich(item, costMap, sizeKey, assignTiers(list, costMap).get(item.id), pricing);
-    }
+    if (!list.some(i => i.id === target)) continue;
+    // Price the whole size, not just this tyre: the cap needs its neighbours.
+    return pricedSize(list, costMap, sizeKey, pricing).find(t => t.id === target) || null;
   }
   return null;
 }

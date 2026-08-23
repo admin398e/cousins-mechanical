@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import { capSizeInversions } from '../tyre-data.js';
 
 const PORT = 3799;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -2069,6 +2070,112 @@ try {
       assert.ok(v.budgetMax > v.premiumMin, 'a listed size is not actually inverted');
     }
     assert.equal(all.summary.inverted, all.summary.invertedCount > 0);
+  });
+
+  await check('no size anywhere in the catalogue prices budget above premium', async () => {
+    const tok = await adminTok();
+    const all = await (await api('/api/admin/catalogue?perPage=12', {
+      headers: { authorization: 'Bearer ' + tok },
+    })).json();
+
+    // Before the cap this was 32 sizes. It is the customer-visible number: a
+    // budget tyre quoted above a premium one for the car they actually drive.
+    assert.equal(all.summary.invertedCount, 0,
+      'sizes still inverted: ' + JSON.stringify(all.summary.invertedSizes));
+
+    // Anything the cap could NOT fix is a live pricing fault, not a tidy-up
+    // job. If this ever fires, the tier markups are wrong for that size.
+    assert.equal(all.summary.uncappedInversions, 0,
+      'lines the margin floor or an override stopped us capping');
+    assert.ok(all.summary.capped > 0, 'the cap reports doing no work at all');
+  });
+
+  await check('a capped price is what the customer pays and what the margin is based on', async () => {
+    const tok = await adminTok();
+    const page = await (await api('/api/admin/catalogue?perPage=200&page=1', {
+      headers: { authorization: 'Bearer ' + tok },
+    })).json();
+
+    const capped = page.tyres.filter(t => t.capped);
+    assert.ok(capped.length, 'no capped lines on the first page to check');
+    for (const t of capped) {
+      assert.ok(t.price < t.cappedFrom, `cap raised ${t.id}: ${t.cappedFrom} -> ${t.price}`);
+      // The margin on this screen decides whether Josh keeps stocking a line.
+      // If it is computed from the pre-cap price it is a number nobody is
+      // being charged, and every stocking decision made from it is wrong.
+      assert.equal(Math.round((t.price - t.cost) * 100) / 100, t.margin,
+        `margin on ${t.id} is not based on the price actually charged`);
+      assert.ok(t.margin >= 25, `capped ${t.id} to a £${t.margin} margin, below the floor`);
+    }
+
+    // A cap is a correction, not a sale. It must never light a struck-through
+    // "was" price, which is the difference between fixing a fault and
+    // advertising a discount that was never offered.
+    for (const t of page.tyres) {
+      if (t.capped && !t.promoName) assert.equal(t.wasPrice, null, `fake sale on ${t.id}`);
+    }
+  });
+
+  await check('the inversion cap only ever moves prices down, and stops at the floor', () => {
+    const pricing = { minMargin: 25, overrides: {} };
+    const costMap = { 1: { cost: 30 }, 2: { cost: 40 }, 3: { cost: 45 } };
+    const out = capSizeInversions([
+      { id: 1, tier: 'B', price: 120, wasPrice: null, offer: null },  // absurd budget
+      { id: 2, tier: 'M', price: 100, wasPrice: null, offer: null },
+      { id: 3, tier: 'P', price: 90, wasPrice: null, offer: null },   // cheapest premium
+    ], costMap, pricing);
+    const at = id => out.find(t => t.id === id);
+
+    assert.equal(at(3).price, 90, 'the premium tyre was touched');
+    assert.equal(at(3).capped, false);
+    assert.equal(at(2).price, 90, 'mid was not capped to the cheapest premium');
+    assert.equal(at(1).price, 90, 'budget was not capped');
+    assert.equal(at(1).cappedFrom, 120, 'the pre-cap price was not recorded');
+    for (const t of out) assert.ok(t.price <= 90, 'a price came out above the ceiling');
+  });
+
+  await check('the margin floor beats the inversion cap, and says which it was', () => {
+    // The budget tyre costs more to buy than the cheapest premium sells for, so
+    // the ladder CANNOT be fixed by discounting — only by fixing the markups.
+    // Selling under cost to tidy up a sort order would be the wrong trade.
+    const out = capSizeInversions([
+      { id: 1, tier: 'B', price: 120, wasPrice: null, offer: null },
+      { id: 2, tier: 'P', price: 70, wasPrice: null, offer: null },
+    ], { 1: { cost: 80 }, 2: { cost: 30 } }, { minMargin: 25, overrides: {} });
+    const b = out.find(t => t.id === 1);
+
+    assert.equal(b.price, 120, 'sold below the margin floor to fix a sort order');
+    assert.equal(b.capped, false);
+    assert.equal(b.inversionUncapped, true, 'the unfixable inversion was hidden');
+    assert.equal(b.uncappedReason, 'floor');
+  });
+
+  await check('a price somebody typed by hand is never capped behind their back', () => {
+    const out = capSizeInversions([
+      { id: 1, tier: 'B', price: 199.5, wasPrice: null, offer: null },
+      { id: 2, tier: 'P', price: 85, wasPrice: null, offer: null },
+    ], { 1: { cost: 40 }, 2: { cost: 30 } }, { minMargin: 25, overrides: { 1: 199.5 } });
+    const b = out.find(t => t.id === 1);
+
+    // The cap exists to correct an automatic formula. An override is a person
+    // deciding in writing what this tyre costs; knocking £114 off it because
+    // the formula disagrees is overruling them, not correcting them.
+    assert.equal(b.price, 199.5, 'a manual override was silently overwritten');
+    assert.equal(b.capped, false);
+    assert.equal(b.inversionUncapped, true, 'the override inversion was hidden from the admin');
+    assert.equal(b.uncappedReason, 'override');
+  });
+
+  await check('a tyre with no wholesale cost is left alone by the cap', () => {
+    // No cost means no floor, which means no way to know whether a lower price
+    // is still profitable. Guessing is how you sell at a loss.
+    const out = capSizeInversions([
+      { id: 1, tier: 'B', price: 150, wasPrice: null, offer: null },
+      { id: 2, tier: 'P', price: 80, wasPrice: null, offer: null },
+    ], { 2: { cost: 30 } }, { minMargin: 25, overrides: {} });
+
+    assert.equal(out.find(t => t.id === 1).price, 150);
+    assert.equal(out.find(t => t.id === 1).capped, false);
   });
 
   await check('repeated bad admin logins get rate limited', async () => {
