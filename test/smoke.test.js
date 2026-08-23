@@ -2294,6 +2294,23 @@ try {
     }
   });
 
+  await check('/favicon.ico is served and is a real icon', async () => {
+    // Browsers ask for /favicon.ico whether or not the page declares an icon
+    // link, so a missing one is a 404 on every single page load — and a blank
+    // tab in the browsers that do not fall back to the PNG.
+    const r = await api('/favicon.ico');
+    assert.equal(r.status, 200, '/favicon.ico is missing — run node tools/make-favicon.mjs');
+    const buf = Buffer.from(await r.arrayBuffer());
+    // ICONDIR: reserved 0, type 1, at least one image.
+    assert.equal(buf.readUInt16LE(0), 0, 'not an ICO file');
+    assert.equal(buf.readUInt16LE(2), 1, 'not an ICO file');
+    assert.ok(buf.readUInt16LE(4) >= 1, 'ICO contains no images');
+    // The entry must point at data that is actually inside the file. A header
+    // describing bytes that are not there renders as a blank tab, not an error.
+    const bytes = buf.readUInt32LE(14), offset = buf.readUInt32LE(18);
+    assert.ok(offset + bytes <= buf.length, 'ICO header points past the end of the file');
+  });
+
   await check('no stray cousinsmechanical.co.uk addresses (wrong domain)', async () => {
     const fs = await import('node:fs');
     for (const f of ['worker.js', 'Cousins Mechanical.dc.html', 'Cousins Admin.dc.html']) {
