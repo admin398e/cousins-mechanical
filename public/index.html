@@ -1134,7 +1134,22 @@ class Component extends DCLogic {
     if (b) console.warn('[cms] ignoring apiBase without a scheme:', b);
     return this.sameOrigin() ? '' : null;
   }
-  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
+  /*
+   * Is there a real API on this origin?
+   *
+   * This used to exclude localhost and 127.0.0.1 along with the design-canvas
+   * preview hosts, which meant the dev server could never sign in: the panel
+   * announced "This is a design preview, not the live site" and the ONLY place
+   * the dashboard could be exercised was production. That is how a broken CSP
+   * and a login card that rendered empty both got found by customers instead of
+   * by us.
+   *
+   * Localhost is a real server. If it has no API, af() fails and enter()
+   * already refuses to render the dashboard — with an honest "could not reach
+   * the server" rather than a claim about design previews. The preview hosts
+   * stay excluded, because there genuinely is no backend there.
+   */
+  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview/.test(location.hostname); }catch(e){ return false; } }
   hasServer(){ return this.apiBase()!==null; }
   authToken(){ try{ return localStorage.getItem('cms_token')||''; }catch(e){ return ''; } }
 

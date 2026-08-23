@@ -1949,7 +1949,22 @@ class Component extends DCLogic {
   };
 
   // Same-origin API when served from the worker; preview/localhost => demo.
-  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview|localhost|127\.0\.0\.1/.test(location.hostname); }catch(e){ return false; } }
+  /*
+   * Is there a real API on this origin?
+   *
+   * This used to exclude localhost and 127.0.0.1 along with the design-canvas
+   * preview hosts, which meant the dev server could never sign in: the panel
+   * announced "This is a design preview, not the live site" and the ONLY place
+   * the dashboard could be exercised was production. That is how a broken CSP
+   * and a login card that rendered empty both got found by customers instead of
+   * by us.
+   *
+   * Localhost is a real server. If it has no API, af() fails and enter()
+   * already refuses to render the dashboard — with an honest "could not reach
+   * the server" rather than a claim about design previews. The preview hosts
+   * stay excluded, because there genuinely is no backend there.
+   */
+  sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview/.test(location.hostname); }catch(e){ return false; } }
   async af(path, opts){
     opts=opts||{}; const h=Object.assign({}, opts.headers||{});
     if(opts.body && !h['content-type']) h['content-type']='application/json';
