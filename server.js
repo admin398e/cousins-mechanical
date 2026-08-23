@@ -13,7 +13,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import worker from './worker.js';
+import worker, { SECURITY_HEADERS } from './worker.js';
 import { catalogueStats } from './tyre-db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -183,10 +183,10 @@ app.use(['/api', '/v1', '/ukvd'], express.raw({ type: '*/*', limit: '1mb' }), ha
 // ---------------------------------------------------------------------------
 // Mirror the security headers the Worker sets in production, so dev behaves the
 // same as live rather than only looking fine locally.
+// Imported from worker.js, not retyped — a hand-copied duplicate drifts, and
+// then dev passes a test that production would fail.
 app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
   next();
 });
 

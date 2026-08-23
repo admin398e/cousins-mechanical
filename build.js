@@ -64,6 +64,14 @@ function legalLayout(slug, title, desc, body) {
   .legal-main ul{padding-left:20px}
   .legal-main a{color:#c25e0c;font-weight:600}
   .legal-main p.updated{margin-top:36px;color:#8a817b;font-size:13.5px;border-top:1px solid #e0d9d2;padding-top:16px}
+  /* The processor and retention tables. Wide content scrolls inside its own
+     box so a phone never ends up scrolling the whole page sideways. */
+  .legal-main table{border-collapse:collapse;width:100%;margin:14px 0 6px;font-size:14.5px;display:block;overflow-x:auto;white-space:normal}
+  .legal-main thead{background:#eae5df}
+  .legal-main th,.legal-main td{text-align:left;padding:9px 12px;border:1px solid #e0d9d2;vertical-align:top;min-width:110px}
+  .legal-main th{font-family:'Barlow Condensed';font-weight:700;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:#5c534d;white-space:nowrap}
+  .legal-main td{color:#3d3833}
+  .legal-main code{background:#eae5df;border-radius:4px;padding:1px 5px;font-size:13px}
   .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px}
   @media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
   @media(max-width:520px){.foot-grid{grid-template-columns:1fr}}

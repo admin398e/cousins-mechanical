@@ -1867,6 +1867,135 @@ try {
     assert.ok(/cms_cookie_consent/.test(html), 'no consent value is stored');
   });
 
+  /* -------------------------------------------------------------------
+   * SECURITY HEADERS
+   * ----------------------------------------------------------------- */
+  await check('a Content-Security-Policy is set and closes the classic holes', async () => {
+    const r = await api('/');
+    const csp = r.headers.get('content-security-policy');
+    assert.ok(csp, 'no CSP header');
+    for (const d of ["default-src 'self'", "object-src 'none'", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'"]) {
+      assert.ok(csp.includes(d), 'CSP is missing: ' + d);
+    }
+    // A wildcard script-src would make the whole header decorative.
+    assert.ok(!/script-src[^;]*\*[^;]*/.test(csp), 'CSP allows scripts from anywhere');
+    assert.ok(r.headers.get('permissions-policy'), 'no Permissions-Policy');
+  });
+
+  /* -------------------------------------------------------------------
+   * RETENTION — nothing may be kept indefinitely
+   * ----------------------------------------------------------------- */
+  await check('retention periods are admin-only, bounded, and have floors', async () => {
+    assert.equal((await api('/api/admin/retention')).status, 403);
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const d = await (await api('/api/admin/retention', { headers: h })).json();
+    assert.ok(d.policy.jobDays >= 2190, 'finished jobs are kept less than 6 years by default');
+
+    // A six-month floor on job records would leave Cousins liable for work he
+    // has no record of. The endpoint must refuse to go that low.
+    const r = await api('/api/admin/retention', { method: 'POST', headers: h, body: JSON.stringify({ jobDays: 30, auditDays: 99999 }) });
+    const { policy } = await r.json();
+    assert.ok(policy.jobDays >= 365, 'a 30-day job retention was accepted');
+    assert.ok(policy.auditDays <= 2190, 'an unbounded audit retention was accepted');
+    await api('/api/admin/retention', { method: 'POST', headers: h, body: JSON.stringify(d.policy) });
+  });
+
+  await check('the purge removes what is past its period and nothing else', async () => {
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    assert.equal((await api('/api/admin/run-retention', { method: 'POST' })).status, 403);
+
+    // An OPEN job is never purged on a timer, however old — something still
+    // outstanding is not a record we are finished with.
+    const em = `retain-${Date.now()}@example.com`;
+    const r = await bookAs({ name: 'Old Open Job', phone: '07900004000', email: em, service: 'tyre', postcode: 'DT6 5NJ' });
+    const { ref } = await r.json();
+
+    const res = await api('/api/admin/run-retention', { method: 'POST', headers: h });
+    assert.equal(res.status, 200);
+    const { removed } = await res.json();
+    for (const k of ['jobs', 'contacts', 'audits', 'messages', 'slots', 'mailLog']) {
+      assert.equal(typeof removed[k], 'number', 'the sweep does not report ' + k);
+    }
+    const jobs = (await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json()).jobs;
+    assert.ok(jobs.some(j => j.ref === ref), 'the purge removed an open job');
+  });
+
+  await check('the health check reports problems rather than staying quiet', async () => {
+    assert.equal((await api('/api/admin/run-health', { method: 'POST' })).status, 403);
+    const tok = await adminTok();
+    const d = await (await api('/api/admin/run-health', { method: 'POST', headers: { authorization: 'Bearer ' + tok } })).json();
+    // The test server has no mail, Twilio or calendar configured, so a check
+    // that reported "all fine" here would be a check that can never fail.
+    assert.equal(d.ok, false, 'the health check passed with nothing configured');
+    assert.ok(Array.isArray(d.problems) && d.problems.length >= 3, 'the health check missed obvious gaps');
+  });
+
+  /* -------------------------------------------------------------------
+   * STRIPE — card details must never reach this server
+   * ----------------------------------------------------------------- */
+  await check('card payment stays off until both Stripe secrets exist', async () => {
+    const d = await (await api('/api/deposit-config')).json();
+    assert.equal(d.enabled, false, 'deposits reported on with no Stripe keys');
+    assert.equal(d.pence, 0, 'an amount was published while payment is off');
+    const health = await (await api('/api/health')).json();
+    assert.equal(health.configured.cardPayments, false);
+
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    // Switching deposits on without the keys would produce a booking form that
+    // asks for money it cannot take.
+    const r = await api('/api/admin/deposit', { method: 'POST', headers: h, body: JSON.stringify({ enabled: true, pence: 2500 }) });
+    assert.equal(r.status, 400, 'deposits were switched on with no Stripe configured');
+  });
+
+  await check('a deposit amount cannot be set to something absurd', async () => {
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    assert.equal((await api('/api/admin/deposit', { method: 'POST', headers: h, body: JSON.stringify({ pence: 5000000 }) })).status, 400);
+    assert.equal((await api('/api/admin/deposit', { method: 'POST', headers: h, body: JSON.stringify({ pence: 1 }) })).status, 400);
+    assert.equal((await api('/api/admin/deposit', { method: 'POST', headers: h, body: JSON.stringify({ pence: 2500 }) })).status, 200);
+  });
+
+  await check('the Stripe webhook refuses anything it cannot verify', async () => {
+    // The redirect back from Checkout proves nothing — anyone can visit a
+    // success URL. A signed webhook is the only thing that may mark a job paid,
+    // so with no secret set it must fail closed rather than trust the body.
+    const fake = JSON.stringify({ type: 'checkout.session.completed', data: { object: { client_reference_id: 'CMS-FAKE', payment_status: 'paid', amount_total: 999999 } } });
+    const r = await api('/api/stripe-webhook', { method: 'POST', headers: { 'content-type': 'application/json' }, body: fake });
+    assert.ok(r.status === 503 || r.status === 401, 'an unsigned webhook was not refused (got ' + r.status + ')');
+    const r2 = await api('/api/stripe-webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'stripe-signature': 't=1,v1=deadbeef' }, body: fake });
+    assert.ok(r2.status === 503 || r2.status === 401, 'a forged signature was accepted');
+  });
+
+  await check('checkout refuses to start when payment is switched off', async () => {
+    const r = await postJson('/api/pay/checkout', { ref: 'CMS-ANY' });
+    assert.equal(r.status, 503, 'checkout started with no Stripe configured');
+  });
+
+  /* -------------------------------------------------------------------
+   * THE LEGAL PAGES HAVE TO MATCH WHAT THE CODE ACTUALLY DOES
+   * ----------------------------------------------------------------- */
+  await check('the privacy notice names every processor the code actually uses', async () => {
+    const html = await (await api('/privacy.html')).text();
+    // Art. 13 wants the recipients named. This test exists because the notice
+    // listed Google and WhatsApp while the code was also sending data to
+    // Cloudflare, Resend, Twilio and HubSpot.
+    for (const who of ['Cloudflare', 'Resend', 'Twilio', 'HubSpot', 'Stripe', 'Meta']) {
+      assert.ok(html.includes(who), 'the privacy notice does not name ' + who);
+    }
+    assert.ok(/outside the UK|International Data Transfer|adequacy/i.test(html), 'no international transfer wording');
+    assert.ok(/6 years/.test(html), 'no concrete retention period is stated');
+  });
+
+  await check('the cookie notice describes the analytics cookies by name', async () => {
+    const html = await (await api('/cookies.html')).text();
+    assert.ok(/hubspotutk/.test(html), 'the HubSpot cookies are not named');
+    assert.ok(/Turnstile/i.test(html), 'the security cookie is not described');
+    assert.ok(/Reject/.test(html), 'the notice does not mention the reject option');
+  });
+
   // The pricing tab could only ever show one size at a time, so a bad markup on
   // a range nobody thinks to type stayed invisible. The catalogue endpoint is
   // how that becomes findable — and it carries cost and margin, so it must be

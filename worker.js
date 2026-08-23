@@ -45,6 +45,10 @@ import {
  *                                  without a deploy. Falls back to the Messages API.
  *      HUBSPOT_PORTAL_ID           Optional. Numeric portal id; switches on the tracking
  *                                  script on the public site and the CRM links in admin.
+ *      STRIPE_SECRET_KEY           Optional. sk_live_… — switches on card deposits. Card details
+ *                                  NEVER reach this Worker; Stripe hosts the payment page.
+ *      STRIPE_WEBHOOK_SECRET       Required alongside it. whsec_… — the ONLY thing that may mark
+ *                                  a job paid is a webhook signed with this.
  *      HUBSPOT_TOKEN               Optional. Private App token (NOT OAuth). Switches on the
  *                                  contact-on-booking and deal-on-payment sync. Needs the
  *                                  crm.objects.contacts.write and crm.objects.deals.write scopes.
@@ -79,10 +83,37 @@ import {
  */
 
 const UKVD_PACKAGE = "TyreDetails";
-const RETENTION_DAYS = 365; // GDPR storage limitation: purge finished jobs after this
+/*
+ * Retention. GDPR Art. 5(1)(e) — personal data may not be kept longer than it
+ * is needed, and "indefinitely" is not a period.
+ *
+ * These are the defaults; Admin → Retention overrides them. The reasoning
+ * matters more than the numbers, so it is written down here rather than in
+ * somebody's head:
+ *
+ *   jobs 6 years   — the limitation period for a workmanship claim, and
+ *                    HMRC's record-keeping requirement. Shorter than this and
+ *                    Cousins cannot defend a claim he is still liable for.
+ *   contacts 3 yrs — a customer who has not been near us in three years is not
+ *                    a customer. Reset by any new booking.
+ *   audit 12 mths  — long enough to investigate an incident, short enough not
+ *                    to be a standing record of who did what forever.
+ *   messages 2 yrs — the conversation about a job outlives the job briefly.
+ *   slots 90 days  — pure operational counters, no personal data.
+ *   maillog 90 days
+ */
+const RETENTION = {
+  jobDays: 2190,        // 6 years
+  contactDays: 1095,    // 3 years
+  auditDays: 365,
+  messageDays: 730,
+  slotDays: 90,
+  mailLogDays: 90,
+};
+const RETENTION_DAYS = RETENTION.jobDays; // kept for the older call sites
 const LOCATION_TTL_SEC = 3600; // live driver GPS is transient — expires an hour after the job
 const RESET_TOKEN_TTL_SEC = 3600; // password-reset links are valid for one hour
-const PRIVACY_VERSION = "2026-08-05"; // bump when your privacy notice changes to re-request consent
+const PRIVACY_VERSION = "2026-08-22"; // bump when your privacy notice changes to re-request consent
 
 // Origins allowed to call the API from a browser. The site is same-origin so it
 // needs no entry here; this list exists for the standalone driver app / previews.
@@ -116,10 +147,42 @@ function corsFor(request, env) {
 }
 
 // Baseline security headers on every API response.
+/*
+ * Content-Security-Policy.
+ *
+ * The allow-list is every host the pages actually reach, verified by grepping
+ * the three templates rather than guessed: Leaflet from unpkg, OpenStreetMap
+ * tiles, Google Fonts, Cloudflare Turnstile, HubSpot's tracker, postcodes.io
+ * for reverse geocoding, and Lottie for the animation on the home page.
+ *
+ * 'unsafe-inline' on script-src is regrettable and honest: the design-canvas
+ * templates put the entire application in an inline <script type="text/x-dc">
+ * block, so a strict policy would blank the site. Removing it means moving
+ * that code to a real file first. The policy still blocks the thing that
+ * matters most — a script injected from a host that is not on this list — and
+ * object-src 'none' plus frame-ancestors 'none' close the other classic holes.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://unpkg.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com https://*.hubspot.com https://*.hsforms.com https://track.hubspot.com",
+  "connect-src 'self' https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host",
+  "frame-src https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Frame-Options": "DENY",
+  "Permissions-Policy": "camera=(), microphone=(), payment=(), interest-cohort=()",
+  "Content-Security-Policy": CSP,
 };
 
 const json = (obj, status = 200) =>
@@ -640,6 +703,87 @@ async function sendSMS(env, to, body) {
 
   if (!attempts.length) return { skipped: true, reason: "no messaging channel configured" };
   return { ok: false, reason: attempts.join(" | ") };
+}
+
+/* =========================================================================
+ * STRIPE
+ *
+ * ONE RULE, and everything else follows from it: card details never touch this
+ * Worker. The customer is sent to Stripe's own hosted Checkout page, enters the
+ * card there, and comes back with nothing but a session id. Cousins stays on
+ * SAQ-A — the shortest PCI self-assessment there is.
+ *
+ * The moment a card number passes through our own form or server it becomes
+ * SAQ-D: quarterly scans, penetration testing, a documented security
+ * programme. Same feature to the customer, an order of magnitude more
+ * obligation. Nothing below should ever be changed in a way that crosses that
+ * line.
+ *
+ * A deposit, not the full amount. The problem in mobile work is the no-show,
+ * not the payment — and taking the full price up front for a job whose price
+ * can move once the van arrives creates refunds nobody wanted.
+ * ====================================================================== */
+const DEFAULT_DEPOSIT = { enabled: false, pence: 2500, label: "Booking deposit" };
+
+async function depositSettings(env) {
+  const raw = await env.CMS_KV.get("deposit_settings");
+  return { ...DEFAULT_DEPOSIT, ...(raw ? JSON.parse(raw) : {}) };
+}
+
+function stripeReady(env) { return !!(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET); }
+
+/** Stripe wants form encoding, including for nested fields. */
+function stripeForm(obj, prefix = "", out = new URLSearchParams()) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (typeof v === "object" && !Array.isArray(v)) stripeForm(v, key, out);
+    else if (Array.isArray(v)) v.forEach((item, i) => (typeof item === "object" ? stripeForm(item, `${key}[${i}]`, out) : out.append(`${key}[${i}]`, String(item))));
+    else out.append(key, String(v));
+  }
+  return out;
+}
+
+async function stripeCall(env, path, body) {
+  if (!env.STRIPE_SECRET_KEY) return { skipped: true, reason: "Stripe not configured" };
+  const r = await fetch("https://api.stripe.com/v1" + path, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + env.STRIPE_SECRET_KEY,
+      "content-type": "application/x-www-form-urlencoded",
+      // Stripe replays a retried request rather than charging twice.
+      "idempotency-key": body && body.__idem ? String(body.__idem) : crypto.randomUUID(),
+    },
+    body: stripeForm({ ...body, __idem: undefined }),
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error reaching Stripe" };
+  const text = await r.text().catch(() => "");
+  if (!r.ok) {
+    console.error("[stripe]", path, r.status, text.slice(0, 300));
+    return { ok: false, status: r.status, reason: "Stripe returned " + r.status + ": " + text.slice(0, 200) };
+  }
+  try { return { ok: true, data: JSON.parse(text) }; } catch { return { ok: false, reason: "unreadable response" }; }
+}
+
+/**
+ * Verify a Stripe webhook signature.
+ *
+ * This is the whole security model for payments. The redirect back from
+ * Checkout proves nothing — anyone can visit a success URL — so the ONLY thing
+ * that may mark a job paid is a signed webhook. Constant-time compare, and a
+ * five-minute replay window so a captured POST cannot be sent again tomorrow.
+ */
+async function stripeSigOk(env, rawBody, header) {
+  if (!env.STRIPE_WEBHOOK_SECRET || !header) return false;
+  const parts = Object.fromEntries(String(header).split(",").map(p => p.split("=").map(x => x.trim())));
+  const t = Number(parts.t), sig = parts.v1;
+  if (!Number.isFinite(t) || !sig) return false;
+  if (Math.abs(Date.now() / 1000 - t) > 300) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.STRIPE_WEBHOOK_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(t + "." + rawBody));
+  const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("");
+  return safeEqual(hex, sig);
 }
 
 /* =========================================================================
@@ -1196,7 +1340,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
 // Named exports for the test suite. The Workers runtime only looks at the
 // default export, so these cost nothing at runtime but let the tests assert
 // that no template variable is left unfilled.
-export { renderEmail, EMAIL_BLOCKS, esc };
+export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS };
 
 // ---------- Unsubscribe links ----------
 // The link has to work without the recipient logging in, and it must not let
@@ -1632,6 +1776,130 @@ async function api(request, env, url, ctx) {
     return json(await availabilityFor(env, date));
   }
 
+  /*
+   * Is a deposit being asked for, and how much? Public — the booking form has
+   * to know before it can say so, and the amount is not a secret.
+   */
+  if (p === "/deposit-config" && request.method === "GET") {
+    const d = await depositSettings(env);
+    const live = d.enabled && stripeReady(env);
+    return json({ enabled: live, pence: live ? d.pence : 0, label: d.label });
+  }
+
+  /*
+   * Start a Checkout session for a booking that already exists.
+   *
+   * The amount comes from OUR settings, never from the request. A price posted
+   * by the browser is a price the customer chose.
+   */
+  if (p === "/pay/checkout" && request.method === "POST") {
+    if (await edgeLimited(env, "RL_WRITE", "pay:" + clientIp(request))) return bad("Too many attempts — try again shortly.", 429);
+    const b = await request.json().catch(() => ({}));
+    const ref = String(b.ref || "").trim();
+    if (!ref) return bad("Missing booking reference");
+    if (!stripeReady(env)) return bad("Card payment is not switched on.", 503);
+
+    const d = await depositSettings(env);
+    if (!d.enabled) return bad("Card payment is not switched on.", 503);
+
+    const email = String(b.email || "").trim().toLowerCase() || (await findBookingOwner(env, ref));
+    const key = "bookings:" + (email || "guest");
+    const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+    const job = arr.find(o => o.ref === ref);
+    if (!job) return bad("We cannot find that booking.", 404);
+    if (job.paidPence > 0) return bad("That booking is already paid.", 409);
+
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const res = await stripeCall(env, "/checkout/sessions", {
+      __idem: "co_" + ref,
+      mode: "payment",
+      success_url: site + "/#paid=" + encodeURIComponent(ref),
+      cancel_url: site + "/#track=" + encodeURIComponent(ref),
+      client_reference_id: ref,
+      customer_email: job.email || undefined,
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "gbp",
+          unit_amount: d.pence,
+          product_data: { name: d.label + " — " + (job.svcLabel || job.service || "Mobile job") + " (" + ref + ")" },
+        },
+      }],
+      // Carried back on the webhook so the job can be found without trusting
+      // anything the browser says on the way home.
+      metadata: { ref, email: job.email || "" },
+    });
+    if (!res.ok) {
+      await noteMailFailure(env, job.email || "(no email)", "Stripe checkout " + ref, { ...res, channel: "stripe" });
+      return bad("Could not start the payment. Please call 07925 340977.", 502);
+    }
+    return json({ url: res.data.url, id: res.data.id });
+  }
+
+  /*
+   * The webhook. The ONLY thing that may mark a job paid.
+   */
+  if (p === "/stripe-webhook" && request.method === "POST") {
+    const raw = await request.text();
+    if (!env.STRIPE_WEBHOOK_SECRET) {
+      console.error("[stripe-webhook] rejected: STRIPE_WEBHOOK_SECRET is not set");
+      return bad("Webhook not configured", 503);
+    }
+    if (!(await stripeSigOk(env, raw, request.headers.get("stripe-signature")))) {
+      await noteFailure(env, "ip:" + clientIp(request));
+      return bad("Bad signature", 401);
+    }
+    const evt = JSON.parse(raw || "{}");
+    if (evt.type !== "checkout.session.completed") return json({ ok: true, ignored: evt.type });
+
+    const s = evt.data && evt.data.object || {};
+    if (s.payment_status !== "paid") return json({ ok: true, ignored: "unpaid session" });
+    const ref = s.client_reference_id || (s.metadata && s.metadata.ref);
+    const email = String((s.metadata && s.metadata.email) || s.customer_email || "").toLowerCase();
+    if (!ref) return json({ ok: true, ignored: "no reference" });
+
+    const key = "bookings:" + (email || "guest");
+    const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+    const i = arr.findIndex(o => o.ref === ref);
+    if (i < 0) return json({ ok: true, ignored: "unknown booking" });
+
+    const job = arr[i];
+    job.payments = Array.isArray(job.payments) ? job.payments : [];
+    // Stripe retries until it gets a 2xx, so the same event can arrive more
+    // than once. Keying on the session id makes a repeat a no-op rather than
+    // a second payment against the job.
+    if (job.payments.some(x => x.stripeSession === s.id)) return json({ ok: true, duplicate: true });
+
+    const pence = Number(s.amount_total) || 0;
+    job.payments.push({ t: Date.now(), kind: "payment", pence, method: "card (Stripe)", note: "Deposit paid online", by: "stripe", stripeSession: s.id });
+    job.paidPence = (Number(job.paidPence) || 0) + pence;
+    job.updates = [...(job.updates || []), { t: Date.now(), s: "Deposit received", d: "£" + (pence / 100).toFixed(2) + " paid by card" }];
+    await env.CMS_KV.put(key, JSON.stringify(arr));
+    await audit(env, email || "guest", "stripe_payment", ref + " £" + (pence / 100).toFixed(2));
+
+    if (job.email) {
+      const unsub = await unsubUrl(env, job.email);
+      const subject = "Payment received — " + ref + " — Cousins Mechanical";
+      const html = renderEmail("payment_received", {
+        subject, preheader: "£" + (pence / 100).toFixed(2) + " received for " + ref,
+        firstname: String(job.name || "there").trim().split(/\s+/)[0],
+        booking_ref: ref, amount: "£" + (pence / 100).toFixed(2),
+        vehicle_reg: job.reg || "Not given",
+        service: job.svcLabel || job.service || "Mobile job",
+      }, { footer_note: "This is a receipt for job " + esc(ref) + ", not marketing." + (unsub ? '<br /><a href="' + unsub + '" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>' : "") });
+      sendEmailTracked(env, ctx, job.email, subject,
+        "Hi " + (job.name || "there") + ",\n\nWe have received your £" + (pence / 100).toFixed(2)
+        + " deposit for job " + ref + ".\n\nThe balance is payable on site when the work is done.\n\nCousins Mechanical Services Ltd",
+        null, { html, unsubscribeUrl: unsub });
+    }
+    if (validEmail(env.OWNER_EMAIL) || env.MAIL_FROM) {
+      sendEmailTracked(env, ctx, validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM,
+        "DEPOSIT PAID " + ref + " — £" + (pence / 100).toFixed(2),
+        "£" + (pence / 100).toFixed(2) + " deposit received for " + ref + " (" + (job.name || "") + ").");
+    }
+    return json({ ok: true });
+  }
+
   if (p === "/crm-config" && request.method === "GET") {
     if (!env.HUBSPOT_PORTAL_ID) return bad("CRM not configured", 404);
     return json({ portalId: String(env.HUBSPOT_PORTAL_ID) });
@@ -1669,6 +1937,7 @@ async function api(request, env, url, ctx) {
         studioFlow: !!(env.TWILIO_STUDIO_FLOW_SID && env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         crm: !!env.HUBSPOT_PORTAL_ID,
         crmSync: !!env.HUBSPOT_TOKEN,
+        cardPayments: stripeReady(env),
         calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -3651,6 +3920,65 @@ async function processTyreStockForOrder(env, order) {
       return json({ ok: true, dates: Object.keys(counts).length, counts });
     }
 
+    /* Deposit amount and whether to ask for one at all. */
+    if (p === "/admin/deposit") {
+      if (request.method === "GET") {
+        return json({ settings: await depositSettings(env), stripeReady: stripeReady(env), defaults: DEFAULT_DEPOSIT });
+      }
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const cur = await depositSettings(env);
+        const pence = Number.isFinite(Number(b.pence)) ? Math.round(Number(b.pence)) : cur.pence;
+        // £1 to £500. A "deposit" of £5,000 is a typo, not a policy.
+        if (pence < 100 || pence > 50000) return bad("A deposit must be between £1 and £500.", 400);
+        const next = {
+          enabled: b.enabled === undefined ? cur.enabled : !!b.enabled,
+          pence,
+          label: String(b.label || cur.label).slice(0, 60),
+        };
+        if (next.enabled && !stripeReady(env)) return bad("Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before switching deposits on.", 400);
+        await env.CMS_KV.put("deposit_settings", JSON.stringify(next));
+        await audit(env, "admin", "deposit_settings_updated", JSON.stringify(next));
+        return json({ settings: next });
+      }
+    }
+
+    /* Retention periods, and proof the purge is actually running. */
+    if (p === "/admin/retention") {
+      if (request.method === "GET") {
+        return json({
+          policy: await retentionPolicy(env),
+          defaults: RETENTION,
+          lastRun: JSON.parse((await env.CMS_KV.get("retention_last_run")) || "null"),
+          lastBackup: JSON.parse((await env.CMS_KV.get("backup_last_run")) || "null"),
+        });
+      }
+      if (request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const cur = await retentionPolicy(env);
+        const numOr = (v, f, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : f; };
+        const next = {
+          // Floors are deliberate. Six months on finished jobs would put Cousins
+          // in the position of being liable for work he has no record of.
+          jobDays: numOr(b.jobDays, cur.jobDays, 365, 3650),
+          contactDays: numOr(b.contactDays, cur.contactDays, 90, 3650),
+          auditDays: numOr(b.auditDays, cur.auditDays, 30, 2190),
+          messageDays: numOr(b.messageDays, cur.messageDays, 30, 3650),
+          slotDays: numOr(b.slotDays, cur.slotDays, 7, 730),
+          mailLogDays: numOr(b.mailLogDays, cur.mailLogDays, 7, 730),
+        };
+        await env.CMS_KV.put("retention_policy", JSON.stringify(next));
+        await audit(env, "admin", "retention_policy_updated", JSON.stringify(next));
+        return json({ policy: next });
+      }
+    }
+
+    /* Run the sweeps by hand — for testing, and for the day somebody needs
+     * to prove the purge works rather than trust that it does. */
+    if (p === "/admin/run-retention" && request.method === "POST") return json({ removed: await retentionSweep(env) });
+    if (p === "/admin/run-health" && request.method === "POST") return json(await healthSweep(env));
+    if (p === "/admin/run-backup" && request.method === "POST") return json(await backupSweep(env));
+
     if (p === "/admin/mail-failures" && request.method === "GET") {
       const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
       return json({
@@ -4645,14 +4973,189 @@ async function reminderSweepNow(env) {
 }
 
 // GDPR storage limitation: scheduled purge of finished jobs older than RETENTION_DAYS
+async function retentionPolicy(env) {
+  const raw = await env.CMS_KV.get("retention_policy");
+  return { ...RETENTION, ...(raw ? JSON.parse(raw) : {}) };
+}
+
+/**
+ * The daily purge.
+ *
+ * Everything it removes is listed in the audit trail with a count, because a
+ * deletion nobody can see is indistinguishable from data loss. It walks each
+ * prefix separately rather than everything at once so one bad record cannot
+ * stop the rest of the sweep.
+ */
 async function retentionSweep(env) {
-  const cutoff = Date.now() - RETENTION_DAYS * 86400000;
-  const list = await env.CMS_KV.list({ prefix: "bookings:" });
-  for (const k of list.keys) {
-    const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
-    const kept = arr.filter(o => !((o.status === "cancelled" || o.status === "complete" || o.status === "arrived") && (o.createdAt || 0) < cutoff));
-    if (kept.length !== arr.length) await env.CMS_KV.put(k.name, JSON.stringify(kept));
+  const P = await retentionPolicy(env);
+  const now = Date.now();
+  const cut = d => now - d * 86400000;
+  const removed = { jobs: 0, contacts: 0, audits: 0, messages: 0, slots: 0, mailLog: 0 };
+
+  const eachKey = async (prefix, fn) => {
+    let cursor;
+    do {
+      const page = await env.CMS_KV.list({ prefix, cursor });
+      for (const k of page.keys) { try { await fn(k.name); } catch (e) { console.error("[retention]", k.name, e && e.message); } }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+  };
+
+  // Finished jobs only. An open job is never purged however old it is —
+  // something still outstanding is not a record we are done with.
+  await eachKey("bookings:", async (key) => {
+    const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+    const kept = arr.filter(o => {
+      const finished = o.status === "cancelled" || o.status === "complete";
+      return !(finished && (o.createdAt || 0) < cut(P.jobDays));
+    });
+    if (kept.length !== arr.length) {
+      removed.jobs += arr.length - kept.length;
+      if (kept.length) await env.CMS_KV.put(key, JSON.stringify(kept));
+      else await env.CMS_KV.delete(key);
+    }
+  });
+
+  // A contact goes when they have neither booked nor been in touch in the
+  // window — and never while they still have a job on file.
+  await eachKey("contact:", async (key) => {
+    const c = JSON.parse((await env.CMS_KV.get(key)) || "{}");
+    const last = Math.max(Number(c.lastSeenAt) || 0, Number(c.firstSeenAt) || 0);
+    if (!last || last >= cut(P.contactDays)) return;
+    const email = key.slice("contact:".length);
+    const jobs = JSON.parse((await env.CMS_KV.get("bookings:" + email)) || "[]");
+    if (jobs.length) return;
+    // An account holder is not a stale contact — they can still sign in.
+    if (await env.CMS_KV.get("user:" + email)) return;
+    await env.CMS_KV.delete(key);
+    await env.CMS_KV.delete("crm:" + email);
+    removed.contacts += 1;
+  });
+
+  await eachKey("audit:", async (key) => {
+    const log = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+    const kept = log.filter(e => (e.t || 0) >= cut(P.auditDays));
+    if (kept.length === log.length) return;
+    removed.audits += log.length - kept.length;
+    if (kept.length) await env.CMS_KV.put(key, JSON.stringify(kept));
+    else await env.CMS_KV.delete(key);
+  });
+
+  await eachKey("msgs:", async (key) => {
+    const thread = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+    const kept = thread.filter(m => (m.t || 0) >= cut(P.messageDays));
+    if (kept.length === thread.length) return;
+    removed.messages += thread.length - kept.length;
+    if (kept.length) await env.CMS_KV.put(key, JSON.stringify(kept));
+    else await env.CMS_KV.delete(key);
+  });
+
+  // Operational only — no personal data, just counters for days long past.
+  await eachKey("slots:", async (key) => {
+    const date = key.slice("slots:".length);
+    const t = new Date(date + "T12:00:00Z").getTime();
+    if (Number.isFinite(t) && t < cut(P.slotDays)) { await env.CMS_KV.delete(key); removed.slots += 1; }
+  });
+
+  const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
+  const keptLog = log.filter(e => (e.t || 0) >= cut(P.mailLogDays));
+  if (keptLog.length !== log.length) {
+    removed.mailLog = log.length - keptLog.length;
+    await env.CMS_KV.put("maillog", JSON.stringify(keptLog));
   }
+
+  const total = Object.values(removed).reduce((a, b) => a + b, 0);
+  if (total) await audit(env, "system", "retention_sweep", JSON.stringify(removed));
+  await env.CMS_KV.put("retention_last_run", JSON.stringify({ t: now, removed }));
+  return removed;
+}
+
+/**
+ * Daily health check.
+ *
+ * The dashboard banner only reaches somebody who opens the dashboard. A quiet
+ * weekend where every confirmation failed would look exactly like a quiet
+ * weekend, so once a day the system checks itself and says so.
+ */
+async function healthSweep(env) {
+  const problems = [];
+  if (!validEmail(env.MAIL_FROM)) problems.push("MAIL_FROM is not a valid email address — nothing can be sent at all.");
+  else if (!env.RESEND_API_KEY) problems.push("RESEND_API_KEY is missing — no email is going out.");
+  if (!validEmail(env.OWNER_EMAIL)) problems.push("OWNER_EMAIL is not a valid address — new-job alerts are falling back to MAIL_FROM.");
+  if (!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM)) problems.push("Twilio is not configured — customers get no texts.");
+  if (!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID)) problems.push("Google Calendar is not configured — bookings are not checked against your diary.");
+
+  const fails = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
+  const dayAgo = Date.now() - 86400000;
+  const recent = fails.filter(f => (f.t || 0) > dayAgo);
+  if (recent.length) problems.push(recent.length + " message" + (recent.length === 1 ? "" : "s") + " failed to send in the last 24 hours. Open the dashboard — the people affected are named there.");
+
+  // Say nothing when there is nothing to say. An alert that arrives every day
+  // stops being read by the end of the first week.
+  if (!problems.length) return { ok: true };
+
+  // Always hand the problems back, even when there is nowhere to email them.
+  // Swallowing the findings because the alert could not be delivered is the
+  // same class of mistake as the confirmations outage — the check would look
+  // like it had passed.
+  const to = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
+  if (!to) return { ok: false, problems, alerted: false, reason: "nowhere to send the alert" };
+  await sendEmail(env, to, "Cousins booking system — " + problems.length + " thing" + (problems.length === 1 ? "" : "s") + " needs attention",
+    "The daily check found the following:\n\n" + problems.map((p, i) => (i + 1) + ". " + p).join("\n\n")
+    + "\n\nDashboard: " + (env.SITE_URL || "") + "/admin"
+    + "\n\nThis email is sent once a day, and only when something is wrong.");
+  return { ok: false, problems, alerted: true };
+}
+
+/**
+ * Weekly off-platform backup.
+ *
+ * Cloudflare KV has no point-in-time restore: an overwritten key is simply
+ * gone. A copy that lives in an inbox is a worse backup than a real one and a
+ * far better backup than none, which is what there was.
+ */
+async function backupSweep(env) {
+  const to = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
+  if (!to || !env.RESEND_API_KEY) return { skipped: true };
+  const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "verify:", "dverify:", "admin_totp"];
+  const data = {};
+  let cursor;
+  do {
+    const page = await env.CMS_KV.list({ cursor });
+    for (const k of page.keys) {
+      if (EXCLUDE.some(pre => k.name.startsWith(pre))) continue;
+      const raw = await env.CMS_KV.get(k.name);
+      if (raw == null) continue;
+      let val; try { val = JSON.parse(raw); } catch { val = raw; }
+      if (val && typeof val === "object") {
+        if (k.name.startsWith("user:") || k.name.startsWith("staff:")) { delete val.salt; delete val.hash; }
+        if (k.name === "drivers" && Array.isArray(val)) val = val.map(d => { const c = { ...d }; delete c.salt; delete c.hash; return c; });
+      }
+      data[k.name] = val;
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const body = JSON.stringify({ exportedAt: new Date().toISOString(), keys: Object.keys(data).length, data }, null, 2);
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
+    body: JSON.stringify({
+      from: "Cousins Mechanical Services <" + env.MAIL_FROM + ">",
+      to: [to],
+      subject: "Weekly backup — " + stamp + " (" + Object.keys(data).length + " records)",
+      text: "Attached is this week's copy of the booking system's data.\n\n"
+        + "Passwords and 2FA seeds are deliberately excluded. Keep it somewhere private —\n"
+        + "it contains customers' names, addresses and phone numbers.\n\n"
+        + "Records: " + Object.keys(data).length,
+      attachments: [{ filename: "cousins-backup-" + stamp + ".json", content: b64utf8(body) }],
+    }),
+  }).catch(() => null);
+  const ok = !!(r && r.ok);
+  if (!ok) await noteMailFailure(env, to, "weekly backup", { reason: r ? "Resend returned " + r.status : "network error" });
+  await env.CMS_KV.put("backup_last_run", JSON.stringify({ t: Date.now(), ok, keys: Object.keys(data).length }));
+  return { ok };
 }
 
 export default {
@@ -4707,6 +5210,14 @@ export default {
     ctx.waitUntil(reminderSweep(env).catch(e => console.error("[reminders]", e)));
     if (londonHour() === 3) {
       ctx.waitUntil(retentionSweep(env).catch(e => console.error("[retention]", e)));
+    }
+    // 7am, so the alert is read with the first coffee rather than at 3am.
+    if (londonHour() === 7) {
+      ctx.waitUntil(healthSweep(env).catch(e => console.error("[health]", e)));
+    }
+    // Monday 4am.
+    if (londonHour() === 4 && new Date().getUTCDay() === 1) {
+      ctx.waitUntil(backupSweep(env).catch(e => console.error("[backup]", e)));
     }
   },
 };
