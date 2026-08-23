@@ -191,7 +191,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
 
 /*
  * Dev serves the AUTHORED .dc.html so editing is live, but it must serve it
@@ -208,6 +209,20 @@ const page = file => (req, res) => {
 app.get(['/', '/index.html'], page('Cousins Mechanical.dc.html'));
 app.get(['/admin', '/admin.html'], page('Cousins Admin.dc.html'));
 app.get(['/driver', '/driver.html'], page('Cousins Driver.dc.html'));
+
+/*
+ * Serve the branded 404 for anything unmatched, which is what production does
+ * via [assets] not_found_handling = "404-page" in wrangler.toml. Without this,
+ * dev answered a bad link with Express's bare "Cannot GET /whatever" while the
+ * live site showed a page with the menu, the phone number and a way back to
+ * booking. Same class of gap as the placeholder-image transform: a difference
+ * between what you test and what visitors get.
+ */
+app.use((req, res) => {
+  const branded = path.join(PUBLIC_DIR, '404.html');
+  if (fs.existsSync(branded)) return res.status(404).type('html').send(fs.readFileSync(branded, 'utf8'));
+  res.status(404).type('text').send('Not found — run `npm run build` to generate the branded 404 page.');
+});
 
 // ---------------------------------------------------------------------------
 // Boot

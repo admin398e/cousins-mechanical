@@ -2271,9 +2271,18 @@ try {
     assert.ok(html.includes('index.html'), '404 page has no route back to the site');
   });
 
-  await check('an unknown URL does not return a 200', async () => {
+  await check('an unknown URL gets the branded 404, not a bare error', async () => {
+    // Checking the status alone was not enough. The 404 page existed and was
+    // served in production, while dev answered a bad link with Express's
+    // "Cannot GET /whatever" — so a broken link looked fine locally and the
+    // test agreed, because both are non-200.
+    const { BUSINESS } = await import('../business.js');
     const r = await api('/definitely-not-a-real-page-' + Date.now());
     assert.notEqual(r.status, 200, 'unknown URL returned 200 — check not_found_handling');
+    const html = await r.text();
+    assert.ok(/not found/i.test(html), 'unknown URL did not return the branded 404 page');
+    assert.ok(html.includes(BUSINESS.phone), 'the 404 a visitor actually sees has no phone number on it');
+    assert.ok(html.includes('index.html'), 'the 404 a visitor actually sees has no way back');
   });
 
   await check('PWA manifest icons exist and match their declared sizes', async () => {
