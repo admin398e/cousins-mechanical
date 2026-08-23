@@ -155,21 +155,39 @@ function corsFor(request, env) {
  * tiles, Google Fonts, Cloudflare Turnstile, HubSpot's tracker, postcodes.io
  * for reverse geocoding, and Lottie for the animation on the home page.
  *
- * 'unsafe-inline' on script-src is regrettable and honest: the design-canvas
- * templates put the entire application in an inline <script type="text/x-dc">
- * block, so a strict policy would blank the site. Removing it means moving
- * that code to a real file first. The policy still blocks the thing that
- * matters most — a script injected from a host that is not on this list — and
- * object-src 'none' plus frame-ancestors 'none' close the other classic holes.
+ * READ THIS BEFORE TIGHTENING IT.
+ *
+ * 'unsafe-inline' AND 'unsafe-eval' are both required, and both are load-bearing:
+ * the design-canvas runtime puts the whole application in an inline
+ * <script type="text/x-dc"> block and then EVALUATES the logic class at runtime.
+ * A policy without them does not degrade the site, it kills it — the first
+ * version of this header shipped without 'unsafe-eval' and the live admin,
+ * driver and booking pages rendered as static templates with zero working
+ * buttons. It was caught by driving the real pages in a browser, which is the
+ * only way this kind of break shows up.
+ *
+ * So be honest about what this policy is and is not:
+ *
+ *   Still protects  — a script pulled from a host that is not on this list;
+ *                     plugin embeds (object-src none); clickjacking
+ *                     (frame-ancestors none, stronger than X-Frame-Options);
+ *                     an injected form posting credentials off-site
+ *                     (form-action self); base-tag hijacking (base-uri self).
+ *   No longer stops — an inline <script> injected into our own HTML.
+ *
+ * The route to a strict policy is to lift the logic out of the .dc.html
+ * templates into a real .js file served from our own origin, then drop both
+ * unsafe-* keywords. That is a real piece of work, not a header change.
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://unpkg.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://unpkg.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com https://*.hubspot.com https://*.hsforms.com https://track.hubspot.com",
-  "connect-src 'self' https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host",
-  "frame-src https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com",
+  // jsdelivr serves the WebAssembly the Lottie player fetches at runtime.
+  "connect-src 'self' https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host https://cdn.jsdelivr.net",
+  "frame-src 'self' https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
