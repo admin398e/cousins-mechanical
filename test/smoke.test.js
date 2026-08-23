@@ -2178,6 +2178,21 @@ try {
     assert.equal(out.find(t => t.id === 1).capped, false);
   });
 
+  await check('no page asks the browser to fetch an unhydrated {{ token }}', async () => {
+    // `<img src="{{ t.image }}">` in a placeholder row had every visitor's
+    // browser request /%7B%7B%20t.image%20%7D%7D before the page hydrated —
+    // three 404s per load, on the home page and the dashboard, in the Worker's
+    // logs forever. It survived every local check because the dev server was
+    // serving the authored file and the build was not.
+    for (const p of ['/', '/admin', '/driver']) {
+      const html = await (await api(p)).text();
+      const fetched = [...html.matchAll(/\s(src|srcset|poster)=(["'])([^"']*)\2/gi)]
+        .map(m => m[3]).filter(v => v.includes('{{'));
+      assert.equal(fetched.length, 0,
+        p + ' would fetch ' + JSON.stringify(fetched.slice(0, 3)) + ' before hydrating');
+    }
+  });
+
   await check('repeated bad admin logins get rate limited', async () => {
     let sawLimit = false;
     for (let i = 0; i < 12; i++) {

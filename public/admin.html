@@ -1216,7 +1216,7 @@
             <sc-for list="{{ catRows }}" as="t" hint-placeholder-count="10">
               <div style="{{ t.cardStyle }}">
                 <div style="background:#fff;border-radius:9px;height:118px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:11px">
-                  <img src="{{ t.image }}" alt="{{ t.brand }}" style="max-width:92%;max-height:104px;object-fit:contain"/>
+                  <img src="about:blank" alt="{{ t.brand }}" style="max-width:92%;max-height:104px;object-fit:contain"/>
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
                   <span style="font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:.07em;color:#f4a04a;text-transform:uppercase">{{ t.brand }}</span>
@@ -1265,7 +1265,7 @@
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
             <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
             <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
-              <iframe src="{{ calendarUrl }}" style="width:100%;height:620px;border:0;display:block;background:#fff"></iframe>
+              <iframe src="about:blank" style="width:100%;height:620px;border:0;display:block;background:#fff"></iframe>
             </div>
           </sc-if>
           <sc-if value="{{ noCalendar }}" hint-placeholder-val="{{ true }}">

@@ -10,6 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { neutralisePlaceholderFetches } from './dc-placeholder.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -158,8 +159,9 @@ for (const [src, dest] of PAGES) {
     process.exitCode = 1;
     continue;
   }
-  fs.copyFileSync(from, path.join(PUBLIC, dest));
-  console.log(`  ${src}  ->  public/${dest}`);
+  const { out, n } = neutralisePlaceholderFetches(fs.readFileSync(from, 'utf8'));
+  fs.writeFileSync(path.join(PUBLIC, dest), out);
+  console.log(`  ${src}  ->  public/${dest}${n ? `  (${n} placeholder fetch${n === 1 ? '' : 'es'} neutralised)` : ''}`);
   copied++;
 }
 

@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import worker, { SECURITY_HEADERS } from './worker.js';
 import { catalogueStats } from './tyre-db.js';
+import { neutralisePlaceholderFetches } from './dc-placeholder.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -192,10 +193,17 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+/*
+ * Dev serves the AUTHORED .dc.html so editing is live, but it must serve it
+ * through the same transform the build applies — otherwise what you test here
+ * is not what ships, which is exactly how the placeholder <img src="{{ ... }}">
+ * 404s survived every local check and only showed up in production.
+ */
 const page = file => (req, res) => {
   const authored = path.join(__dirname, file);
-  if (fs.existsSync(authored)) return res.sendFile(authored);
-  res.status(404).send('Page not built — run `npm run build`');
+  if (!fs.existsSync(authored)) return res.status(404).send('Page not built — run `npm run build`');
+  const { out } = neutralisePlaceholderFetches(fs.readFileSync(authored, 'utf8'));
+  res.type('html').send(out);
 };
 app.get(['/', '/index.html'], page('Cousins Mechanical.dc.html'));
 app.get(['/admin', '/admin.html'], page('Cousins Admin.dc.html'));
