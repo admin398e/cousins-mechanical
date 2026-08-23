@@ -372,11 +372,20 @@ class Component extends DCLogic {
     return {
       
       needLogin: s.view==='login', picking: s.view==='pick', sharing: s.view==='share',
+      // isVerifyMode was missing. Registering sets authView:'verify', so with
+      // no binding for it all three branches were false and the card went
+      // blank — a driver signed up, got the code by email, and had nowhere to
+      // type it. Same fault as the one the comment on authView describes; it
+      // was fixed for login and register and missed for verify.
       isLoginMode: s.authView==='login', isRegMode: s.authView==='register',
+      isVerifyMode: s.authView==='verify',
       usernameInput:s.usernameInput, passwordInput:s.passwordInput, regName:s.regName, apiInput:s.apiInput, loginErr:s.loginErr,
       setUsername:this.setUsername, setPassword:this.setPassword, setRegName:this.setRegName, setApi:this.setApi,
       gotoLogin:this.gotoLogin, gotoRegister:this.gotoRegister, login:this.login, register:this.register,
       busy:s.busy, signInLabel: s.busy ? 'Signing in…' : 'Sign in', registerLabel: s.busy ? 'Creating…' : 'Register',
+      verifyLabel: s.busy ? 'Checking…' : 'Confirm my email',
+      verifyMsg: s.verifyMsg, verifyCodeInput: s.verifyCodeInput,
+      setVerifyCode: this.setVerifyCode, submitVerify: this.submitVerify, resendCode: this.resendCode,
       logout:this.logout, refreshJobs:this.refreshJobs, backToJobs:this.backToJobs,
       loginSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='login'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),
       regSegStyle:'flex:1;border:0;cursor:pointer;border-radius:8px;padding:10px;font-weight:700;font-size:14px;'+(s.authView==='register'?'background:#2a2320;color:#fff':'background:transparent;color:#8a817b'),

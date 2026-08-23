@@ -230,6 +230,158 @@
         </div>
       </sc-if>
 
+      <!-- SYSTEM: deposits, how long data is kept, health and backups -->
+      <sc-if value="{{ onSettings }}" hint-placeholder-val="{{ false }}">
+        <div style="animation:fadeIn .2s ease">
+
+          <sc-if value="{{ sysNotLoaded }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:34px;text-align:center;color:#8a817b">
+              Loading your settings… <button onClick="{{ sysRefresh }}" style="{{ plainBtn }}">Refresh</button>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sysMsg }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(57,168,84,.14);border:1px solid #2f6b3f;color:#8ee6a0;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:14px">{{ sysMsg }}</div></sc-if>
+          <sc-if value="{{ sysErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:14px">{{ sysErr }}</div></sc-if>
+
+          <!-- DEPOSITS -->
+          <sc-if value="{{ depReady }}" hint-placeholder-val="{{ true }}">
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">BOOKING DEPOSIT</div>
+              <span style="{{ depStateStyle }}">{{ depState }}</span>
+            </div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              A deposit is taken by card when the customer books, and comes off the final bill. It cuts no-shows on emergency call-outs, and it puts a payment step in front of every booking — which will lose you some jobs. Try it and watch the numbers.
+            </div>
+            <sc-if value="{{ depNoStripe }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13px;margin-bottom:14px;line-height:1.5">
+                Card payments are not set up yet, so deposits cannot be switched on. Until <strong>STRIPE_SECRET_KEY</strong> and <strong>STRIPE_WEBHOOK_SECRET</strong> are set, sending a customer to a checkout would take them to a page that fails.
+              </div>
+            </sc-if>
+            <div style="display:grid;grid-template-columns:170px 1.4fr auto auto;gap:10px;align-items:end" class="adm-stockform">
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">Deposit amount (£)</label><input value="{{ depAmount }}" onInput="{{ setDepPounds }}" inputmode="decimal" placeholder="25.00" style="{{ depNumStyle }}"/></div>
+              <div><label style="font-size:12px;color:#9a918a;font-weight:600">What the customer sees it called</label><input value="{{ depLabel }}" onInput="{{ setDepLabel }}" placeholder="Booking deposit" style="{{ depNumStyle }}"/></div>
+              <button onClick="{{ saveDeposit }}" style="{{ depSaveStyle }}">{{ depSaveLabel }}</button>
+              <button onClick="{{ toggleDeposit }}" style="{{ depToggleStyle }}">{{ depToggleLabel }}</button>
+            </div>
+            <sc-if value="{{ depMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#4fe06a;font-size:13px;margin-top:12px">{{ depMsg }}</div></sc-if>
+            <sc-if value="{{ depErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:12px">{{ depErr }}</div></sc-if>
+          </div>
+          </sc-if>
+
+          <!-- RETENTION -->
+          <sc-if value="{{ retReady }}" hint-placeholder-val="{{ true }}">
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">HOW LONG DATA IS KEPT</div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              The law says you may only keep personal data for as long as you actually need it, and the ICO will ask you what your periods are. Anything older than these is deleted automatically overnight. A job that is still open is never deleted, whatever these say.
+            </div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              Your privacy notice states these periods in writing. It is a separate page and it does <strong>not</strong> update itself — if you change a number here, the notice has to be changed to match, or what customers were told is no longer true. You will get a warning below if they stop agreeing.
+            </div>
+            <sc-if value="{{ retDiverged }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13px;margin-bottom:14px;line-height:1.55">
+                <strong>Your privacy notice no longer matches what this system does.</strong>
+                <sc-for list="{{ retDivergedNote }}" as="d" hint-placeholder-count="1">
+                  <div style="margin-top:6px">{{ d.text }}</div>
+                </sc-for>
+                <div style="margin-top:8px">Get the notice updated to match. A published retention period you are not keeping to is the kind of thing a complaint is made of.</div>
+              </div>
+            </sc-if>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Finished jobs &amp; invoices</label>
+                <input value="{{ retJob }}" onInput="{{ setRetJob }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">{{ retJobYears }} · HMRC want 6 years, and so does the limitation period for a claim</div>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Customer contact records</label>
+                <input value="{{ retContact }}" onInput="{{ setRetContact }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">{{ retContactYears }} since their last job</div>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Message history</label>
+                <input value="{{ retMessage }}" onInput="{{ setRetMessage }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">{{ retMessageYears }}</div>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Admin audit log</label>
+                <input value="{{ retAudit }}" onInput="{{ setRetAudit }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">{{ retAuditYears }} · who changed what, and when</div>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Old diary slots</label>
+                <input value="{{ retSlot }}" onInput="{{ setRetSlot }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">Counters only, no personal data</div>
+              </div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Failed-delivery log</label>
+                <input value="{{ retMail }}" onInput="{{ setRetMail }}" inputmode="numeric" style="{{ retNumStyle }}"/>
+                <div style="color:#6f6862;font-size:11.5px;margin-top:4px">Emails and texts that did not arrive</div>
+              </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button onClick="{{ saveRetention }}" style="{{ retSaveStyle }}">{{ retSaveLabel }}</button>
+              <span style="color:#8a817b;font-size:12.5px">{{ retLastRunLabel }}</span>
+            </div>
+            <sc-if value="{{ retNeverRun }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:12px;line-height:1.5">
+                The overnight purge has never run. A retention policy that reads correctly and deletes nothing is worse than no policy at all — it is a written promise you are not keeping. Press <strong>Run the purge now</strong> below to prove it works.
+              </div>
+            </sc-if>
+            <sc-if value="{{ retMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#4fe06a;font-size:13px;margin-top:12px">{{ retMsg }}</div></sc-if>
+            <sc-if value="{{ retErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:12px">{{ retErr }}</div></sc-if>
+          </div>
+          </sc-if>
+
+          <!-- HEALTH, PURGE, BACKUP -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">CHECKS &amp; BACKUPS</div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              The system checks itself every morning and emails you only when something is wrong. A copy of everything is emailed to you every Monday. You can do either right now.
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+              <button onClick="{{ runHealth }}" style="{{ plainBtn }}">{{ healthLabel }}</button>
+              <button onClick="{{ runBackup }}" style="{{ plainBtn }}">{{ backupLabel }}</button>
+              <button onClick="{{ downloadBackup }}" style="{{ plainBtn }}">Download a backup</button>
+              <button onClick="{{ runPurge }}" style="{{ purgeStyle }}">{{ purgeLabel }}</button>
+            </div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:6px">{{ retLastBackupLabel }}</div>
+            <sc-if value="{{ backupNeverRun }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:8px;line-height:1.5">
+                No backup has ever been sent. There is no undo on this system: a record that gets overwritten is gone. Send one now and check it arrives.
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ healthRan }}" hint-placeholder-val="{{ false }}">
+              <div style="border-top:1px solid #2a2320;margin-top:16px;padding-top:14px">
+                <sc-if value="{{ healthOk }}" hint-placeholder-val="{{ true }}">
+                  <div style="color:#4fe06a;font-size:13.5px;font-weight:600">Everything the daily check looks at is working.</div>
+                </sc-if>
+                <sc-for list="{{ healthProblems }}" as="p" hint-placeholder-count="1">
+                  <div style="background:rgba(165,64,26,.14);border:1px solid #6b3520;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-bottom:8px;line-height:1.5">{{ p.text }}</div>
+                </sc-for>
+                <sc-if value="{{ healthNotAlerted }}" hint-placeholder-val="{{ false }}">
+                  <div style="color:#8a817b;font-size:12.5px">These could not be emailed to you — there is no valid owner address set, which is itself one of the problems above.</div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ purgeRan }}" hint-placeholder-val="{{ false }}">
+              <div style="border-top:1px solid #2a2320;margin-top:16px;padding-top:14px">
+                <div style="font-size:13px;color:#d9d2cc;font-weight:700;margin-bottom:8px">What the purge deleted</div>
+                <sc-if value="{{ purgeNothing }}" hint-placeholder-val="{{ true }}">
+                  <div style="color:#8a817b;font-size:13px">Nothing was old enough to delete. The purge ran, and that is the proof it works.</div>
+                </sc-if>
+                <sc-for list="{{ purgeRows }}" as="r" hint-placeholder-count="2">
+                  <div style="display:flex;justify-content:space-between;font-size:13px;color:#9a918a;padding:5px 0;border-bottom:1px solid #241e1a"><span>{{ r.label }}</span><span style="color:#fff;font-weight:700">{{ r.count }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
       <!-- STAFF LOGINS -->
       <sc-if value="{{ onStaff }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
@@ -1178,7 +1330,15 @@ class Component extends DCLogic {
     // exist and a mailbox that bounced this domain into Resend's suppression list.
     invSettings: { masterAutoReorder: false, defaultMinStock: 3, defaultReorderQty: 10, supplierEmail: '', supplierApiUrl: '', notifyEmail: '', reorderCooldownHours: 12 },
     invFilterCategory: 'ALL', invSearchQuery: '', invMsg: '',
-    reorderList: [], reorderPending: 0, rlText: '', rlQty: '', rlBusy: false
+    reorderList: [], reorderPending: 0, rlText: '', rlQty: '', rlBusy: false,
+
+    // System tab. Deliberately null until /admin/deposit and /admin/retention
+    // have answered: the inventory settings above are a standing warning about
+    // rendering invented defaults as though they were saved config. Nothing on
+    // the System tab shows a number until the server has told us what it is.
+    depSettings: null, depStripeReady: false, depMsg: '', depErr: '', depBusy: false,
+    retPolicy: null, retDefaults: null, retLastRun: null, retLastBackup: null, retMsg: '', retErr: '', retBusy: false,
+    sysHealth: null, sysBusy: '', sysMsg: '', sysErr: '', sysPurge: null, sysPurgeArm: false
   };
 
   componentDidMount(){
@@ -1865,6 +2025,218 @@ class Component extends DCLogic {
     this.loadMailHealth();
   };
 
+  /* ---- System tab: deposits, retention, health, backups -------------------
+   *
+   * Every one of these settings already existed on the server and could only be
+   * reached with curl and a bearer token. That is the same as not existing: a
+   * retention policy nobody can see is not a policy, it is a promise in a
+   * comment. The ICO asks what your retention periods are and who can change
+   * them — "I'd have to ask my developer" is not the answer Josh wants to give.
+   */
+  async loadSystem(){
+    if(!this.hasServer() || this.state.demoMode) return;
+    try{
+      const [d, r] = await Promise.all([this.af('/admin/deposit'), this.af('/admin/retention')]);
+      if(d.ok){
+        const dd = await d.json();
+        this.setState({ depSettings: dd.settings || null, depStripeReady: !!dd.stripeReady });
+      }
+      if(r.ok){
+        const rd = await r.json();
+        this.setState({ retPolicy: rd.policy || null, retDefaults: rd.defaults || null,
+          retLastRun: rd.lastRun || null, retLastBackup: rd.lastBackup || null });
+      }
+    }catch(e){ this.setState({ sysErr: 'Could not load the system settings — check your connection and press Refresh.' }); }
+  }
+
+  setDep = (field, val) => this.setState(s => ({ depSettings: { ...(s.depSettings||{}), [field]: val }, depMsg:'', depErr:'' }));
+  setDepPounds = e => {
+    // The customer-facing number is pounds; the server stores pence, because
+    // money in floats is how you end up 1p out on a reconciliation.
+    const pounds = e.target.value;
+    this.setState(s => ({ depSettings: { ...(s.depSettings||{}), poundsInput: pounds }, depMsg:'', depErr:'' }));
+  };
+  saveDeposit = async (enabledOverride) => {
+    const cur = this.state.depSettings; if(!cur) return;
+    const typed = cur.poundsInput;
+    const pence = (typed === undefined || typed === '')
+      ? cur.pence
+      : Math.round(Number(String(typed).replace(/[^0-9.]/g,'')) * 100);
+    if(!Number.isFinite(pence)){ this.setState({depErr:'That deposit amount is not a number.'}); return; }
+    const enabled = enabledOverride === undefined ? !!cur.enabled : !!enabledOverride;
+    this.setState({depBusy:true, depMsg:'', depErr:''});
+    try{
+      const r = await this.af('/admin/deposit', { method:'POST', body:JSON.stringify({ enabled, pence, label: cur.label }) });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ this.setState({depErr: d.error || 'Could not save the deposit settings.', depBusy:false}); return; }
+      this.setState({ depSettings: d.settings, depBusy:false,
+        depMsg: d.settings.enabled ? ('Customers are now asked for ' + this.money(d.settings.pence) + ' up front.') : 'Deposits are off — nobody is asked to pay anything to book.' });
+    }catch(e){ this.setState({depErr:'Could not reach the server.', depBusy:false}); }
+    setTimeout(()=>this.setState({depMsg:''}), 6000);
+  };
+  toggleDeposit = () => this.saveDeposit(!(this.state.depSettings||{}).enabled);
+
+  setRet = (field, e) => {
+    const v = e.target.value;
+    this.setState(s => ({ retPolicy: { ...(s.retPolicy||{}), [field]: v }, retMsg:'', retErr:'' }));
+  };
+  saveRetention = async () => {
+    const p = this.state.retPolicy; if(!p) return;
+    this.setState({retBusy:true, retMsg:'', retErr:''});
+    try{
+      const r = await this.af('/admin/retention', { method:'POST', body:JSON.stringify(p) });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ this.setState({retErr: d.error || 'Could not save the retention policy.', retBusy:false}); return; }
+      // Show what the SERVER stored, not what was typed. It clamps anything out
+      // of range, and a box still showing "30" after the server saved 365 would
+      // be a lie about how long customer data is kept.
+      this.setState({ retPolicy: d.policy, retBusy:false, retMsg:'Saved. The nightly purge uses these from tonight.' });
+    }catch(e){ this.setState({retErr:'Could not reach the server.', retBusy:false}); }
+    setTimeout(()=>this.setState({retMsg:''}), 6000);
+  };
+
+  runSys = async (what) => {
+    // The purge deletes customer records for real. Everything else here is
+    // read-only or reversible, so only this one is armed twice.
+    if(what === 'retention' && !this.state.sysPurgeArm){
+      this.setState({sysPurgeArm:true});
+      clearTimeout(this._purgeArm);
+      this._purgeArm = setTimeout(()=>this.setState({sysPurgeArm:false}), 6000);
+      return;
+    }
+    const path = what === 'health' ? '/admin/run-health' : what === 'backup' ? '/admin/run-backup' : '/admin/run-retention';
+    this.setState({sysBusy:what, sysMsg:'', sysErr:'', sysPurgeArm:false});
+    try{
+      const r = await this.af(path, { method:'POST' });
+      const d = await r.json().catch(()=>({}));
+      if(what === 'health'){
+        this.setState({ sysHealth: d, sysBusy:'',
+          sysMsg: d.ok ? 'Checked just now — nothing wrong.' : '' });
+      } else if(what === 'backup'){
+        this.setState({ sysBusy:'',
+          sysMsg: d.skipped ? '' : 'Backup emailed.',
+          sysErr: d.skipped ? 'No backup was sent: there is no valid owner email or no Resend key set.' : '' });
+      } else {
+        this.setState({ sysPurge: d.removed || {}, sysBusy:'', sysMsg:'Purge finished.' });
+      }
+      this.loadSystem();
+    }catch(e){ this.setState({sysErr:'Could not reach the server.', sysBusy:''}); }
+    setTimeout(()=>this.setState({sysMsg:''}), 8000);
+  };
+
+  money = pence => '£' + (Number(pence||0)/100).toFixed(2).replace(/\.00$/, '');
+
+  /* Everything the System tab renders, kept out of the main render so the tab
+   * can be read as one thing rather than hunted for among 300 bindings. */
+  systemBindings(s){
+    const dep = s.depSettings;
+    const ret = s.retPolicy;
+    const btn = (bg, fg) => 'border:0;border-radius:9px;padding:11px 18px;cursor:pointer;font-size:14px;font-weight:700;background:'+bg+';color:'+fg;
+    const num = 'width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px';
+    const health = s.sysHealth;
+    const yrs = d => { const n = Number(d)||0; return n >= 365 ? (Math.round(n/36.5)/10) + ' years' : n + ' days'; };
+
+    return {
+      onSettings: s.tab === 'settings',
+      sysLoaded: !!(dep || ret),
+      sysNotLoaded: !(dep || ret),
+      sysMsg: s.sysMsg, sysErr: s.sysErr,
+      sysRefresh: () => this.loadSystem(),
+
+      /* Deposits */
+      depReady: !!dep,
+      depOn: !!(dep && dep.enabled),
+      depAmount: dep ? (dep.poundsInput !== undefined ? dep.poundsInput : (Number(dep.pence||0)/100).toFixed(2)) : '',
+      depLabel: dep ? (dep.label || '') : '',
+      setDepPounds: this.setDepPounds,
+      setDepLabel: e => this.setDep('label', e.target.value),
+      saveDeposit: () => this.saveDeposit(),
+      toggleDeposit: this.toggleDeposit,
+      depSaveLabel: s.depBusy ? 'Saving…' : 'Save deposit settings',
+      depToggleLabel: (dep && dep.enabled) ? 'Switch deposits OFF' : 'Switch deposits ON',
+      depToggleStyle: btn((dep && dep.enabled) ? '#a5401a' : '#39a854', '#fff'),
+      depSaveStyle: btn('#e8791a', '#14100e'),
+      depNumStyle: num,
+      depState: (dep && dep.enabled)
+        ? 'ON — every booking asks for ' + this.money(dep.pence) + ' before it is confirmed.'
+        : 'OFF — customers book without paying anything up front.',
+      depStateStyle: 'border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:700;'
+        + ((dep && dep.enabled) ? 'background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854'
+                                : 'background:#2a2320;color:#9a918a;border:1px solid #3a322d'),
+      // Switching deposits on with no Stripe keys would take a customer to a
+      // checkout that 500s. The server refuses it; say so before they try.
+      depNoStripe: !s.depStripeReady,
+      depMsg: s.depMsg, depErr: s.depErr,
+
+      /* Retention */
+      retReady: !!ret,
+      retJob: ret ? String(ret.jobDays) : '', retJobYears: ret ? yrs(ret.jobDays) : '',
+      retContact: ret ? String(ret.contactDays) : '', retContactYears: ret ? yrs(ret.contactDays) : '',
+      retAudit: ret ? String(ret.auditDays) : '', retAuditYears: ret ? yrs(ret.auditDays) : '',
+      retMessage: ret ? String(ret.messageDays) : '', retMessageYears: ret ? yrs(ret.messageDays) : '',
+      retSlot: ret ? String(ret.slotDays) : '', retMail: ret ? String(ret.mailLogDays) : '',
+      setRetJob: e => this.setRet('jobDays', e), setRetContact: e => this.setRet('contactDays', e),
+      setRetAudit: e => this.setRet('auditDays', e), setRetMessage: e => this.setRet('messageDays', e),
+      setRetSlot: e => this.setRet('slotDays', e), setRetMail: e => this.setRet('mailLogDays', e),
+      saveRetention: this.saveRetention,
+      retSaveLabel: s.retBusy ? 'Saving…' : 'Save retention policy',
+      retSaveStyle: btn('#e8791a', '#14100e'),
+      retNumStyle: num,
+      retMsg: s.retMsg, retErr: s.retErr,
+      // The published privacy notice states these periods in words ("6 years",
+      // "3 years", "2 years", "12 months") and it is a static page — changing a
+      // number here does NOT change what customers have been told. Saying
+      // otherwise on this screen would be the more comfortable lie and the more
+      // dangerous one, because the gap is exactly what the ICO would find.
+      retDiverged: !!(ret && s.retDefaults && ['jobDays','contactDays','messageDays','auditDays']
+        .some(k => Number(ret[k]) !== Number(s.retDefaults[k]))),
+      retDivergedNote: (ret && s.retDefaults) ? ['jobDays','contactDays','messageDays','auditDays']
+        .filter(k => Number(ret[k]) !== Number(s.retDefaults[k]))
+        .map(k => ({ text: ({ jobDays:'Finished jobs', contactDays:'Contact records',
+                              messageDays:'Message history', auditDays:'Audit log' })[k]
+          + ': you have set ' + yrs(ret[k]) + ', the privacy notice still says ' + yrs(s.retDefaults[k]) + '.' })) : [],
+      retLastRunLabel: 'Last purge: ' + this.sysWhen(s.retLastRun),
+      retLastBackupLabel: 'Last backup: ' + this.sysWhen(s.retLastBackup),
+      // A purge that has never run is the failure mode worth shouting about:
+      // the policy reads correctly and nothing is being deleted.
+      retNeverRun: !s.retLastRun,
+      backupNeverRun: !s.retLastBackup,
+
+      /* Health, purge and backup */
+      runHealth: () => this.runSys('health'),
+      runBackup: () => this.runSys('backup'),
+      runPurge: () => this.runSys('retention'),
+      downloadBackup: this.downloadBackup,
+      healthLabel: s.sysBusy === 'health' ? 'Checking…' : 'Run the check now',
+      backupLabel: s.sysBusy === 'backup' ? 'Sending…' : 'Email a backup now',
+      purgeLabel: s.sysBusy === 'retention' ? 'Purging…'
+        : s.sysPurgeArm ? 'Press again to delete' : 'Run the purge now',
+      purgeStyle: btn(s.sysPurgeArm ? '#a5401a' : '#2a2320', s.sysPurgeArm ? '#fff' : '#d9d2cc'),
+      plainBtn: btn('#2a2320', '#d9d2cc'),
+      healthRan: !!health,
+      healthOk: !!(health && health.ok),
+      healthProblems: (health && health.problems ? health.problems : []).map(p => ({ text: p })),
+      healthNotAlerted: !!(health && health.problems && health.alerted === false),
+      purgeRan: !!s.sysPurge,
+      purgeRows: Object.entries(s.sysPurge || {}).map(([k, v]) => ({
+        label: ({ jobs:'Finished jobs', contacts:'Contact records', audits:'Audit entries',
+                  messages:'Message threads', slots:'Slot counters', mailLog:'Delivery-failure log' })[k] || k,
+        count: String(v),
+      })),
+      purgeNothing: !!(s.sysPurge && Object.values(s.sysPurge).every(v => !v)),
+    };
+  }
+  sysWhen = v => {
+    if(!v) return 'never';
+    const t = typeof v === 'object' ? (v.t || v.at) : v;
+    if(!t) return 'never';
+    const d = new Date(t);
+    if(isNaN(d)) return 'never';
+    const days = Math.floor((Date.now() - d.getTime())/86400000);
+    return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})
+      + (days <= 0 ? ' (today)' : days === 1 ? ' (yesterday)' : ' (' + days + ' days ago)');
+  };
+
   async loadAll(){
     if(this.state.demoMode) return;
     try{
@@ -2230,6 +2602,7 @@ class Component extends DCLogic {
       // Only fetch the first time — 4,000 priced rows is not something to
       // re-request every time somebody clicks back onto the tab.
       if(tab === 'catalogue' && !(this.state.catRaw||[]).length) this.loadCatalogue();
+      if(tab === 'settings') this.loadSystem();
     });
   }
 
@@ -2485,7 +2858,8 @@ class Component extends DCLogic {
       ['pricing','Tyre Pricing',''],
       ['catalogue','Catalogue',''],
       ['staff','Staff Logins',s.staff.length],
-      ['calendar','Calendar','']
+      ['calendar','Calendar',''],
+      ['settings','System','']
     ];
     const tabs=tabDef.map(t=>({ label:t[1], count:t[2], go:()=>this.go(t[0]),
       style:'display:flex;align-items:center;gap:7px;border:0;cursor:pointer;background:transparent;color:'+(s.tab===t[0]?'#fff':'#8a817b')+';font-family:\'Barlow Condensed\';font-weight:700;font-size:16px;letter-spacing:.03em;padding:14px 16px;border-bottom:2px solid '+(s.tab===t[0]?'#e8791a':'transparent'),
@@ -2650,6 +3024,7 @@ class Component extends DCLogic {
       catNextStyle: 'border:1px solid #3a322d;background:#14100e;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;color:'
         + ((s.catPage||1)<(s.catPages||1) ? '#d9d2cc;cursor:pointer' : '#4a423d;cursor:default'),
       onStaff:s.tab==='staff',
+      ...this.systemBindings(s),
       invMinStock: String(s.invSettings.defaultMinStock ?? 3),
       invReorderQty: String(s.invSettings.defaultReorderQty ?? 10),
       invSupplierEmail: s.invSettings.supplierEmail || '',

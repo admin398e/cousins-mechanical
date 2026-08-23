@@ -13,7 +13,7 @@
     "dev": "node --env-file-if-exists=.env server.js",
     "start": "node --env-file-if-exists=.env server.js",
     "build": "node build.js",
-    "check": "node --check server.js && node --check tyre-data.js && node --check tyre-db.js && node --check build.js && node --check worker.js",
+    "check": "node --check server.js && node --check tyre-data.js && node --check tyre-db.js && node --check build.js && node --check worker.js && node tools/check-template.mjs \"Cousins Admin.dc.html\" \"Cousins Mechanical.dc.html\" \"Cousins Driver.dc.html\"",
     "test": "node --env-file-if-exists=.env test/smoke.test.js",
     "verify": "npm run check && npm run build && npm test",
     "predeploy": "npm run verify",
