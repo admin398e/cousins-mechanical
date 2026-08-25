@@ -1256,6 +1256,129 @@ try {
     assert.ok((await good.json()).token, 'no session issued for valid staff login');
   });
 
+  /*
+   * Roles. These exist because `role` was stored, displayed, and never checked
+   * — so any staff account could delete any other, reset the owner's password
+   * and export every customer record. The tests below are the difference
+   * between roles that mean something and roles that are decoration.
+   */
+  const asStaff = async (role) => {
+    const tok = await adminTok();
+    const email = `role-${role}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@cousinsmechanicalservices.co.uk`;
+    const password = 'a-properly-long-password';
+    const mk = await api('/api/admin/staff', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ email, password, name: role, role }),
+    });
+    assert.equal(mk.status, 200, `could not create a ${role}: ${await mk.text()}`);
+    const login = await postJson('/api/admin-login', { email, password, code: totpNow(totpSecret) });
+    assert.equal(login.status, 200, `${role} could not sign in`);
+    return { email, token: (await login.json()).token };
+  };
+  const staffApi = (path, token, init = {}) => api(path, {
+    ...init,
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token, ...(init.headers || {}) },
+  });
+
+  await check('the very first staff account is always the owner', async () => {
+    // The dashboard form does not send a role. Without forcing this, the first
+    // account ever created would be a lone "staff" — no owner would exist and
+    // whoever set the system up would lock themselves out of staff management
+    // with their own first click.
+    const tok = await adminTok();
+    const list = await (await api('/api/admin/staff', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const first = (list.staff || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+    assert.ok(first, 'no staff accounts exist to check');
+    assert.equal(first.role, 'owner', 'the first account created is not an owner');
+  });
+
+  await check('a staff account cannot promote anyone, including itself', async () => {
+    const s = await asStaff('staff');
+    const r = await staffApi('/api/admin/staff', s.token, {
+      method: 'POST',
+      body: JSON.stringify({ email: `escalate-${Date.now()}@example.com`, password: 'a-properly-long-password', role: 'owner' }),
+    });
+    assert.equal(r.status, 403, 'a staff account was allowed to mint an owner');
+
+    const self = await staffApi('/api/admin/staff', s.token, {
+      method: 'POST',
+      body: JSON.stringify({ email: s.email, password: 'a-properly-long-password', role: 'owner' }),
+    });
+    assert.equal(self.status, 403, 'a staff account promoted itself to owner');
+  });
+
+  await check('a developer cannot remove or disable an owner', async () => {
+    // The rule that matters most: a contractor with a login must never be able
+    // to lock their client out of their own business.
+    const dev = await asStaff('developer');
+    const tok = await adminTok();
+    const list = await (await api('/api/admin/staff', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const owner = (list.staff || []).find(a => a.role === 'owner');
+    assert.ok(owner, 'no owner account to test against');
+
+    const del = await staffApi('/api/admin/staff/' + encodeURIComponent(owner.email), dev.token, { method: 'DELETE' });
+    assert.equal(del.status, 403, 'a developer deleted an owner');
+
+    const dis = await staffApi('/api/admin/staff/' + encodeURIComponent(owner.email), dev.token, {
+      method: 'PATCH', body: JSON.stringify({ disabled: true }),
+    });
+    assert.equal(dis.status, 403, 'a developer disabled an owner');
+
+    const pw = await staffApi('/api/admin/staff', dev.token, {
+      method: 'POST', body: JSON.stringify({ email: owner.email, password: 'a-properly-long-password' }),
+    });
+    assert.equal(pw.status, 403, "a developer reset an owner's password and took the account");
+  });
+
+  await check('the last owner cannot be deleted or demoted', async () => {
+    const tok = await adminTok();
+    const list = await (await api('/api/admin/staff', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const owners = (list.staff || []).filter(a => a.role === 'owner' && !a.disabled);
+    if (owners.length !== 1) { assert.ok(true, `skipped — ${owners.length} owners`); return; }
+    const only = owners[0].email;
+    const h = { headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok } };
+
+    const del = await api('/api/admin/staff/' + encodeURIComponent(only), { method: 'DELETE', ...h });
+    assert.equal(del.status, 409, 'the last owner was deleted — the business loses its own dashboard');
+
+    const demote = await api('/api/admin/staff/' + encodeURIComponent(only), {
+      method: 'PATCH', ...h, body: JSON.stringify({ role: 'staff' }),
+    });
+    assert.equal(demote.status, 409, 'the last owner was demoted, which is the same lockout more slowly');
+  });
+
+  await check('day-to-day staff cannot export every customer record', async () => {
+    const s = await asStaff('staff');
+    const r = await staffApi('/api/admin/backup', s.token);
+    assert.equal(r.status, 403, 'a staff account downloaded the entire customer book');
+
+    const ret = await staffApi('/api/admin/retention', s.token, {
+      method: 'POST', body: JSON.stringify({ jobDays: 400 }),
+    });
+    assert.equal(ret.status, 403, 'a staff account changed how long customer data is kept');
+  });
+
+  await check('the audit log records who actually did it, not "admin"', async () => {
+    // 25 of 46 entries used to hardcode "admin". With two named people in the
+    // dashboard that is not merely uninformative, it is a log that looks like
+    // it identifies people and does not.
+    const dev = await asStaff('developer');
+    const target = `audit-check-${Date.now()}@example.com`;
+    const mk = await staffApi('/api/admin/staff', dev.token, {
+      method: 'POST', body: JSON.stringify({ email: target, password: 'a-properly-long-password', role: 'staff' }),
+    });
+    assert.equal(mk.status, 200);
+
+    const tok = await adminTok();
+    const dump = await (await api('/api/admin/backup', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const mine = (dump.data || {})['audit:' + dev.email];
+    assert.ok(Array.isArray(mine), `no audit bucket for ${dev.email} — the actor was not recorded`);
+    const entry = mine.find(e => e.event === 'staff_created' && String(e.detail).includes(target));
+    assert.ok(entry, 'the action was not attributed to the account that performed it');
+    assert.equal(entry.actor, dev.email, 'the entry does not carry the real actor');
+  });
+
   await check('staff login rejects a wrong password and an unknown email identically', async () => {
     const email = `staff2-${Date.now()}@cousinsmechanicalservices.co.uk`;
     const tok = await adminTok();

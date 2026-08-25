@@ -583,12 +583,60 @@ const publicUser = u => ({
 // GDPR: append-only audit log of processing events (lawful-basis accountability)
 async function audit(env, email, event, detail) {
   try {
-    const key = "audit:" + email;
+    // 25 of the 46 audit calls used to pass the literal string "admin", so every
+    // administrative action in the system landed in one bucket called
+    // "audit:admin" no matter who performed it. With a single shared token that
+    // was merely uninformative. The moment there is more than one named person
+    // in the dashboard it is worse than useless: the log looks like it
+    // identifies people and does not, which is precisely the situation where
+    // somebody goes looking — a price changed, a job deleted, a backup
+    // exported — and the answer has to be better than "an admin did it".
+    const who = String(email || "unknown");
+    const key = "audit:" + who;
     const log = JSON.parse((await env.CMS_KV.get(key)) || "[]");
-    log.push({ t: Date.now(), event, detail: detail || "" });
+    // `actor` is duplicated inside the entry on purpose. The key alone carries
+    // the identity today, and an entry that only makes sense in the context of
+    // its key is one refactor away from being anonymous again.
+    log.push({ t: Date.now(), actor: who, event, detail: detail || "" });
     await env.CMS_KV.put(key, JSON.stringify(log.slice(-500)));
   } catch (e) {}
 }
+
+/*
+ * Roles.
+ *
+ * `role` was stored on every staff record and shown in the dashboard, and then
+ * never checked anywhere — so "owner" and "staff" were decoration. Any staff
+ * account could delete any other, reset the owner's password, or export every
+ * customer record. That is tolerable with one person and indefensible the
+ * moment a contractor has a login too.
+ *
+ * Three levels, deliberately few:
+ *
+ *   staff      day-to-day work: jobs, customers, messages, stock, pricing.
+ *   developer  everything staff can do, plus the technical settings and the
+ *              data export. For whoever maintains the system. Revocable at
+ *              handover without touching the owner's account.
+ *   owner      the business. The only role that can remove or disable another
+ *              owner, and the only one that can hand out the owner role.
+ *
+ * The rule that matters most is the one stopping a contractor locking out their
+ * client, so a developer can do almost everything but cannot touch an owner.
+ */
+const ROLES = { staff: 1, developer: 2, owner: 3 };
+const ROLE_NAMES = Object.keys(ROLES);
+
+/** The role behind this request. The bootstrap token has no identity, and is
+ *  only ever accepted while no staff account exists at all, so it gets owner. */
+async function actorRole(env, actor) {
+  if (!actor || !actor.includes("@")) return "owner";
+  const raw = await env.CMS_KV.get("staff:" + actor);
+  if (!raw) return "staff";
+  const r = JSON.parse(raw).role;
+  return ROLES[r] ? r : "staff";
+}
+
+const atLeast = (role, needed) => (ROLES[role] || 0) >= (ROLES[needed] || 99);
 
 // ---------- .ics ----------
 /**
@@ -3216,7 +3264,7 @@ async function processTyreStockForOrder(env, order) {
     });
     await env.CMS_KV.put("drivers", JSON.stringify(drivers));
     const code = await sendVerifyCode(env, ctx, email, b.name || username, "dverify:");
-    await audit(env, "admin", "driver_registered", username + " (" + email + ") pending");
+    await audit(env, email, "driver_registered", username + " (" + email + ") pending");
     return json({ ok: true, pending: true, verifyRequired: true, email, ...testCode(env, code) });
   }
 
@@ -3250,7 +3298,7 @@ async function processTyreStockForOrder(env, order) {
     if (!drivers[i].approved) drivers[i].status = "Pending Approval";
     await env.CMS_KV.put("drivers", JSON.stringify(drivers));
     await env.CMS_KV.delete("dverify:" + email);
-    await audit(env, "admin", "driver_email_verified", drivers[i].username);
+    await audit(env, email, "driver_email_verified", drivers[i].username);
 
     // Tell the owner there is somebody waiting, or the driver sits in limbo
     // until he happens to open the Drivers tab.
@@ -3414,13 +3462,13 @@ async function processTyreStockForOrder(env, order) {
     const email = ((u && u.email) || "").toLowerCase();
     if (!u || !email || !u.emailVerified || !admins.includes(email)) {
       await noteFailure(env, rlKey);
-      await audit(env, "admin", "admin_login_google_rejected", email || "invalid-token");
+      await audit(env, email || "unknown", "admin_login_google_rejected", email || "invalid-token");
       return bad("This account is not an administrator", 403);
     }
     await clearFailures(env, rlKey);
     const t = token();
     await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
-    await audit(env, "admin", "admin_login_google", email + " " + clientIp(request));
+    await audit(env, email, "admin_login_google", email + " " + clientIp(request));
     return json({ token: t, user: { email, name: u.displayName || email } });
   }
 
@@ -3447,7 +3495,7 @@ async function processTyreStockForOrder(env, order) {
     // owner can never be permanently locked out of his own business.
     if (env.OVERRIDE_TOKEN && safeEqual(b.token, env.OVERRIDE_TOKEN)) {
       if (b.reset2fa) await env.CMS_KV.delete("admin_totp");
-      await audit(env, "admin", "admin_login_override", clientIp(request));
+      await audit(env, "override-token", "admin_login_override", clientIp(request));
       return issue("admin", { override: true });
     }
 
@@ -3468,7 +3516,7 @@ async function processTyreStockForOrder(env, order) {
       if (!acct || acct.disabled || !safeEqual(hash, acct.hash)) {
         await noteFailure(env, rlKey);
         await noteFailure(env, "staffacct:" + em);
-        await audit(env, "admin", "admin_login_failed", em + " " + clientIp(request));
+        await audit(env, em, "admin_login_failed", em + " " + clientIp(request));
         return bad("Email or password not recognised", 401);
       }
       const enrolled = await env.CMS_KV.get("admin_totp");
@@ -3477,7 +3525,7 @@ async function processTyreStockForOrder(env, order) {
         return bad("Enter the 6-digit code from your authenticator app.", 401);
       }
       await clearFailures(env, "staffacct:" + em);
-      await audit(env, "admin", "admin_login", em + " " + clientIp(request));
+      await audit(env, em, "admin_login", em + " " + clientIp(request));
       return issue(em, { name: acct.name || "" });
     }
 
@@ -3487,7 +3535,7 @@ async function processTyreStockForOrder(env, order) {
     // rather than one shared secret that cannot be attributed or revoked.
     if (!safeEqual(b.token, env.ADMIN_TOKEN)) {
       await noteFailure(env, rlKey);
-      await audit(env, "admin", "admin_login_failed", clientIp(request));
+      await audit(env, "admin-token", "admin_login_failed", clientIp(request));
       return bad(haveStaff ? "Enter your staff email and password." : "Invalid admin token", 401);
     }
     if (haveStaff) {
@@ -3499,7 +3547,7 @@ async function processTyreStockForOrder(env, order) {
       await noteFailure(env, rlKey);
       return bad("Enter the 6-digit code from your authenticator app.", 401);
     }
-    await audit(env, "admin", "admin_login_bootstrap", clientIp(request));
+    await audit(env, "admin-token", "admin_login_bootstrap", clientIp(request));
     return issue("admin", { mustCreateAccount: true });
   }
   // Log out of the admin dashboard — revokes the session immediately.
@@ -3543,7 +3591,7 @@ async function processTyreStockForOrder(env, order) {
     if (await env.CMS_KV.get("admin_totp")) return bad("2FA is already enrolled.", 409);
     if (!b.secret || !(await totpValid(b.secret, b.code))) return bad("That code didn't match — check the app and try again.", 400);
     await env.CMS_KV.put("admin_totp", b.secret);
-    await audit(env, "admin", "admin_2fa_enrolled", "");
+    await audit(env, "admin-token", "admin_2fa_enrolled", "");
     return json({ ok: true });
   }
   // Only an admin needs to know whether 2FA is on. Unauthenticated, it told an
@@ -3565,6 +3613,15 @@ async function processTyreStockForOrder(env, order) {
   // --- ADMIN (business owner) — all protected by 2FA-verified session ---
   if (p.startsWith("/admin/")) {
     if (!(await isAdmin(request, env))) return bad("Forbidden", 403);
+
+    // Who is doing this, and what are they allowed to do. Resolved once here
+    // rather than at each call site, because 25 audit entries used to record
+    // the literal string "admin" and the fix has to be the path of least
+    // resistance or it will not survive the next feature.
+    const actor = await whoAmI(env, request);
+    const role = await actorRole(env, actor);
+    const needs = r => (atLeast(role, r) ? null : bad(
+      "Your account does not have permission for this. It needs the " + r + " role; yours is " + role + ".", 403));
 
     // All jobs across every customer
     if (p === "/admin/jobs" && request.method === "GET") {
@@ -3862,7 +3919,7 @@ async function processTyreStockForOrder(env, order) {
 
       for (const i of list) if (i.status === "pending") { i.status = "ordered"; i.orderedAt = Date.now(); }
       await env.CMS_KV.put("reorder_list", JSON.stringify(list));
-      await audit(env, "admin", "reorder_list_emailed", to + " (" + pending.length + " lines)");
+      await audit(env, actor, "reorder_list_emailed", to + " (" + pending.length + " lines)");
       return json({ ok: true, sentTo: to, lines: pending.length, list });
     }
 
@@ -3896,7 +3953,7 @@ async function processTyreStockForOrder(env, order) {
             : cur.closedDays,
         };
         await env.CMS_KV.put("booking_settings", JSON.stringify(next));
-        await audit(env, "admin", "booking_settings_updated", JSON.stringify(next));
+        await audit(env, actor, "booking_settings_updated", JSON.stringify(next));
         return json({ settings: next });
       }
     }
@@ -3937,7 +3994,7 @@ async function processTyreStockForOrder(env, order) {
       for (const [date, byslot] of Object.entries(counts)) {
         await env.CMS_KV.put("slots:" + date, JSON.stringify(byslot));
       }
-      await audit(env, "admin", "slots_rebuilt", Object.keys(counts).length + " dates");
+      await audit(env, actor, "slots_rebuilt", Object.keys(counts).length + " dates");
       return json({ ok: true, dates: Object.keys(counts).length, counts });
     }
 
@@ -3947,6 +4004,9 @@ async function processTyreStockForOrder(env, order) {
         return json({ settings: await depositSettings(env), stripeReady: stripeReady(env), defaults: DEFAULT_DEPOSIT });
       }
       if (request.method === "POST") {
+        // Switching deposits on starts charging customers before a job exists.
+        const denied = needs("developer");
+        if (denied) return denied;
         const b = await request.json().catch(() => ({}));
         const cur = await depositSettings(env);
         const pence = Number.isFinite(Number(b.pence)) ? Math.round(Number(b.pence)) : cur.pence;
@@ -3959,7 +4019,7 @@ async function processTyreStockForOrder(env, order) {
         };
         if (next.enabled && !stripeReady(env)) return bad("Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before switching deposits on.", 400);
         await env.CMS_KV.put("deposit_settings", JSON.stringify(next));
-        await audit(env, "admin", "deposit_settings_updated", JSON.stringify(next));
+        await audit(env, actor, "deposit_settings_updated", JSON.stringify(next));
         return json({ settings: next });
       }
     }
@@ -3975,6 +4035,10 @@ async function processTyreStockForOrder(env, order) {
         });
       }
       if (request.method === "POST") {
+        // Shortening a retention period destroys records, and the number here
+        // is one the privacy notice publishes. Not a day-to-day setting.
+        const denied = needs("developer");
+        if (denied) return denied;
         const b = await request.json().catch(() => ({}));
         const cur = await retentionPolicy(env);
         const numOr = (v, f, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : f; };
@@ -3989,14 +4053,18 @@ async function processTyreStockForOrder(env, order) {
           mailLogDays: numOr(b.mailLogDays, cur.mailLogDays, 7, 730),
         };
         await env.CMS_KV.put("retention_policy", JSON.stringify(next));
-        await audit(env, "admin", "retention_policy_updated", JSON.stringify(next));
+        await audit(env, actor, "retention_policy_updated", JSON.stringify(next));
         return json({ policy: next });
       }
     }
 
     /* Run the sweeps by hand — for testing, and for the day somebody needs
      * to prove the purge works rather than trust that it does. */
-    if (p === "/admin/run-retention" && request.method === "POST") return json({ removed: await retentionSweep(env) });
+    if (p === "/admin/run-retention" && request.method === "POST") {
+      const denied = needs("developer");
+      if (denied) return denied;
+      return json({ removed: await retentionSweep(env) });
+    }
     if (p === "/admin/run-health" && request.method === "POST") return json(await healthSweep(env));
     if (p === "/admin/run-backup" && request.method === "POST") return json(await backupSweep(env));
 
@@ -4016,6 +4084,9 @@ async function processTyreStockForOrder(env, order) {
     }
 
     if (p === "/admin/backup" && request.method === "GET") {
+      // Every customer's name, address, phone and job history in one download.
+      // Day-to-day staff have no reason to take a copy of the whole book home.
+      { const denied = needs("developer"); if (denied) return denied; }
             // Sessions, rate-limit counters and reset tokens are transient. The rest
       // of this list is credential material: exporting it turns "download a
       // backup" into "download every password hash and the owner's 2FA seed",
@@ -4050,7 +4121,7 @@ async function processTyreStockForOrder(env, order) {
         cursor = page.list_complete ? undefined : page.cursor;
       } while (cursor);
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      await audit(env, "admin", "backup_downloaded", Object.keys(data).length + " keys");
+      await audit(env, actor, "backup_downloaded", Object.keys(data).length + " keys");
       return new Response(JSON.stringify({ exportedAt: new Date().toISOString(), site: env.SITE_URL || "", keys: Object.keys(data).length, data }, null, 2), {
         status: 200,
         headers: {
@@ -4076,18 +4147,50 @@ async function processTyreStockForOrder(env, order) {
       }
 
       if (request.method === "POST") {
+        const denied = needs("developer");
+        if (denied) return denied;
+
         const b = await request.json().catch(() => ({}));
         const em = String(b.email || "").trim().toLowerCase();
         const pw = String(b.password || "");
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return bad("Enter a valid email address.");
         if (pw.length < 10) return bad("Password must be at least 10 characters.");
+
         const existingRaw = await env.CMS_KV.get("staff:" + em);
         const existing = existingRaw ? JSON.parse(existingRaw) : null;
+        const anyStaff = await env.CMS_KV.list({ prefix: "staff:" });
+
+        // The FIRST account is always the owner. Without this the dashboard —
+        // which does not send a role — would create a lone "staff" account, no
+        // owner would exist, and the person setting the system up would lock
+        // themselves out of staff management with their own first click.
+        let wanted;
+        if (!anyStaff.keys.length) {
+          wanted = "owner";
+        } else if (b.role === undefined) {
+          wanted = existing?.role || "staff";
+        } else if (ROLE_NAMES.includes(String(b.role))) {
+          wanted = String(b.role);
+        } else {
+          return bad("Role must be one of: " + ROLE_NAMES.join(", "));
+        }
+
+        // You cannot hand out authority you do not have. Without this a staff
+        // account could mint itself an owner and the roles would be theatre.
+        if (!atLeast(role, wanted)) {
+          return bad("You cannot grant the " + wanted + " role — yours is " + role + ".", 403);
+        }
+        // Changing an owner's password is how you take over an owner's account.
+        // Only another owner may do it.
+        if (existing && existing.role === "owner" && !atLeast(role, "owner")) {
+          return bad("Only an owner can change another owner's password or role.", 403);
+        }
+
         const salt = newSalt();
         const acct = {
           email: em,
           name: String(b.name || existing?.name || "").trim(),
-          role: b.role === "owner" ? "owner" : (existing?.role || "staff"),
+          role: wanted,
           salt,
           hash: await pbkdf2(pw, salt, env.SESSION_PEPPER),
           disabled: false,
@@ -4095,24 +4198,47 @@ async function processTyreStockForOrder(env, order) {
           updatedAt: Date.now(),
         };
         await env.CMS_KV.put("staff:" + em, JSON.stringify(acct));
-        await audit(env, "admin", existing ? "staff_password_changed" : "staff_created", em);
+        await audit(env, actor, existing ? "staff_password_changed" : "staff_created", em + " role=" + wanted);
         return json({ ok: true, staff: { email: acct.email, name: acct.name, role: acct.role, disabled: false, createdAt: acct.createdAt } });
       }
     }
 
     const staffOne = p.match(/^\/admin\/staff\/([^/]+)$/);
     if (staffOne && (request.method === "DELETE" || request.method === "PATCH")) {
+      const denied = needs("developer");
+      if (denied) return denied;
+
       const em = decodeURIComponent(staffOne[1]).toLowerCase();
       const raw = await env.CMS_KV.get("staff:" + em);
       if (!raw) return bad("Staff account not found", 404);
+      const target = JSON.parse(raw);
       const list = await env.CMS_KV.list({ prefix: "staff:" });
+
+      /*
+       * A contractor must never be able to lock their client out of their own
+       * business. A developer can do nearly everything in here, but an owner's
+       * account is off limits to anyone who is not themselves an owner — and
+       * the last owner cannot be removed by anybody, including another owner,
+       * because the account that is left would have no way back in.
+       */
+      if (target.role === "owner" && !atLeast(role, "owner")) {
+        return bad("Only an owner can remove or change another owner's account.", 403);
+      }
+      const owners = [];
+      for (const k of list.keys) {
+        const a = JSON.parse((await env.CMS_KV.get(k.name)) || "{}");
+        if (a.role === "owner" && !a.disabled) owners.push(a.email);
+      }
+      const lastOwner = target.role === "owner" && owners.length <= 1 && owners[0] === em;
 
       if (request.method === "DELETE") {
         // Refuse to remove the last account — that would lock everyone out and
         // leave only the break-glass OVERRIDE_TOKEN.
         if (list.keys.length <= 1) return bad("This is the only staff account — create another before removing it.", 409);
+        if (lastOwner) return bad("This is the last owner. Make somebody else an owner first, or the business loses control of its own dashboard.", 409);
         await env.CMS_KV.delete("staff:" + em);
-        await audit(env, "admin", "staff_deleted", em);
+        await revokeAdminSessions(env, em);
+        await audit(env, actor, "staff_deleted", em + " role=" + target.role);
         return json({ ok: true, deleted: em });
       }
 
@@ -4127,14 +4253,27 @@ async function processTyreStockForOrder(env, order) {
         if (b.disabled && active.length <= 1 && active[0] === em) {
           return bad("This is the only active staff account — you would lock yourself out.", 409);
         }
+        if (b.disabled && lastOwner) {
+          return bad("This is the last owner. Make somebody else an owner first, or the business loses control of its own dashboard.", 409);
+        }
         acct.disabled = !!b.disabled;
+      }
+      if (b.role !== undefined && b.role !== acct.role) {
+        if (!ROLE_NAMES.includes(String(b.role))) return bad("Role must be one of: " + ROLE_NAMES.join(", "));
+        if (!atLeast(role, String(b.role))) return bad("You cannot grant the " + b.role + " role — yours is " + role + ".", 403);
+        // Demoting the last owner is the same lockout as deleting them, just
+        // slower to notice.
+        if (lastOwner && b.role !== "owner") {
+          return bad("This is the last owner. Promote somebody else first.", 409);
+        }
+        acct.role = String(b.role);
       }
       if (b.name !== undefined) acct.name = String(b.name).trim();
       acct.updatedAt = Date.now();
       await env.CMS_KV.put("staff:" + em, JSON.stringify(acct));
       // Disabling must take effect now, not at the end of their 12h session.
       if (acct.disabled) await revokeAdminSessions(env, em);
-      await audit(env, "admin", "staff_updated", em + " disabled=" + !!acct.disabled);
+      await audit(env, actor, "staff_updated", em + " disabled=" + !!acct.disabled);
       return json({ ok: true, staff: { email: acct.email, name: acct.name, role: acct.role, disabled: !!acct.disabled } });
     }
 
@@ -4463,7 +4602,7 @@ async function processTyreStockForOrder(env, order) {
           drivers[idx].notes.push({ t: Date.now(), text, by: (await whoAmI(env, request)) || "admin" });
           drivers[idx].notes = drivers[idx].notes.slice(-200);
           await env.CMS_KV.put("drivers", JSON.stringify(drivers));
-          await audit(env, "admin", "driver_note", b.id + " " + text.slice(0, 60));
+          await audit(env, actor, "driver_note", b.id + " " + text.slice(0, 60));
           return json({ drivers: publicView(drivers) });
         }
 
@@ -4488,7 +4627,7 @@ async function processTyreStockForOrder(env, order) {
               if ((await env.CMS_KV.get(k.name)) === b.id) await env.CMS_KV.delete(k.name);
             }
           }
-          await audit(env, "admin", "driver_" + b.action, b.id);
+          await audit(env, actor, "driver_" + b.action, b.id);
           return json({ drivers: publicView(drivers) });
         }
 
@@ -4549,7 +4688,7 @@ async function processTyreStockForOrder(env, order) {
           if ((await env.CMS_KV.get(k.name)) === b.id) await env.CMS_KV.delete(k.name);
         }
 
-        await audit(env, "admin", "driver_deleted", (gone.username || gone.id) + " by " + ((await whoAmI(env, request)) || "admin"));
+        await audit(env, actor, "driver_deleted", (gone.username || gone.id) + " by " + ((await whoAmI(env, request)) || "admin"));
         return json({ drivers: publicView(kept) });
       }
     }
@@ -4638,7 +4777,7 @@ async function processTyreStockForOrder(env, order) {
         if (next.hourlyRate < 0 || next.hourlyRate > 1000) return bad("Hourly rate must be between 0 and 1000", 400);
 
         const saved = await savePricing(env, next);
-        await audit(env, "admin", "pricing_updated", JSON.stringify(saved.markupPct));
+        await audit(env, actor, "pricing_updated", JSON.stringify(saved.markupPct));
         return json({ pricing: saved });
       }
     }
@@ -4693,7 +4832,7 @@ async function processTyreStockForOrder(env, order) {
       if (promos.length > 40) return bad("That is a lot of offers. Delete some old ones first.", 400);
 
       const saved = await savePricing(env, { ...current, promos });
-      await audit(env, "admin", "promo_saved", promo.name + " " + promo.kind + " " + promo.value);
+      await audit(env, actor, "promo_saved", promo.name + " " + promo.kind + " " + promo.value);
       return json({ promos: saved.promos });
     }
 
@@ -4704,7 +4843,7 @@ async function processTyreStockForOrder(env, order) {
       const promos = current.promos.filter(x => x.id !== id);
       if (promos.length === current.promos.length) return bad("No offer with that id", 404);
       const saved = await savePricing(env, { ...current, promos });
-      await audit(env, "admin", "promo_deleted", id);
+      await audit(env, actor, "promo_deleted", id);
       return json({ promos: saved.promos });
     }
 

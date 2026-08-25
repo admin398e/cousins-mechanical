@@ -394,11 +394,24 @@
           <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">ADD OR UPDATE A STAFF LOGIN</div>
             <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px">Each person gets their own email and password. Entering an existing email changes that person's password.</div>
-            <div style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr auto;gap:10px;align-items:end" class="adm-stockform">
+            <div style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr .8fr auto;gap:10px;align-items:end" class="adm-stockform">
               <div><label style="font-size:12px;color:#9a918a;font-weight:600">Work email</label><input value="{{ stEmail }}" onInput="{{ setStEmail }}" type="email" placeholder="name@cousinsmechanicalservices.co.uk" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
               <div><label style="font-size:12px;color:#9a918a;font-weight:600">Name</label><input value="{{ stName }}" onInput="{{ setStName }}" placeholder="e.g. Mark Cousin" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
               <div><label style="font-size:12px;color:#9a918a;font-weight:600">Password (10+ characters)</label><input value="{{ stPassword }}" onInput="{{ setStPassword }}" type="password" autocomplete="new-password" placeholder="Use a long, unique password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px"/></div>
+              <div>
+                <label style="font-size:12px;color:#9a918a;font-weight:600">Access level</label>
+                <select value="{{ stRole }}" onChange="{{ setStRole }}" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:9px;padding:11px;font-size:14px;margin-top:4px">
+                  <option value="staff">Staff</option>
+                  <option value="developer">Developer</option>
+                  <option value="owner">Owner</option>
+                </select>
+              </div>
               <button onClick="{{ saveStaff }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font-size:14px;white-space:nowrap">{{ stSaveLabel }}</button>
+            </div>
+            <div style="color:#8a817b;font-size:12px;margin-top:10px;line-height:1.6">
+              <strong style="color:#d9d2cc">Staff</strong> — jobs, customers, messages, stock and pricing. The day-to-day.<br/>
+              <strong style="color:#d9d2cc">Developer</strong> — all of that, plus the System tab and the data export. For whoever maintains the site. Remove this account at handover and nothing else changes.<br/>
+              <strong style="color:#d9d2cc">Owner</strong> — the business. Only an owner can touch another owner's account, and the last owner can never be removed, so you cannot be locked out of your own dashboard.
             </div>
             <sc-if value="{{ stMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#4fe06a;font-size:13px;margin-top:12px">{{ stMsg }}</div></sc-if>
             <sc-if value="{{ stErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:8px;padding:10px 13px;font-size:13px;margin-top:12px">{{ stErr }}</div></sc-if>
@@ -1296,7 +1309,7 @@ class Component extends DCLogic {
   state = {
     token:'', apiBase:'', tokenInput:'', loginErr:'', busy:false, loggedIn:false, demoMode:false, loadErr:'',
     emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'', googleEnabled:false,
-    staff:[], stEmail:'', stName:'', stPassword:'', stMsg:'', stErr:'', stBusy:false,
+    staff:[], stEmail:'', stName:'', stPassword:'', stRole:'staff', stMsg:'', stErr:'', stBusy:false,
     codeInput:'', needCode:false, enrolled:false,
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
@@ -1594,17 +1607,22 @@ class Component extends DCLogic {
   setStEmail = e => this.setState({stEmail:e.target.value, stMsg:'', stErr:''});
   setStName = e => this.setState({stName:e.target.value});
   setStPassword = e => this.setState({stPassword:e.target.value, stMsg:'', stErr:''});
+  setStRole = e => this.setState({stRole:e.target.value, stMsg:'', stErr:''});
   saveStaff = async () => {
     const email=(this.state.stEmail||'').trim().toLowerCase(), password=this.state.stPassword||'';
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ this.setState({stErr:'Enter a valid email address.'}); return; }
     if(password.length<10){ this.setState({stErr:'Password must be at least 10 characters.'}); return; }
     this.setState({stBusy:true, stErr:'', stMsg:''});
     try{
-      const r=await this.af('/admin/staff',{method:'POST',body:JSON.stringify({email,password,name:this.state.stName})});
+      const r=await this.af('/admin/staff',{method:'POST',body:JSON.stringify({email,password,name:this.state.stName,role:this.state.stRole})});
       const d=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(d.error||'Could not save');
-      this.setState({stBusy:false, stEmail:'', stName:'', stPassword:'', mustCreateAccount:false,
-                     stMsg:'Account saved. '+email+' can now sign in with that password.'});
+      // The server decides the role — it forces the FIRST account to owner and
+      // refuses to grant anything above the signed-in user's own level. Echo
+      // back what it actually stored, never what was asked for.
+      const savedRole=(d.staff&&d.staff.role)||this.state.stRole;
+      this.setState({stBusy:false, stEmail:'', stName:'', stPassword:'', stRole:'staff', mustCreateAccount:false,
+                     stMsg:'Account saved. '+email+' can sign in with that password, as '+savedRole+'.'});
       this.loadStaff();
     }catch(e){ this.setState({stBusy:false, stErr:e.message}); }
   };
@@ -3064,8 +3082,8 @@ class Component extends DCLogic {
         toggleLabel:a.disabled?'Enable':'Disable',
         remove:()=>this.deleteStaff(a.email) })),
       noStaff:s.staff.length===0,
-      stEmail:s.stEmail, stName:s.stName, stPassword:s.stPassword,
-      setStEmail:this.setStEmail, setStName:this.setStName, setStPassword:this.setStPassword,
+      stEmail:s.stEmail, stName:s.stName, stPassword:s.stPassword, stRole:s.stRole,
+      setStEmail:this.setStEmail, setStName:this.setStName, setStPassword:this.setStPassword, setStRole:this.setStRole,
       saveStaff:this.saveStaff, stSaveLabel:s.stBusy?'Saving…':'Save staff login',
       stMsg:s.stMsg, stErr:s.stErr, mustCreateAccount:s.mustCreateAccount,
       whoLabel:s.who?('Signed in as '+s.who):'',
