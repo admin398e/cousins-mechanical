@@ -34,9 +34,23 @@ import {
  *      TWILIO_SID            Twilio Account SID
  *      TWILIO_TOKEN          Twilio Auth Token
  *      TWILIO_FROM           your Twilio number, e.g. +447...
- *      GCAL_CLIENT_EMAIL     Google service-account email
- *      GCAL_PRIVATE_KEY      service-account private key (PEM, keep the \n newlines)
- *      GCAL_CALENDAR_ID      calendar id the invites land on (share it with the service account)
+ *      GCAL_CALENDAR_ID      calendar id the diary lives on, usually an email address.
+ *
+ *      Then ONE of the two ways to authenticate against it:
+ *
+ *      (a) OAuth refresh token — the supported route. Google now blocks
+ *          service-account key creation on organisations by default
+ *          (iam.managed.disableServiceAccountKeyCreation), so on many accounts
+ *          (b) is simply impossible. Run tools/gcal-authorize.mjs once to get
+ *          the token; it never leaves your machine until you set it.
+ *            GOOGLE_CLIENT_ID      OAuth web client id
+ *            GOOGLE_CLIENT_SECRET  its client secret
+ *            GCAL_REFRESH_TOKEN    from tools/gcal-authorize.mjs
+ *
+ *      (b) Service account — still works where the org policy does not apply.
+ *            GCAL_CLIENT_EMAIL     service-account email
+ *            GCAL_PRIVATE_KEY      its private key (PEM, keep the \n newlines)
+ *          The calendar must be SHARED with that address or it reads as empty.
  *      RESEND_API_KEY        Resend API key (resend.com — free 3,000 emails/mo)
  *      MAIL_FROM             from address on a domain verified in Resend, e.g. bookings@cousinsmechanicalservices.co.uk
  *      TWILIO_SID / TWILIO_TOKEN   Twilio subaccount credentials.
@@ -1161,7 +1175,58 @@ async function notifyCustomer(env, ctx, order, user, text, label) {
 }
 
 // ---------- Google Calendar (service account, JWT -> access token) ----------
+/*
+ * Is the calendar wired up at all, by either route?
+ *
+ * There are two, because Google blocks the obvious one. A service-account key
+ * is the textbook way to let a server read a calendar, but Google now applies
+ * `iam.managed.disableServiceAccountKeyCreation` to organisations by default —
+ * long-lived private keys leak, so they stopped letting you make them. On this
+ * account the key simply cannot be created.
+ *
+ * So the supported route here is an OAuth refresh token belonging to the
+ * account that owns the diary. It is arguably the better credential anyway: it
+ * is scoped to one user's calendar rather than being a project identity that
+ * could later be granted other roles, and it can be revoked from that Google
+ * account's own security page without a Cloud Console visit.
+ *
+ * The service-account path stays because it still works wherever the org policy
+ * does not apply, and ripping it out would break the template for the next
+ * client. Refresh token wins when both are set — if somebody has deliberately
+ * configured the newer one, that is the one they mean.
+ */
+const calendarReady = env => !!(env.GCAL_CALENDAR_ID && (
+  (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GCAL_REFRESH_TOKEN) ||
+  (env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY)
+));
+
+/** Swap the long-lived refresh token for a short-lived access token. */
+async function googleTokenFromRefresh(env) {
+  const r = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: env.GCAL_REFRESH_TOKEN,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+    }),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    // Worth a log line rather than a silent null: a refresh token that has been
+    // revoked, or expired because the consent screen was left in "Testing",
+    // fails exactly like a diary with nothing in it.
+    const detail = r ? await r.text().catch(() => "") : "network error";
+    console.error("[gcal] refresh token rejected:", String(detail).slice(0, 300));
+    return null;
+  }
+  return (await r.json()).access_token;
+}
+
 async function googleToken(env) {
+  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GCAL_REFRESH_TOKEN) {
+    try { return await googleTokenFromRefresh(env); }
+    catch (err) { console.error("googleToken (refresh) error:", err); return null; }
+  }
   if (!env.GCAL_CLIENT_EMAIL || !env.GCAL_PRIVATE_KEY) return null;
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -2008,7 +2073,7 @@ async function api(request, env, url, ctx) {
         crm: !!env.HUBSPOT_PORTAL_ID,
         crmSync: !!env.HUBSPOT_TOKEN,
         cardPayments: stripeReady(env),
-        calendar: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
+        calendar: calendarReady(env),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
       },
@@ -4074,7 +4139,7 @@ async function processTyreStockForOrder(env, order) {
         failures: log,
         ownerEmailValid: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
         mailFromValid: validEmail(env.MAIL_FROM),
-        calendarConfigured: !!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID),
+        calendarConfigured: calendarReady(env),
       });
     }
 
@@ -5243,7 +5308,7 @@ async function healthSweep(env) {
   else if (!env.RESEND_API_KEY) problems.push("RESEND_API_KEY is missing — no email is going out.");
   if (!validEmail(env.OWNER_EMAIL)) problems.push("OWNER_EMAIL is not a valid address — new-job alerts are falling back to MAIL_FROM.");
   if (!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM)) problems.push("Twilio is not configured — customers get no texts.");
-  if (!(env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY && env.GCAL_CALENDAR_ID)) problems.push("Google Calendar is not configured — bookings are not checked against your diary.");
+  if (!calendarReady(env)) problems.push("Google Calendar is not configured — bookings are not checked against your diary.");
 
   const fails = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
   const dayAgo = Date.now() - 86400000;
