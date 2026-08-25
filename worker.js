@@ -5023,6 +5023,66 @@ async function processTyreStockForOrder(env, order) {
       results.channelInUse = (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID)
         ? "WhatsApp" : (env.TWILIO_SID ? "Twilio SMS" : "none configured");
 
+      /*
+       * Does the HubSpot token actually have the scopes to WRITE?
+       *
+       * /api/health reports crmSync:true as soon as HUBSPOT_TOKEN is set, which
+       * says nothing about what the token may do. A read-only token
+       * authenticates perfectly and then 403s on every write, so the CRM sync
+       * looks configured, looks healthy, and silently never creates anybody.
+       * That is the same trap the vehicle-lookup check above exists for.
+       *
+       * HubSpot will list a token's own scopes, so this proves the permissions
+       * without creating a junk contact just to find out.
+       */
+      results.crm = await (async () => {
+        if (!env.HUBSPOT_TOKEN) return { skipped: true, reason: "HUBSPOT_TOKEN not set — bookings are not reaching the CRM" };
+        try {
+          const r = await fetch("https://api.hubapi.com/oauth/v2/private-apps/get/access-token-info", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ tokenKey: env.HUBSPOT_TOKEN }),
+          });
+          if (!r.ok) {
+            if (r.status === 401) return { ok: false, reason: "HubSpot rejected the token. If it was pasted from a developer project or an MCP auth app, that is the wrong kind — this needs a Private App token." };
+            return { ok: false, reason: "HubSpot returned " + r.status + " when asked about the token." };
+          }
+          const d = await r.json().catch(() => ({}));
+          const scopes = Array.isArray(d.scopes) ? d.scopes : [];
+          const needed = ["crm.objects.contacts.write", "crm.objects.deals.write"];
+          const missing = needed.filter(sc => !scopes.includes(sc));
+          if (missing.length) {
+            return { ok: false, reason: "The token is valid but cannot write. Missing: " + missing.join(", ")
+              + ". Every booking will 403 without a word. Add those scopes to the Private App and paste the new token." };
+          }
+          return { ok: true, reason: "Can write contacts and deals" + (d.hubId ? " (portal " + d.hubId + ")" : "") };
+        } catch (err) { return { ok: false, reason: "Could not reach HubSpot: " + err.message }; }
+      })();
+
+      /*
+       * Stripe. The secret key can be proved outright; the webhook secret
+       * cannot, because only a real signed event exercises it — and that one
+       * is the important half, since the webhook is the ONLY thing permitted to
+       * mark a job paid. Say so rather than implying both were checked.
+       */
+      results.payments = await (async () => {
+        if (!env.STRIPE_SECRET_KEY) return { skipped: true, reason: "Card payments are off" };
+        try {
+          const r = await fetch("https://api.stripe.com/v1/balance", {
+            headers: { authorization: "Bearer " + env.STRIPE_SECRET_KEY },
+          });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            return { ok: false, reason: "Stripe rejected the secret key: " + ((d.error && d.error.message) || r.status) };
+          }
+          const live = String(env.STRIPE_SECRET_KEY).startsWith("sk_live");
+          if (!env.STRIPE_WEBHOOK_SECRET) {
+            return { ok: false, reason: "The secret key works, but STRIPE_WEBHOOK_SECRET is not set. Customers could be charged and no job would ever be marked paid." };
+          }
+          return { ok: true, reason: (live ? "Live" : "TEST MODE") + " key accepted. The webhook secret can only be proved by a real payment — take a £1 booking and check it shows as paid." };
+        } catch (err) { return { ok: false, reason: "Could not reach Stripe: " + err.message }; }
+      })();
+
       return json({ sentAt: stamp, results });
     }
 
