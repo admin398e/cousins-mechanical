@@ -750,6 +750,106 @@ async function sendWhatsAppTemplate(env, to, templateName, params, lang = "en_GB
   }
   return { ok: true };
 }
+/* =========================================================================
+ * USAGE METERING
+ *
+ * Each client runs on their own deployment with their own HubSpot, Google
+ * Calendar and SumUp. The one thing they share is Twilio, through a subaccount
+ * per client — which gives per-client isolation AND per-client billing under
+ * one master account. To price that on, somebody has to know how much each
+ * client actually sends.
+ *
+ * There are two different numbers here and conflating them would cost money:
+ *
+ *   OUR COUNT     what this system sent — texts, WhatsApp messages, emails.
+ *                 Always available, covers channels Twilio never sees, and
+ *                 works when Twilio is unreachable. It is a record of
+ *                 activity, not an invoice.
+ *   TWILIO'S      what Twilio actually charges, from their Usage Records API
+ *                 for this subaccount. This is the billing truth.
+ *
+ * They will not match, and the gap is the point: Twilio bills per SEGMENT, not
+ * per message.
+ *
+ * WHICH IS WHY smsSegments() EXISTS. An SMS is 160 characters in GSM-7. Put a
+ * single character outside that alphabet in it and the whole message switches
+ * to UCS-2, where a segment is 70 characters — so one stray em-dash or curly
+ * apostrophe can turn a one-segment text into three, and triple the cost of
+ * every message sent from that template, invisibly and forever.
+ *
+ * This codebase is full of em-dashes. That is fine in email and would be
+ * expensive in SMS, so the count is surfaced and the encoding is named.
+ * ====================================================================== */
+
+// GSM 03.38 basic set plus its extension table. Anything not in here forces
+// the whole message to UCS-2 and cuts the segment size from 160 to 70.
+const GSM7 =
+  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?" +
+  "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+const GSM7_EXT = "^{}\\[~]|€";   // these cost TWO characters each
+
+function smsSegments(text) {
+  const s = String(text == null ? "" : text);
+  let units = 0, gsm = true;
+  for (const ch of s) {
+    if (GSM7.includes(ch)) units += 1;
+    else if (GSM7_EXT.includes(ch)) units += 2;
+    else { gsm = false; break; }
+  }
+  if (!gsm) {
+    // UCS-2: count UTF-16 code units, so an emoji correctly costs two.
+    units = s.length;
+    const per = units <= 70 ? 70 : 67;
+    return { encoding: "UCS-2", chars: s.length, units, segments: Math.max(1, Math.ceil(units / per)) };
+  }
+  const per = units <= 160 ? 160 : 153;
+  return { encoding: "GSM-7", chars: s.length, units, segments: Math.max(1, Math.ceil(units / per)) };
+}
+
+/**
+ * Swap typographic punctuation for its plain equivalent, so a text does not
+ * cost double for the sake of a nicer dash.
+ *
+ * Measured on the real templates: the status update — sent four times a job,
+ * on confirmed, on the way, arrived, complete — was going out as UCS-2 and
+ * billing two segments instead of one, because of a single em-dash. That is
+ * roughly half the SMS bill for the most frequently sent message in the system.
+ *
+ * ONLY punctuation is touched, never letters. Turning an em-dash into a hyphen
+ * loses nothing; turning "Zoë" into "Zoe" mangles somebody's name to save a
+ * fraction of a penny, which is not a trade worth making. A name with an
+ * unusual letter will still send as UCS-2, and it should.
+ */
+const GSM_SWAPS = [
+  [/[‐-―]/g, "-"],   // hyphens, en dash, em dash, horizontal bar
+  [/[‘’‛]/g, "'"],
+  [/[“”‟]/g, '"'],
+  [/…/g, "..."],
+  [/[•·]/g, "-"],
+  [/ /g, " "],            // non-breaking space
+  [/–/g, "-"],
+];
+function gsmSafe(text) {
+  let out = String(text == null ? "" : text);
+  for (const [re, to] of GSM_SWAPS) out = out.replace(re, to);
+  return out;
+}
+
+/**
+ * Add to this month's tally. Read-modify-write on one small key per month —
+ * fine at a garage's volume, and deliberately never allowed to break a send:
+ * a failed counter must not stop a customer being told their van is coming.
+ */
+async function recordUsage(env, kind, n = 1) {
+  try {
+    const key = "usage:" + new Date().toISOString().slice(0, 7);   // usage:YYYY-MM
+    const u = JSON.parse((await env.CMS_KV.get(key)) || "{}");
+    u[kind] = (Number(u[kind]) || 0) + n;
+    u.updatedAt = Date.now();
+    await env.CMS_KV.put(key, JSON.stringify(u));
+  } catch (e) { /* metering is never worth a failed message */ }
+}
+
 /**
  * Send a message to a customer's mobile.
  *
@@ -766,18 +866,29 @@ async function sendSMS(env, to, body) {
 
   if (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID) {
     const wa = await sendWhatsApp(env, to, body);
-    if (wa && wa.ok) return { ok: true, channel: "whatsapp" };
+    if (wa && wa.ok) { await recordUsage(env, "whatsapp"); return { ok: true, channel: "whatsapp" }; }
     attempts.push("WhatsApp: " + ((wa && (wa.reason || wa.detail)) || "rejected"));
   }
 
   if (env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM) {
-    const form = new URLSearchParams({ To: "+" + toE164(to), From: env.TWILIO_FROM, Body: body });
+    // Only the SMS body is normalised. WhatsApp bills per conversation, not
+    // per character, so it keeps the nicer typography.
+    const smsBody = gsmSafe(body);
+    const form = new URLSearchParams({ To: "+" + toE164(to), From: env.TWILIO_FROM, Body: smsBody });
     const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_SID}/Messages.json`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) },
       body: form,
     }).catch(() => null);
-    if (r && r.ok) return { ok: true, channel: "sms" };
+    if (r && r.ok) {
+      // Segments, not messages. Twilio bills per segment and a single
+      // non-GSM character turns one text into three.
+      const seg = smsSegments(smsBody);
+      await recordUsage(env, "sms");
+      await recordUsage(env, "smsSegments", seg.segments);
+      if (seg.encoding === "UCS-2") await recordUsage(env, "smsUnicode");
+      return { ok: true, channel: "sms", segments: seg.segments, encoding: seg.encoding };
+    }
     const detail = r ? await r.text().catch(() => "") : "network error";
     attempts.push("Twilio: " + String(detail).slice(0, 200));
   }
@@ -1619,6 +1730,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
       : "Resend returned " + r.status + ": " + detail.slice(0, 200);
     return { ok: false, status: r.status, detail, reason };
   }
+  await recordUsage(env, "email");
   return { ok: true };
 }
 
@@ -1628,7 +1740,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
 // penceToMajor/majorToPence are exported so the money conversion can be tested
 // directly. It is the one piece of arithmetic here that moves real money by a
 // factor of a hundred when it is wrong.
-export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS, penceToMajor, majorToPence };
+export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS, penceToMajor, majorToPence, smsSegments, gsmSafe };
 
 // ---------- Unsubscribe links ----------
 // The link has to work without the recipient logging in, and it must not let
@@ -4357,6 +4469,66 @@ async function processTyreStockForOrder(env, order) {
     }
     if (p === "/admin/run-health" && request.method === "POST") return json(await healthSweep(env));
     if (p === "/admin/run-backup" && request.method === "POST") return json(await backupSweep(env));
+
+    /*
+     * What this client has sent, and what Twilio actually charges for it.
+     *
+     * Deliberately TWO numbers, never blended. Our own count covers every
+     * channel including WhatsApp and email, which Twilio never sees, and keeps
+     * working when Twilio is unreachable. Twilio's Usage Records are the
+     * billing truth for texts and calls. Quoting our count as money would
+     * undercharge on long messages; quoting Twilio's as activity would miss
+     * every WhatsApp message. So both are shown, labelled.
+     */
+    if (p === "/admin/usage" && request.method === "GET") {
+      const months = [];
+      const now = new Date();
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        const key = "usage:" + d.toISOString().slice(0, 7);
+        const u = JSON.parse((await env.CMS_KV.get(key)) || "{}");
+        months.push({
+          month: d.toISOString().slice(0, 7),
+          sms: Number(u.sms) || 0,
+          smsSegments: Number(u.smsSegments) || 0,
+          smsUnicode: Number(u.smsUnicode) || 0,
+          whatsapp: Number(u.whatsapp) || 0,
+          email: Number(u.email) || 0,
+        });
+      }
+
+      // Twilio's own figures for this subaccount. Absent is not an error —
+      // it just means nobody has set Twilio up, or Twilio is having a bad day.
+      let twilio = { available: false, reason: "Twilio is not configured" };
+      if (env.TWILIO_SID && env.TWILIO_TOKEN) {
+        const r = await fetch(
+          "https://api.twilio.com/2010-04-01/Accounts/" + env.TWILIO_SID + "/Usage/Records/Monthly.json?PageSize=50",
+          { headers: { authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) } },
+        ).catch(() => null);
+        if (!r || !r.ok) {
+          twilio = { available: false, reason: r ? "Twilio returned " + r.status : "could not reach Twilio" };
+        } else {
+          const d = await r.json().catch(() => ({}));
+          const rows = (d.usage_records || [])
+            .filter(x => Number(x.count) > 0 || Number(x.price) > 0)
+            .map(x => ({
+              category: x.category, description: x.description,
+              count: Number(x.count) || 0, countUnit: x.count_unit,
+              usage: x.usage, usageUnit: x.usage_unit,
+              price: Number(x.price) || 0, currency: (x.price_unit || "").toUpperCase(),
+              from: x.start_date, to: x.end_date,
+            }));
+          twilio = {
+            available: true,
+            subaccount: env.TWILIO_SID,
+            currency: rows.length ? rows[0].currency : "",
+            total: Math.round(rows.reduce((n, x) => n + x.price, 0) * 10000) / 10000,
+            rows,
+          };
+        }
+      }
+      return json({ months, twilio });
+    }
 
     if (p === "/admin/mail-failures" && request.method === "GET") {
       const log = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");

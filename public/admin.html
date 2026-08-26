@@ -334,6 +334,51 @@
           </div>
           </sc-if>
 
+          <!-- USAGE -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">MESSAGES SENT</div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              What this system has sent on your behalf. Texts and WhatsApp messages go to customers about their jobs; emails are confirmations and receipts.
+            </div>
+            <div class="scroller" style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;min-width:560px">
+                <thead><tr><th class="adm-th">Month</th><th class="adm-th">Texts</th><th class="adm-th">Text segments</th><th class="adm-th">WhatsApp</th><th class="adm-th">Emails</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ usageRows }}" as="u" hint-placeholder-count="3">
+                    <tr>
+                      <td class="adm-td" style="color:#fff;font-weight:600">{{ u.month }}</td>
+                      <td class="adm-td">{{ u.sms }}</td>
+                      <td class="adm-td">{{ u.segments }}<div style="{{ u.unicodeStyle }}">{{ u.unicodeNote }}</div></td>
+                      <td class="adm-td">{{ u.whatsapp }}</td>
+                      <td class="adm-td">{{ u.email }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="color:#6f6862;font-size:11.5px;margin-top:10px;line-height:1.6">
+              A text is charged per <strong>segment</strong>, not per message: 160 plain characters is one segment, but a single unusual character — a long dash, a curly apostrophe, an emoji — drops the limit to 70 and can turn one text into three. That is why both columns are here.
+            </div>
+
+            <sc-if value="{{ twilioAvailable }}" hint-placeholder-val="{{ true }}">
+              <div style="border-top:1px solid #2a2320;margin-top:16px;padding-top:14px">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+                  <div style="font-size:13px;color:#d9d2cc;font-weight:700">What Twilio has charged this month</div>
+                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff">{{ twilioTotal }}</div>
+                </div>
+                <div style="color:#6f6862;font-size:11.5px;margin-bottom:10px">Read live from Twilio for account {{ twilioSub }}. This is the billed figure, not our count.</div>
+                <sc-for list="{{ twilioRows }}" as="t" hint-placeholder-count="2">
+                  <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;color:#9a918a;padding:5px 0;border-bottom:1px solid #241e1a">
+                    <span>{{ t.what }}</span><span>{{ t.count }}</span><span style="color:#fff;font-weight:700">{{ t.price }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ twilioReason }}" hint-placeholder-val="{{ false }}">
+              <div style="color:#8a817b;font-size:12.5px;margin-top:12px">Twilio's own billing figures are not available: {{ twilioReason }}</div>
+            </sc-if>
+          </div>
+
           <!-- HEALTH, PURGE, BACKUP -->
           <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px">
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:4px">CHECKS &amp; BACKUPS</div>
@@ -1351,7 +1396,8 @@ class Component extends DCLogic {
     // the System tab shows a number until the server has told us what it is.
     depSettings: null, depStripeReady: false, depMsg: '', depErr: '', depBusy: false,
     retPolicy: null, retDefaults: null, retLastRun: null, retLastBackup: null, retMsg: '', retErr: '', retBusy: false,
-    sysHealth: null, sysBusy: '', sysMsg: '', sysErr: '', sysPurge: null, sysPurgeArm: false
+    sysHealth: null, sysBusy: '', sysMsg: '', sysErr: '', sysPurge: null, sysPurgeArm: false,
+    usage: null
   };
 
   componentDidMount(){
@@ -2069,7 +2115,8 @@ class Component extends DCLogic {
   async loadSystem(){
     if(!this.hasServer() || this.state.demoMode) return;
     try{
-      const [d, r] = await Promise.all([this.af('/admin/deposit'), this.af('/admin/retention')]);
+      const [d, r, u] = await Promise.all([this.af('/admin/deposit'), this.af('/admin/retention'), this.af('/admin/usage')]);
+      if(u.ok) this.setState({ usage: await u.json() });
       if(d.ok){
         const dd = await d.json();
         this.setState({ depSettings: dd.settings || null, depStripeReady: !!dd.stripeReady });
@@ -2234,6 +2281,30 @@ class Component extends DCLogic {
       // the policy reads correctly and nothing is being deleted.
       retNeverRun: !s.retLastRun,
       backupNeverRun: !s.retLastBackup,
+
+      /* Usage — what has been sent, and what Twilio charges for it */
+      usageRows: ((s.usage && s.usage.months) || []).map(m => ({
+        month: new Date(m.month + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+        sms: String(m.sms),
+        segments: String(m.smsSegments),
+        whatsapp: String(m.whatsapp),
+        email: String(m.email),
+        // A message that went out as UCS-2 cost at least twice what it should
+        // have. Worth naming, because the cause is one character in a template.
+        unicodeNote: m.smsUnicode ? m.smsUnicode + ' sent as unicode (costs 2-3x)' : '',
+        unicodeStyle: m.smsUnicode ? 'color:#f0a884;font-size:11.5px' : 'display:none',
+      })),
+      usageAny: !!(s.usage && s.usage.months && s.usage.months.some(m => m.sms || m.whatsapp || m.email)),
+      twilioAvailable: !!(s.usage && s.usage.twilio && s.usage.twilio.available),
+      twilioReason: (s.usage && s.usage.twilio && s.usage.twilio.reason) || '',
+      twilioTotal: (s.usage && s.usage.twilio && s.usage.twilio.available)
+        ? (s.usage.twilio.currency || '') + ' ' + Number(s.usage.twilio.total || 0).toFixed(2) : '',
+      twilioSub: (s.usage && s.usage.twilio && s.usage.twilio.subaccount) || '',
+      twilioRows: ((s.usage && s.usage.twilio && s.usage.twilio.rows) || []).map(r => ({
+        what: r.description || r.category,
+        count: String(r.count) + ' ' + (r.countUnit || ''),
+        price: (r.currency || '') + ' ' + Number(r.price || 0).toFixed(4),
+      })),
 
       /* Health, purge and backup */
       runHealth: () => this.runSys('health'),

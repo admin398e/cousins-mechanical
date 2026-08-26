@@ -16,6 +16,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = crypto.randomBytes(24).toString('hex');
 const OVERRIDE_TOKEN = crypto.randomBytes(24).toString('hex');
 
+const pick = o => ({ encoding: o.encoding, segments: o.segments });
+
 let passed = 0, failed = 0;
 const results = [];
 
@@ -762,6 +764,60 @@ try {
     for (let p = 1; p <= 500; p++) {
       assert.equal(majorToPence(penceToMajor(p)), p, `${p}p did not survive the round trip`);
     }
+  });
+
+  await check('a text is measured in segments, and one odd character triples it', async () => {
+    // Twilio charges per segment. 160 plain characters is one; a single
+    // character outside GSM-7 drops the limit to 70 for the WHOLE message.
+    // This codebase is full of em-dashes, so the difference is not academic.
+    const { smsSegments } = await import('../worker.js');
+
+    assert.deepEqual(pick(smsSegments('A'.repeat(160))), { encoding: 'GSM-7', segments: 1 });
+    assert.deepEqual(pick(smsSegments('A'.repeat(161))), { encoding: 'GSM-7', segments: 2 });
+    assert.deepEqual(pick(smsSegments('A'.repeat(306))), { encoding: 'GSM-7', segments: 2 });
+    assert.deepEqual(pick(smsSegments('A'.repeat(307))), { encoding: 'GSM-7', segments: 3 });
+
+    // £ IS in GSM-7 — worth knowing, since every price in a text uses it.
+    assert.equal(smsSegments('Deposit of £25.00 received').encoding, 'GSM-7');
+
+    // An em-dash is not, and it takes the whole message with it.
+    const plain = smsSegments('A'.repeat(150));
+    const dashed = smsSegments('A'.repeat(149) + '\u2014');
+    assert.equal(plain.segments, 1);
+    assert.equal(dashed.encoding, 'UCS-2');
+    assert.equal(dashed.segments, 3, 'one em-dash should turn a 1-segment text into 3');
+
+    // A curly apostrophe does the same, and is the one that sneaks in.
+    assert.equal(smsSegments("We\u2019ll be with you shortly").encoding, 'UCS-2');
+    assert.equal(smsSegments("We'll be with you shortly").encoding, 'GSM-7');
+
+    // Extension characters cost two units each.
+    assert.equal(smsSegments('{'.repeat(80)).segments, 1);
+    assert.equal(smsSegments('{'.repeat(81)).segments, 2);
+
+    // Empty is still one billable message, not zero.
+    assert.equal(smsSegments('').segments, 1);
+  });
+
+  await check('a text is normalised so typography does not double the bill', async () => {
+    const { gsmSafe, smsSegments } = await import('../worker.js');
+
+    // The real status message, sent four times a job. It was UCS-2.
+    const raw = "Cousins Mechanical: CMS-1A2B3 \u2014 On the way. Your mechanic is on the way \u2014 follow the van on the map.";
+    assert.equal(smsSegments(raw).encoding, 'UCS-2');
+    assert.equal(smsSegments(raw).segments, 2);
+    const fixed = gsmSafe(raw);
+    assert.equal(smsSegments(fixed).encoding, 'GSM-7');
+    assert.equal(smsSegments(fixed).segments, 1, 'normalising did not get it down to one segment');
+    assert.ok(fixed.includes('On the way'), 'normalising damaged the message');
+
+    // Punctuation only. A name must never be mangled to save a fraction of a
+    // penny — an unusual letter should still cost more and still be correct.
+    assert.equal(gsmSafe('Zo\u00eb'), 'Zo\u00eb');
+    assert.equal(gsmSafe('Jos\u00e9'), 'Jos\u00e9');
+    assert.equal(gsmSafe('\u2018quoted\u2019'), "'quoted'");
+    assert.equal(gsmSafe('a\u2026b'), 'a...b');
+    assert.equal(gsmSafe('a \u2013 b'), 'a - b');
   });
 
   await check('the SumUp webhook believes nothing it is told', async () => {
