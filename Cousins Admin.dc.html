@@ -243,6 +243,54 @@
           <sc-if value="{{ sysMsg }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(57,168,84,.14);border:1px solid #2f6b3f;color:#8ee6a0;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:14px">{{ sysMsg }}</div></sc-if>
           <sc-if value="{{ sysErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:14px">{{ sysErr }}</div></sc-if>
 
+          <!-- IS IT LIVE -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff;margin-bottom:14px">IS EVERYTHING LIVE?</div>
+
+            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:16px">
+              <span style="{{ svcDomainStyle }}"></span>
+              <div>
+                <div style="color:#fff;font-weight:600;font-size:14.5px">{{ svcDomainHost }}</div>
+                <div style="color:#8a817b;font-size:12.5px">{{ svcDomainLabel }}</div>
+              </div>
+            </div>
+
+            <div style="border-top:1px solid #2a2320;padding-top:14px;margin-bottom:14px">
+              <div style="font-size:12.5px;color:#9a918a;font-weight:600;margin-bottom:8px">YOUR NUMBERS</div>
+              <sc-for list="{{ svcNumbers }}" as="n" hint-placeholder-count="1">
+                <div style="display:flex;align-items:baseline;gap:10px;font-size:14px;color:#d9d2cc;padding:4px 0">
+                  <span style="width:9px;height:9px;border-radius:50%;background:#4fe06a;flex:none"></span>
+                  <strong style="color:#fff">{{ n.number }}</strong>
+                  <span style="color:#8a817b;font-size:12.5px">takes {{ n.detail }}</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{ svcNumbersNone }}" hint-placeholder-val="{{ false }}">
+                <div style="color:#f0a884;font-size:13px">{{ svcNumbersReason }}</div>
+              </sc-if>
+            </div>
+
+            <div style="border-top:1px solid #2a2320;padding-top:14px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+                <div style="font-size:12.5px;color:#9a918a;font-weight:600">RECENT CALLS</div>
+                <div style="font-size:12.5px;color:#8a817b">{{ svcCallsIn }} in · {{ svcCallsAnswered }} answered · {{ svcCallsMissed }} missed</div>
+              </div>
+              <sc-for list="{{ svcCallRows }}" as="c" hint-placeholder-count="3">
+                <div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5px 0;border-bottom:1px solid #241e1a">
+                  <span style="color:#fff">{{ c.who }}</span>
+                  <span style="{{ c.missedStyle }}">{{ c.status }}</span>
+                  <span style="color:#6f6862">{{ c.length }}</span>
+                  <span style="color:#6f6862">{{ c.when }}</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{ svcCallsNone }}" hint-placeholder-val="{{ true }}">
+                <div style="color:#8a817b;font-size:13px">No calls recorded yet. {{ svcCallsReason }}</div>
+              </sc-if>
+              <div style="color:#6f6862;font-size:11.5px;margin-top:10px;line-height:1.6">
+                Read live from Twilio each time you open this, and not stored here. Call records contain customers' phone numbers, and keeping a second copy would mean another place for them to leak from.
+              </div>
+            </div>
+          </div>
+
           <!-- DEPOSITS -->
           <sc-if value="{{ depReady }}" hint-placeholder-val="{{ true }}">
           <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
@@ -1397,7 +1445,7 @@ class Component extends DCLogic {
     depSettings: null, depStripeReady: false, depMsg: '', depErr: '', depBusy: false,
     retPolicy: null, retDefaults: null, retLastRun: null, retLastBackup: null, retMsg: '', retErr: '', retBusy: false,
     sysHealth: null, sysBusy: '', sysMsg: '', sysErr: '', sysPurge: null, sysPurgeArm: false,
-    usage: null
+    usage: null, svcStatus: null
   };
 
   componentDidMount(){
@@ -2115,8 +2163,11 @@ class Component extends DCLogic {
   async loadSystem(){
     if(!this.hasServer() || this.state.demoMode) return;
     try{
-      const [d, r, u] = await Promise.all([this.af('/admin/deposit'), this.af('/admin/retention'), this.af('/admin/usage')]);
+      const [d, r, u, st] = await Promise.all([
+        this.af('/admin/deposit'), this.af('/admin/retention'), this.af('/admin/usage'), this.af('/admin/service-status'),
+      ]);
       if(u.ok) this.setState({ usage: await u.json() });
+      if(st.ok) this.setState({ svcStatus: await st.json() });
       if(d.ok){
         const dd = await d.json();
         this.setState({ depSettings: dd.settings || null, depStripeReady: !!dd.stripeReady });
@@ -2281,6 +2332,39 @@ class Component extends DCLogic {
       // the policy reads correctly and nothing is being deleted.
       retNeverRun: !s.retLastRun,
       backupNeverRun: !s.retLastBackup,
+
+      /* Is it live? The questions an owner actually asks. */
+      svcDomainOk: !!(s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.ok),
+      svcDomainHost: (s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.host) || '',
+      svcDomainLabel: (s.svcStatus && s.svcStatus.domain)
+        ? (s.svcStatus.domain.ok ? 'Live and answering over a secure connection'
+                                 : ('Not responding — ' + (s.svcStatus.domain.reason || ('status ' + s.svcStatus.domain.status))))
+        : 'Checking…',
+      svcDomainStyle: 'width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px;background:'
+        + ((s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.ok) ? '#4fe06a' : '#e8791a'),
+
+      svcNumbers: ((s.svcStatus && s.svcStatus.numbers && s.svcStatus.numbers.numbers) || []).map(n => ({
+        number: n.number,
+        detail: [n.voice ? 'calls' : '', n.sms ? 'texts' : ''].filter(Boolean).join(' and ') || 'no capabilities',
+        name: n.name || '',
+      })),
+      svcNumbersNone: !(s.svcStatus && s.svcStatus.numbers && s.svcStatus.numbers.ok),
+      svcNumbersReason: (s.svcStatus && s.svcStatus.numbers && s.svcStatus.numbers.reason) || 'No number is attached to this account yet.',
+
+      svcCallsOk: !!(s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.ok),
+      svcCallsReason: (s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.reason) || '',
+      svcCallsIn: String((s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.inbound) || 0),
+      svcCallsAnswered: String((s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.answered) || 0),
+      svcCallsMissed: String((s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.missed) || 0),
+      svcCallRows: ((s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.recent) || []).slice(0, 8).map(c => ({
+        who: String(c.direction || '').startsWith('inbound') ? c.from : c.to,
+        way: String(c.direction || '').startsWith('inbound') ? 'in' : 'out',
+        status: c.status,
+        length: c.seconds ? Math.floor(c.seconds / 60) + 'm ' + (c.seconds % 60) + 's' : '—',
+        when: c.at ? new Date(c.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '',
+        missedStyle: ['no-answer','busy','failed'].includes(c.status) ? 'color:#f0a884;font-weight:700' : 'color:#9a918a',
+      })),
+      svcCallsNone: !((s.svcStatus && s.svcStatus.calls && s.svcStatus.calls.recent) || []).length,
 
       /* Usage — what has been sent, and what Twilio charges for it */
       usageRows: ((s.usage && s.usage.months) || []).map(m => ({

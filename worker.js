@@ -4649,6 +4649,73 @@ async function processTyreStockForOrder(env, order) {
      * undercharge on long messages; quoting Twilio's as activity would miss
      * every WhatsApp message. So both are shown, labelled.
      */
+    /*
+     * "Is my site up, is my number live, what has come in?" — the questions a
+     * business owner actually asks, answered without them needing to log into
+     * Cloudflare or Twilio.
+     *
+     * DELIBERATELY NOT CACHED, and deliberately not stored. Call records
+     * contain customers' phone numbers: keeping a copy here would create a
+     * second store of personal data with its own retention obligation, its own
+     * place to leak from, and its own line in the privacy notice — to save a
+     * fetch. It is read live from Twilio each time and thrown away.
+     */
+    if (p === "/admin/service-status" && request.method === "GET") {
+      const site = (env.SITE_URL || "").replace(/\/+$/, "");
+
+      const domain = await (async () => {
+        if (!site) return { ok: false, reason: "SITE_URL is not set" };
+        const r = await fetch(site + "/api/health", { headers: { "user-agent": "cousins-selfcheck" } }).catch(() => null);
+        if (!r) return { ok: false, host: site, reason: "the domain did not respond" };
+        return {
+          ok: r.ok, host: site, status: r.status,
+          // Reaching it over https at all means the certificate validated.
+          https: site.startsWith("https://"),
+        };
+      })();
+
+      const twilioGet = async (path) => {
+        if (!(env.TWILIO_SID && env.TWILIO_TOKEN)) return null;
+        const r = await fetch("https://api.twilio.com/2010-04-01/Accounts/" + env.TWILIO_SID + path,
+          { headers: { authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) } }).catch(() => null);
+        if (!r || !r.ok) return null;
+        return r.json().catch(() => null);
+      };
+
+      const numbers = await (async () => {
+        const d = await twilioGet("/IncomingPhoneNumbers.json?PageSize=10");
+        if (!d) return { ok: false, reason: env.TWILIO_SID ? "could not reach Twilio" : "Twilio is not configured" };
+        return {
+          ok: (d.incoming_phone_numbers || []).length > 0,
+          numbers: (d.incoming_phone_numbers || []).map(n => ({
+            number: n.phone_number,
+            name: n.friendly_name,
+            sms: !!(n.capabilities && n.capabilities.sms),
+            voice: !!(n.capabilities && n.capabilities.voice),
+            status: n.status || "in-use",
+          })),
+        };
+      })();
+
+      const calls = await (async () => {
+        const d = await twilioGet("/Calls.json?PageSize=20");
+        if (!d) return { ok: false, reason: env.TWILIO_SID ? "could not reach Twilio" : "Twilio is not configured" };
+        const list = d.calls || [];
+        return {
+          ok: true,
+          recent: list.map(c => ({
+            from: c.from, to: c.to, direction: c.direction,
+            status: c.status, seconds: Number(c.duration) || 0, at: c.start_time,
+          })),
+          inbound: list.filter(c => String(c.direction || "").startsWith("inbound")).length,
+          answered: list.filter(c => c.status === "completed").length,
+          missed: list.filter(c => ["no-answer", "busy", "failed"].includes(c.status)).length,
+        };
+      })();
+
+      return json({ domain, numbers, calls, checkedAt: new Date().toISOString() });
+    }
+
     /* The spend cap. Readable by anyone in the dashboard — the client should be
      * able to see their own ceiling and where they are against it — but only a
      * developer may change it, because a client who can raise their own cap
