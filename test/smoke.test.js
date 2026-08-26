@@ -1208,6 +1208,15 @@ try {
     assert.equal(r.status, 403, `calendar event creation is open to the world (status ${r.status})`);
   });
 
+  await check('a forged Google Calendar callback bounces instead of storing anything', async () => {
+    // The state nonce is the whole defence: without it, anyone who found the
+    // callback URL could connect THEIR Google account as the business diary.
+    const r = await api('/api/oauth/google/callback?code=fake&state=never-issued', { redirect: 'manual' });
+    assert.equal(r.status, 302, `forged callback did not redirect (status ${r.status})`);
+    const loc = r.headers.get('location') || '';
+    assert.ok(loc.includes('gcal=expired'), `forged callback did not land on the readable failure page: ${loc}`);
+  });
+
   await check('driver endpoints reject a missing or wrong token', async () => {
     // These compared with raw === against ADMIN_TOKEN. With the token unset,
     // omitting it gave undefined === undefined, i.e. open access.
@@ -1474,6 +1483,28 @@ try {
     const first = (list.staff || []).slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
     assert.ok(first, 'no staff accounts exist to check');
     assert.equal(first.role, 'owner', 'the first account created is not an owner');
+  });
+
+  await check('connecting Google Calendar is configuration, not day-to-day staff work', async () => {
+    const s = await asStaff('staff');
+    const denied = await staffApi('/api/admin/gcal/connect-url', s.token, { method: 'POST' });
+    assert.equal(denied.status, 403, 'a staff account was allowed to start a Google connection');
+
+    const dev = await asStaff('developer');
+    const r = await staffApi('/api/admin/gcal/connect-url', dev.token, { method: 'POST' });
+    if (r.status === 200) {
+      // Client id and secret are configured: it must be a real consent URL
+      // that will actually come back with a refresh token.
+      const d = await r.json();
+      assert.ok(String(d.url).startsWith('https://accounts.google.com/o/oauth2/v2/auth?'), 'not a Google consent URL: ' + d.url);
+      assert.ok(d.url.includes('access_type=offline'), 'consent URL would not return a refresh token');
+      assert.ok(d.url.includes('prompt=consent'), 'a reconnect would silently come back tokenless');
+    } else {
+      // Not configured: the failure must say which secrets to set, not shrug.
+      assert.equal(r.status, 400, `unexpected status ${r.status}`);
+      const d = await r.json();
+      assert.ok(String(d.error).includes('GOOGLE_CLIENT_ID'), 'failure does not say what needs setting');
+    }
   });
 
   await check('a staff account cannot promote anyone, including itself', async () => {

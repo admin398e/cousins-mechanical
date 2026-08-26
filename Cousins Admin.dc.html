@@ -1369,7 +1369,7 @@
       <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
-            <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><span style="color:#9a918a;font-size:13px">{{ calAccountLabel }}</span><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
             <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
               <iframe src="{{ calendarUrl }}" style="width:100%;height:620px;border:0;display:block;background:#fff"></iframe>
             </div>
@@ -1380,13 +1380,14 @@
               <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:8px">CONNECT YOUR GOOGLE CALENDAR</div>
               <p style="color:#9a918a;font-size:14.5px;line-height:1.6;max-width:480px;margin:0 auto 18px">Connect the business Google account and every booking lands on your calendar automatically. You can also open the jobs calendar in Google at any time.</p>
               <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-                <button onClick="{{ googleSignIn }}" style="display:inline-flex;align-items:center;gap:10px;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 18px;cursor:pointer;font-size:14.5px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
+                <button onClick="{{ connectCalendar }}" style="display:inline-flex;align-items:center;gap:10px;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 18px;cursor:pointer;font-size:14.5px;box-shadow:0 1px 3px rgba(0,0,0,.12)">
                   <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
                   Connect Google Calendar
                 </button>
                 <a href="https://calendar.google.com/calendar/r" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:#1c1714;border:1px solid #3a322d;color:#d9d2cc;font-weight:700;border-radius:10px;padding:12px 18px;font-size:14.5px;text-decoration:none">Open Google Calendar ↗</a>
               </div>
-              <p style="color:#6f6862;font-size:12.5px;line-height:1.6;max-width:460px;margin:16px auto 0">Bookings are written to the calendar by the Worker's service account. If nothing appears, <strong>GCAL_CALENDAR_ID</strong> is not set yet, or the calendar has not been shared with the service account.</p>
+              <div style="color:#e05a4e;font-size:13px;font-weight:600;margin-top:14px;min-height:1em">{{ calMsg }}</div>
+              <p style="color:#6f6862;font-size:12.5px;line-height:1.6;max-width:460px;margin:8px auto 0">Press the button and sign in with the <strong>business Google account</strong> (the one whose calendar should hold the jobs). Google will ask for permission once; after that every booking lands on that calendar automatically and customers get an invite.</p>
             </div>
           </sc-if>
         </div>
@@ -1451,6 +1452,22 @@ class Component extends DCLogic {
   componentDidMount(){
     this.probeAuthMode();
     setTimeout(()=>this.mountTurnstile('admin'), 60);
+    // Back from Google's consent screen? Say how it went, on the right tab.
+    try{
+      const gcal = new URLSearchParams(window.location.search).get('gcal');
+      if(gcal){
+        const why = {
+          'connected': '',
+          'cancelled': 'The Google connection was cancelled before it finished.',
+          'expired': 'That connection attempt expired — press Connect Google Calendar again.',
+          'no-refresh-token': 'Google did not hand back a reusable token. Press Connect again and approve the calendar permission.',
+          'exchange-failed': 'Google rejected the connection. Check the redirect URI is registered on the OAuth client, then try again.',
+          'not-configured': 'The Google connection is not set up yet — the developer needs to add the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets.',
+        };
+        this.setState({ tab:'calendar', calMsg: why[gcal] !== undefined ? why[gcal] : ('Google connection failed: ' + gcal) });
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }catch(e){}
     // The admin session lives in sessionStorage, NOT localStorage.
     //
     // It used to persist in localStorage, so opening the dashboard on a shared
@@ -1517,6 +1534,21 @@ class Component extends DCLogic {
       this.setState({ loginErr: "Google Sign-In failed: " + err.message });
     }
     };
+
+  // "Connect Google Calendar" on the Calendar tab. Nothing Google-flavoured
+  // happens in the browser: the server builds the consent URL (with a one-shot
+  // state nonce) and we simply go there. Google sends the person back to
+  // /api/oauth/google/callback and the refresh token never touches this page.
+  connectCalendar = async () => {
+    try {
+      const r = await this.af('/admin/gcal/connect-url', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) { window.location.href = d.url; return; }
+      this.setState({ calMsg: d.error || 'Could not start the Google connection.' });
+    } catch (e) {
+      this.setState({ calMsg: 'Could not start the Google connection: ' + e.message });
+    }
+  };
 
   setToken = e => this.setState({tokenInput:e.target.value});
   setEmail = e => this.setState({emailInput:e.target.value});
@@ -2441,7 +2473,8 @@ class Component extends DCLogic {
       const invd=await inv.json().catch(()=>({}));
       
       this.setState({ 
-        jobs:jd.jobs||[], customers:cd.customers||[], stock:invd.stock||sd.stock||[], calendarUrl: window.googleAccessToken ? 'https://calendar.google.com/calendar/embed?src=primary&ctz=Europe/London' : (cald && cald.embedUrl || ''),
+        jobs:jd.jobs||[], customers:cd.customers||[], stock:invd.stock||sd.stock||[], calendarUrl: (cald && cald.embedUrl) || (window.googleAccessToken ? 'https://calendar.google.com/calendar/embed?src=primary&ctz=Europe/London' : ''),
+        calAccount:(cald && cald.account)||'',
         threads:thd.threads||[], supplierOrders:invd.supplierOrders||pod.supplierOrders||[], drivers:drvd.drivers||[], users:usrd.users||[], locations:locd.locations||[],
         invSettings: invd.settings || this.state.invSettings,
         reorderLogs: invd.reorderLogs || this.state.reorderLogs
@@ -3371,7 +3404,9 @@ class Component extends DCLogic {
       invSearchQuery:s.invSearchQuery, setInvSearchQuery:this.setInvSearchQuery,
       invMsg:s.invMsg, hasInvMsg:!!s.invMsg,
       reorderLogRows, noReorderLogs:(s.reorderLogs||[]).length===0,
-      hasCalendar:!!s.calendarUrl, noCalendar:!s.calendarUrl, calendarUrl:s.calendarUrl
+      hasCalendar:!!s.calendarUrl, noCalendar:!s.calendarUrl, calendarUrl:s.calendarUrl,
+      connectCalendar:this.connectCalendar, calMsg: s.calMsg || '',
+      calAccountLabel: s.calAccount ? ('Connected as ' + s.calAccount) : ''
     };
   }
 }

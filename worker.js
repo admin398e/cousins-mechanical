@@ -1362,7 +1362,8 @@ async function bumpSlot(env, date, time, delta) {
 
 /** Google free/busy for one day. Returns [] when the calendar is not set up. */
 async function googleBusy(env, date) {
-  if (!env.GCAL_CALENDAR_ID) return { configured: false, busy: [] };
+  const calId = await gcalCalendarId(env);
+  if (!calId) return { configured: false, busy: [] };
   const tok = await googleToken(env);
   if (!tok) return { configured: false, busy: [] };
   const r = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
@@ -1372,7 +1373,7 @@ async function googleBusy(env, date) {
       timeMin: date + "T00:00:00Z",
       timeMax: date + "T23:59:59Z",
       timeZone: "Europe/London",
-      items: [{ id: env.GCAL_CALENDAR_ID }],
+      items: [{ id: calId }],
     }),
   }).catch(() => null);
   if (!r || !r.ok) {
@@ -1381,7 +1382,7 @@ async function googleBusy(env, date) {
     return { configured: false, busy: [] };
   }
   const d = await r.json().catch(() => ({}));
-  const cal = d.calendars && d.calendars[env.GCAL_CALENDAR_ID];
+  const cal = d.calendars && d.calendars[calId];
   return { configured: true, busy: (cal && cal.busy) || [] };
 }
 
@@ -1628,18 +1629,47 @@ async function notifyCustomer(env, ctx, order, user, text, label) {
  * client. Refresh token wins when both are set — if somebody has deliberately
  * configured the newer one, that is the one they mean.
  */
-const calendarReady = env => !!(env.GCAL_CALENDAR_ID && (
+const calendarReadyEnv = env => !!(env.GCAL_CALENDAR_ID && (
   (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GCAL_REFRESH_TOKEN) ||
   (env.GCAL_CLIENT_EMAIL && env.GCAL_PRIVATE_KEY)
 ));
 
-/** Swap the long-lived refresh token for a short-lived access token. */
-async function googleTokenFromRefresh(env) {
+/*
+ * The third route, and the one a client can actually operate: the "Connect
+ * Google Calendar" button in the dashboard. Pressing it walks through Google's
+ * own consent screen and the refresh token lands in KV under "gcal_oauth" —
+ * nobody copies a token, nobody runs a script, nobody shares a password.
+ * Secrets in env still win when set, because a deliberately configured secret
+ * is a decision and a button press is a default.
+ */
+async function gcalStored(env) {
+  try { return JSON.parse((await env.CMS_KV.get("gcal_oauth")) || "null"); }
+  catch { return null; }
+}
+
+async function calendarReady(env) {
+  if (calendarReadyEnv(env)) return true;
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return false;
+  const s = await gcalStored(env);
+  return !!(s && s.refresh_token);
+}
+
+/** Which calendar bookings land on. "primary"-style ids work for the API;
+ *  the connected account's email is stored so embeds and humans see a name. */
+async function gcalCalendarId(env) {
+  if (env.GCAL_CALENDAR_ID) return env.GCAL_CALENDAR_ID;
+  const s = await gcalStored(env);
+  if (s && s.refresh_token) return s.calendar_id || s.email || "primary";
+  return "";
+}
+
+/** Swap a long-lived refresh token for a short-lived access token. */
+async function googleTokenFromRefresh(env, refreshToken) {
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: env.GCAL_REFRESH_TOKEN,
+      refresh_token: refreshToken || env.GCAL_REFRESH_TOKEN,
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
     }),
@@ -1656,9 +1686,13 @@ async function googleTokenFromRefresh(env) {
 }
 
 async function googleToken(env) {
-  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GCAL_REFRESH_TOKEN) {
-    try { return await googleTokenFromRefresh(env); }
-    catch (err) { console.error("googleToken (refresh) error:", err); return null; }
+  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    let rt = env.GCAL_REFRESH_TOKEN;
+    if (!rt) { const s = await gcalStored(env); rt = s && s.refresh_token; }
+    if (rt) {
+      try { return await googleTokenFromRefresh(env, rt); }
+      catch (err) { console.error("googleToken (refresh) error:", err); return null; }
+    }
   }
   if (!env.GCAL_CLIENT_EMAIL || !env.GCAL_PRIVATE_KEY) return null;
   try {
@@ -1688,8 +1722,9 @@ async function googleToken(env) {
 }
 async function addCalendarEvent(env, o, customerEmail) {
   const tok = await googleToken(env);
-  if (!tok || !env.GCAL_CALENDAR_ID) {
-    return { skipped: true, reason: "Missing GCAL_CLIENT_EMAIL, GCAL_PRIVATE_KEY, or GCAL_CALENDAR_ID environment variables" };
+  const calId = await gcalCalendarId(env);
+  if (!tok || !calId) {
+    return { skipped: true, reason: "Google Calendar is not connected — press Connect Google Calendar in the dashboard, or set the calendar secrets." };
   }
   const dateStr = o.date || new Date().toISOString().slice(0, 10);
   let startTime = "09:00:00";
@@ -1719,7 +1754,7 @@ async function addCalendarEvent(env, o, customerEmail) {
   };
 
   const insert = (ev, sendUpdates) =>
-    fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(env.GCAL_CALENDAR_ID)}/events${sendUpdates ? "?sendUpdates=all" : ""}`, {
+    fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events${sendUpdates ? "?sendUpdates=all" : ""}`, {
       method: "POST",
       headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
       body: JSON.stringify(ev),
@@ -2579,7 +2614,7 @@ async function api(request, env, url, ctx) {
         crmSync: !!env.HUBSPOT_TOKEN,
         cardPayments: paymentsReady(env),
         paymentProvider: paymentProvider(env),
-        calendar: calendarReady(env),
+        calendar: await calendarReady(env),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
       },
@@ -3995,6 +4030,63 @@ async function processTyreStockForOrder(env, order) {
     return json({ siteKey: env.TURNSTILE_SITE_KEY });
   }
 
+  /*
+   * "Connect Google Calendar" — step two. Google sends the person back here
+   * after consent. The state nonce proves the flow started from a signed-in
+   * owner/developer in the dashboard minutes ago; the code is swapped for a
+   * refresh token which lives in KV, never in the browser. On any failure the
+   * person lands back on the dashboard with a readable reason instead of a
+   * bare error page.
+   */
+  if (p === "/oauth/google/callback" && request.method === "GET") {
+    const back = (msg) => new Response(null, {
+      status: 302,
+      headers: { ...SECURITY_HEADERS, Location: "/admin?gcal=" + encodeURIComponent(msg) },
+    });
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state") || "";
+    if (!code || !state) return back("cancelled");
+    const stRaw = await env.CMS_KV.get("gcal_state:" + state);
+    if (!stRaw) return back("expired");
+    await env.CMS_KV.delete("gcal_state:" + state);
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return back("not-configured");
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code,
+        client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: site + "/api/oauth/google/callback",
+      }),
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      const detail = r ? await r.text().catch(() => "") : "network error";
+      console.error("[gcal] code exchange failed:", String(detail).slice(0, 300));
+      return back("exchange-failed");
+    }
+    const tok = await r.json().catch(() => ({}));
+    if (!tok.refresh_token) return back("no-refresh-token");
+    // Ask Google whose diary this is, so the dashboard can say "connected as
+    // help@…" instead of leaving everyone to hope it was the right account.
+    let email = "";
+    try {
+      const c = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", {
+        headers: { authorization: "Bearer " + tok.access_token },
+      });
+      if (c.ok) email = ((await c.json()).id || "");
+    } catch (e) { /* cosmetic only */ }
+    await env.CMS_KV.put("gcal_oauth", JSON.stringify({
+      refresh_token: tok.refresh_token,
+      calendar_id: email || "primary",
+      email,
+      connected_at: Date.now(),
+    }));
+    let who = "oauth";
+    try { who = (JSON.parse(stRaw).actor) || "oauth"; } catch (e) { /* keep default */ }
+    await audit(env, who, "gcal-connected", email);
+    return back("connected");
+  }
+
   if (p === "/firebase-config" && request.method === "GET") {
     if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 404);
     return new Response(env.FIREBASE_WEB_CONFIG, {
@@ -4803,7 +4895,7 @@ async function processTyreStockForOrder(env, order) {
         failures: log,
         ownerEmailValid: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
         mailFromValid: validEmail(env.MAIL_FROM),
-        calendarConfigured: calendarReady(env),
+        calendarConfigured: await calendarReady(env),
       });
     }
 
@@ -5802,8 +5894,57 @@ async function processTyreStockForOrder(env, order) {
 
     // Calendar embed link for the dashboard
     if (p === "/admin/calendar" && request.method === "GET") {
-      const id = env.GCAL_CALENDAR_ID || "";
-      return json({ calendarId: id, embedUrl: id ? `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(id)}&ctz=Europe/London` : "" });
+      const id = await gcalCalendarId(env);
+      const stored = await gcalStored(env);
+      // "primary" is meaningless to an embed iframe (it would show whoever is
+      // looking, not the business diary), so the embed only uses a real id.
+      const embedId = id === "primary" ? "" : id;
+      return json({
+        calendarId: id,
+        connected: await calendarReady(env),
+        account: (stored && stored.email) || "",
+        canConnect: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+        embedUrl: embedId ? `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(embedId)}&ctz=Europe/London` : "",
+      });
+    }
+
+    /*
+     * "Connect Google Calendar" — step one. The dashboard asks for a consent
+     * URL; the server mints a one-shot state nonce so the callback can tell a
+     * genuine return-from-Google apart from somebody replaying the endpoint.
+     * Owner or developer only: connecting a diary is configuration, not
+     * day-to-day staff work.
+     */
+    if (p === "/admin/gcal/connect-url" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+        return bad("The Google connection is not set up yet. The developer needs to add the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets first.", 400);
+      }
+      const nonce = crypto.randomUUID();
+      await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ actor, t: Date.now() }), { expirationTtl: 600 });
+      const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+      const redirectUri = site + "/api/oauth/google/callback";
+      const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+      u.searchParams.set("redirect_uri", redirectUri);
+      u.searchParams.set("response_type", "code");
+      u.searchParams.set("scope", "https://www.googleapis.com/auth/calendar");
+      // Without access_type=offline there is no refresh token, and without
+      // prompt=consent Google only issues one on the very first grant — a
+      // reconnect would silently come back tokenless.
+      u.searchParams.set("access_type", "offline");
+      u.searchParams.set("prompt", "consent");
+      u.searchParams.set("state", nonce);
+      return json({ url: u.toString(), redirectUri });
+    }
+
+    if (p === "/admin/gcal/disconnect" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      await env.CMS_KV.delete("gcal_oauth");
+      await audit(env, actor, "gcal-disconnected", "");
+      return json({ ok: true });
     }
 
     return bad("Not found", 404);
@@ -6051,7 +6192,7 @@ async function healthSweep(env) {
   else if (!env.RESEND_API_KEY) problems.push("RESEND_API_KEY is missing — no email is going out.");
   if (!validEmail(env.OWNER_EMAIL)) problems.push("OWNER_EMAIL is not a valid address — new-job alerts are falling back to MAIL_FROM.");
   if (!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM)) problems.push("Twilio is not configured — customers get no texts.");
-  if (!calendarReady(env)) problems.push("Google Calendar is not configured — bookings are not checked against your diary.");
+  if (!(await calendarReady(env))) problems.push("Google Calendar is not connected — bookings are not checked against your diary.");
 
   const fails = JSON.parse((await env.CMS_KV.get("maillog")) || "[]");
   const dayAgo = Date.now() - 86400000;
