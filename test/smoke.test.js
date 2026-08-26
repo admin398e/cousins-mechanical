@@ -739,6 +739,59 @@ try {
     assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
   });
 
+  /*
+   * SumUp. The client takes card payments through SumUp, and it differs from
+   * Stripe in two ways that are both expensive to get wrong.
+   */
+  await check('money converts between pence and SumUp decimals without drifting', async () => {
+    // SumUp wants 25.00 where this system stores 2500. A factor-of-100 error
+    // either charges a customer a hundred times too much, or a hundredth —
+    // and the second one looks like it worked.
+    const { penceToMajor, majorToPence } = await import('../worker.js');
+    const cases = [[2500, '25.00'], [1, '0.01'], [99, '0.99'], [100, '1.00'],
+                   [12345, '123.45'], [50000, '500.00'], [0, '0.00']];
+    for (const [pence, major] of cases) {
+      assert.equal(penceToMajor(pence), major, `${pence}p should send as ${major}`);
+      assert.equal(majorToPence(major), pence, `${major} should come back as ${pence}p`);
+    }
+    // Floating point is the trap here: 19.99 * 100 is 1998.9999999999998.
+    assert.equal(majorToPence(19.99), 1999, 'a float amount rounded the wrong way');
+    assert.equal(majorToPence('0.07'), 7);
+    // And a round trip on every penny from 1p to £5, because a rounding rule
+    // that works on the examples you thought of is not a rounding rule.
+    for (let p = 1; p <= 500; p++) {
+      assert.equal(majorToPence(penceToMajor(p)), p, `${p}p did not survive the round trip`);
+    }
+  });
+
+  await check('the SumUp webhook believes nothing it is told', async () => {
+    // The real payload is {event_type, id} — unsigned, with no status. Anyone
+    // who finds the URL can post to it, so the only safe design is to ignore
+    // the contents and ask SumUp. With SumUp unconfigured here, the endpoint
+    // must refuse to credit anything at all.
+    const forged = await postJson('/api/sumup-webhook', {
+      event_type: 'CHECKOUT_STATUS_CHANGED', id: 'not-a-real-checkout',
+    });
+    assert.equal(forged.status, 200, 'a non-2xx makes SumUp retry forever');
+    const d = await forged.json();
+    assert.ok(!d.credited, 'a forged webhook credited a payment');
+    assert.ok(d.ignored, 'the webhook did not say why it ignored the event');
+
+    // A payload claiming a paid status and an amount must change nothing —
+    // those fields do not exist in the real thing and must never be read.
+    const liar = await postJson('/api/sumup-webhook', {
+      event_type: 'CHECKOUT_STATUS_CHANGED', id: 'x', status: 'PAID', amount: 9999, checkout_reference: 'CMS-1',
+    });
+    assert.ok(!(await liar.json()).credited, 'the webhook trusted a status in the payload');
+  });
+
+  await check('confirming a payment cannot be used to fish for bookings', async () => {
+    const r = await api('/api/pay/confirm?ref=CMS-DEFINITELY-NOT-REAL');
+    assert.ok([200, 404].includes(r.status), `unexpected ${r.status}`);
+    const d = await r.json().catch(() => ({}));
+    assert.ok(!d.credited, 'confirm credited an unknown booking');
+  });
+
   await check('the metered third-party proxies are not open to the world', async () => {
     // These bill the client per call. Nothing on the public site uses them, so
     // open access was pure liability: anyone could run the quota to zero.

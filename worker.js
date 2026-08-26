@@ -867,6 +867,159 @@ async function stripeSigOk(env, rawBody, header) {
   return safeEqual(hex, sig);
 }
 
+/* ---------------------------------------------------------------- SumUp ----
+ *
+ * The client takes card payments through SumUp, not Stripe, so this is the
+ * provider actually in use. Stripe stays because it is written and tested and
+ * the next garage may well use it — paymentProvider() picks one.
+ *
+ * SumUp differs from Stripe in two ways that are both quietly dangerous:
+ *
+ * 1. AMOUNTS ARE DECIMAL MAJOR UNITS. SumUp wants 25.00, Stripe wants 2500,
+ *    and this system stores pence everywhere. Get it backwards and you charge
+ *    a customer either 100x too much or 100x too little, and the second one
+ *    looks like it worked. Conversion happens here and nowhere else, and there
+ *    are tests in both directions.
+ *
+ * 2. WEBHOOKS ARE NOT SIGNED, AND CARRY NO STATUS. The whole payload is
+ *    {event_type, id} — an id and nothing else. There is no HMAC, no secret,
+ *    no replay window. Anyone who finds the URL can POST to it.
+ *
+ *    So the webhook is treated as a nudge, never as evidence: it tells us
+ *    something changed, and then we ask SumUp what actually happened using our
+ *    own API key. SumUp's own documentation is explicit about this — "your
+ *    application must always verify if the event really took place, by calling
+ *    a relevant SumUp's API".
+ *
+ *    That ends up STRONGER than the Stripe signature check rather than weaker.
+ *    A forged Stripe webhook is stopped by failing the HMAC; a forged SumUp
+ *    webhook is stopped because nothing it says is believed in the first
+ *    place. The worst a forger achieves is making us ask SumUp about a
+ *    checkout id, and being told it is not paid.
+ */
+function sumupReady(env) { return !!(env.SUMUP_API_KEY && env.SUMUP_MERCHANT_CODE); }
+
+/** Which provider is live. Explicit, because "both configured" must not be ambiguous. */
+function paymentProvider(env) {
+  if (sumupReady(env)) return "sumup";
+  if (stripeReady(env)) return "stripe";
+  return null;
+}
+const paymentsReady = env => paymentProvider(env) !== null;
+
+/** Pence in, SumUp's decimal string out. The only place this conversion happens. */
+const penceToMajor = pence => (Math.round(Number(pence) || 0) / 100).toFixed(2);
+/** And back. Rounded, because 0.1 + 0.2 is not 0.3 and money cannot be approximate. */
+const majorToPence = major => Math.round(Number(major) * 100);
+
+async function sumupCall(env, method, path, body) {
+  if (!env.SUMUP_API_KEY) return { ok: false, reason: "SumUp not configured" };
+  const r = await fetch("https://api.sumup.com/v0.1" + path, {
+    method,
+    headers: {
+      authorization: "Bearer " + env.SUMUP_API_KEY,
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error reaching SumUp" };
+  const text = await r.text().catch(() => "");
+  if (!r.ok) {
+    console.error("[sumup]", method, path, r.status, text.slice(0, 300));
+    return { ok: false, status: r.status, reason: "SumUp returned " + r.status + ": " + text.slice(0, 200) };
+  }
+  try { return { ok: true, data: text ? JSON.parse(text) : {} }; }
+  catch { return { ok: false, reason: "unreadable response from SumUp" }; }
+}
+
+/**
+ * Ask SumUp what really happened to a checkout.
+ *
+ * Everything that marks a job paid goes through here. Returns the booking
+ * reference and the amount as SumUp reports them, never as the caller claims.
+ */
+async function sumupVerify(env, checkoutId) {
+  const id = String(checkoutId || "").trim();
+  if (!id) return { ok: false, reason: "no checkout id" };
+  const res = await sumupCall(env, "GET", "/checkouts/" + encodeURIComponent(id));
+  if (!res.ok) return res;
+  const c = res.data || {};
+  return {
+    ok: true,
+    id: c.id || id,
+    status: String(c.status || "").toUpperCase(),   // PENDING | PAID | FAILED | EXPIRED
+    paid: String(c.status || "").toUpperCase() === "PAID",
+    ref: String(c.checkout_reference || "").trim(),
+    pence: majorToPence(c.amount),
+    currency: String(c.currency || "").toUpperCase(),
+  };
+}
+
+/**
+ * Credit a verified payment to a job: record it, update the running total, and
+ * send the receipt to the customer and the alert to the owner.
+ *
+ * Shared by both providers on purpose. This logic used to live inside the
+ * Stripe webhook, and porting SumUp by copying it would have meant two receipt
+ * paths to keep in step — which is exactly how the card receipt came to print
+ * "££25.00" while the other path was correct.
+ *
+ * CALLERS MUST HAVE VERIFIED THE PAYMENT FIRST. Nothing here checks that money
+ * changed hands; it trusts `pence` completely. For Stripe that means a valid
+ * signature, for SumUp it means SumUp itself said PAID.
+ */
+async function creditPayment(env, ctx, { ref, email, pence, method, providerRef, auditEvent }) {
+  if (!ref) return { ok: true, ignored: "no reference" };
+  const owner = String(email || "").toLowerCase() || (await findBookingOwner(env, ref)) || "";
+  const key = "bookings:" + (owner || "guest");
+  const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+  const i = arr.findIndex(o => o.ref === ref);
+  if (i < 0) return { ok: true, ignored: "unknown booking" };
+
+  const job = arr[i];
+  job.payments = Array.isArray(job.payments) ? job.payments : [];
+  // Both providers retry until they get a 2xx, and the customer may also come
+  // back through the return URL, so the same payment can arrive three times.
+  // Keying on the provider's own id makes every repeat a no-op instead of a
+  // second charge against the job. `stripeSession` is still read so payments
+  // recorded before this was generalised still de-duplicate.
+  if (job.payments.some(x => x.providerRef === providerRef || x.stripeSession === providerRef)) {
+    return { ok: true, duplicate: true };
+  }
+
+  const amount = Math.round(Number(pence) || 0);
+  if (amount <= 0) return { ok: true, ignored: "zero amount" };
+
+  job.payments.push({ t: Date.now(), kind: "payment", pence: amount, method, note: "Deposit paid online", by: method, providerRef });
+  job.paidPence = (Number(job.paidPence) || 0) + amount;
+  job.updates = [...(job.updates || []), { t: Date.now(), s: "Deposit received", d: "£" + (amount / 100).toFixed(2) + " paid by card" }];
+  await env.CMS_KV.put(key, JSON.stringify(arr));
+  await audit(env, owner || "guest", auditEvent || "card_payment", ref + " £" + (amount / 100).toFixed(2));
+
+  if (job.email) {
+    const unsub = await unsubUrl(env, job.email);
+    const subject = "Payment received — " + ref + " — " + BUSINESS.shortName;
+    const html = renderEmail("payment_received", {
+      subject, preheader: "£" + (amount / 100).toFixed(2) + " received for " + ref,
+      firstname: String(job.name || "there").trim().split(/\s+/)[0],
+      // No £ here — the template already prints &pound; before {{{amount}}}.
+      booking_ref: ref, amount: (amount / 100).toFixed(2),
+      vehicle_reg: job.reg || "Not given",
+      service: job.svcLabel || job.service || "Mobile job",
+    }, { footer_note: "This is a receipt for job " + esc(ref) + ", not marketing." + (unsub ? '<br /><a href="' + unsub + '" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>' : "") });
+    sendEmailTracked(env, ctx, job.email, subject,
+      "Hi " + (job.name || "there") + ",\n\nWe have received your £" + (amount / 100).toFixed(2)
+      + " deposit for job " + ref + ".\n\nThe balance is payable on site when the work is done.\n\n" + BUSINESS.legalName,
+      null, { html, unsubscribeUrl: unsub });
+  }
+  if (validEmail(env.OWNER_EMAIL) || env.MAIL_FROM) {
+    sendEmailTracked(env, ctx, validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM,
+      "DEPOSIT PAID " + ref + " — £" + (amount / 100).toFixed(2),
+      "£" + (amount / 100).toFixed(2) + " deposit received for " + ref + " (" + (job.name || "") + ").");
+  }
+  return { ok: true, credited: amount };
+}
+
 /* =========================================================================
  * AVAILABILITY
  *
@@ -1472,7 +1625,10 @@ async function sendEmail(env, to, subject, text, ics, opts) {
 // Named exports for the test suite. The Workers runtime only looks at the
 // default export, so these cost nothing at runtime but let the tests assert
 // that no template variable is left unfilled.
-export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS };
+// penceToMajor/majorToPence are exported so the money conversion can be tested
+// directly. It is the one piece of arithmetic here that moves real money by a
+// factor of a hundred when it is wrong.
+export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS, penceToMajor, majorToPence };
 
 // ---------- Unsubscribe links ----------
 // The link has to work without the recipient logging in, and it must not let
@@ -1914,7 +2070,7 @@ async function api(request, env, url, ctx) {
    */
   if (p === "/deposit-config" && request.method === "GET") {
     const d = await depositSettings(env);
-    const live = d.enabled && stripeReady(env);
+    const live = d.enabled && paymentsReady(env);
     return json({ enabled: live, pence: live ? d.pence : 0, label: d.label });
   }
 
@@ -1929,7 +2085,7 @@ async function api(request, env, url, ctx) {
     const b = await request.json().catch(() => ({}));
     const ref = String(b.ref || "").trim();
     if (!ref) return bad("Missing booking reference");
-    if (!stripeReady(env)) return bad("Card payment is not switched on.", 503);
+    if (!paymentsReady(env)) return bad("Card payment is not switched on.", 503);
 
     const d = await depositSettings(env);
     if (!d.enabled) return bad("Card payment is not switched on.", 503);
@@ -1942,6 +2098,36 @@ async function api(request, env, url, ctx) {
     if (job.paidPence > 0) return bad("That booking is already paid.", 409);
 
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+
+    if (paymentProvider(env) === "sumup") {
+      /*
+       * checkout_reference is the booking ref, and it is how the webhook finds
+       * the job later. That matters: the webhook is unsigned, so the reference
+       * has to come back to us FROM SumUp rather than from whoever posted it.
+       */
+      const res = await sumupCall(env, "POST", "/checkouts", {
+        checkout_reference: ref,
+        // Decimal major units. The rest of this system is pence; the
+        // conversion lives in penceToMajor and nowhere else.
+        amount: Number(penceToMajor(d.pence)),
+        currency: "GBP",
+        merchant_code: env.SUMUP_MERCHANT_CODE,
+        description: d.label + " — " + (job.svcLabel || job.service || "Mobile job") + " (" + ref + ")",
+        redirect_url: site + "/#paid=" + encodeURIComponent(ref),
+        return_url: site + "/api/sumup-webhook",
+        hosted_checkout: { enabled: true },
+      });
+      if (!res.ok || !res.data || !res.data.hosted_checkout_url) {
+        await noteMailFailure(env, job.email || "(no email)", "SumUp checkout " + ref, { ...res, channel: "sumup" });
+        return bad("Could not start the payment. Please call " + BUSINESS.phone + ".", 502);
+      }
+      // Remembered so the return page can confirm without a webhook, and so an
+      // unknown checkout id arriving at the webhook can be ignored outright.
+      job.sumupCheckout = res.data.id;
+      await env.CMS_KV.put(key, JSON.stringify(arr));
+      return json({ url: res.data.hosted_checkout_url, id: res.data.id, provider: "sumup" });
+    }
+
     const res = await stripeCall(env, "/checkout/sessions", {
       __idem: "co_" + ref,
       mode: "payment",
@@ -1965,7 +2151,78 @@ async function api(request, env, url, ctx) {
       await noteMailFailure(env, job.email || "(no email)", "Stripe checkout " + ref, { ...res, channel: "stripe" });
       return bad("Could not start the payment. Please call " + BUSINESS.phone + ".", 502);
     }
-    return json({ url: res.data.url, id: res.data.id });
+    return json({ url: res.data.url, id: res.data.id, provider: "stripe" });
+  }
+
+  /*
+   * SumUp webhook. The entire payload is {event_type, id} — unsigned, and it
+   * does not even say whether the checkout was paid. So none of it is trusted:
+   * we take the id, ask SumUp what happened, and act only on SumUp's answer.
+   *
+   * A forged POST therefore achieves nothing except making us ask about a
+   * checkout that is not paid. Always answers 200, because a non-2xx makes
+   * SumUp retry, and there is nothing to retry when the answer is "that is not
+   * one of ours".
+   */
+  if (p === "/sumup-webhook") {
+    if (!sumupReady(env)) {
+      console.error("[sumup-webhook] rejected: SumUp is not configured");
+      return json({ ok: true, ignored: "not configured" });
+    }
+    const b = await request.json().catch(() => ({}));
+    // The return_url lands here as a GET when the customer comes back from the
+    // hosted page, so accept the id from either place.
+    const checkoutId = String(b.id || url.searchParams.get("checkout_id") || url.searchParams.get("id") || "").trim();
+    if (!checkoutId) return json({ ok: true, ignored: "no checkout id" });
+
+    const v = await sumupVerify(env, checkoutId);
+    if (!v.ok) return json({ ok: true, ignored: "could not verify", reason: v.reason });
+    if (!v.paid) return json({ ok: true, ignored: "status " + (v.status || "unknown") });
+
+    const out = await creditPayment(env, ctx, {
+      ref: v.ref,
+      pence: v.pence,
+      method: "card (SumUp)",
+      providerRef: v.id,
+      auditEvent: "sumup_payment",
+    });
+    return json({ ok: true, ...out });
+  }
+
+  /*
+   * Confirm a payment from the page the customer lands on afterwards.
+   *
+   * Webhooks are not instant and are not guaranteed. Without this, a customer
+   * who has genuinely paid can sit looking at a booking that still says unpaid
+   * and ring up about it. Safe to expose: it takes a booking reference,
+   * verifies with SumUp, and credits only what SumUp confirms — exactly what
+   * the webhook does. Calling it for an unpaid booking changes nothing.
+   */
+  if (p === "/pay/confirm" && request.method === "GET") {
+    if (await edgeLimited(env, "RL_LOOKUP", "payc:" + clientIp(request))) return bad("Too many attempts — try again shortly.", 429);
+    const ref = String(url.searchParams.get("ref") || "").trim();
+    if (!ref) return bad("Missing booking reference");
+    if (paymentProvider(env) !== "sumup") return json({ ok: true, paid: false, reason: "not applicable" });
+
+    const owner = (await findBookingOwner(env, ref)) || "";
+    const arr = JSON.parse((await env.CMS_KV.get("bookings:" + (owner || "guest"))) || "[]");
+    const job = arr.find(o => o.ref === ref);
+    if (!job) return bad("We cannot find that booking.", 404);
+    if (Number(job.paidPence) > 0) return json({ ok: true, paid: true, alreadyRecorded: true });
+    if (!job.sumupCheckout) return json({ ok: true, paid: false, reason: "no payment was started for this booking" });
+
+    const v = await sumupVerify(env, job.sumupCheckout);
+    if (!v.ok) return json({ ok: true, paid: false, reason: "could not reach SumUp" });
+    if (!v.paid) return json({ ok: true, paid: false, status: v.status });
+
+    const out = await creditPayment(env, ctx, {
+      ref: v.ref || ref,
+      pence: v.pence,
+      method: "card (SumUp)",
+      providerRef: v.id,
+      auditEvent: "sumup_payment",
+    });
+    return json({ ok: true, paid: true, ...out });
   }
 
   /*
@@ -1990,49 +2247,16 @@ async function api(request, env, url, ctx) {
     const email = String((s.metadata && s.metadata.email) || s.customer_email || "").toLowerCase();
     if (!ref) return json({ ok: true, ignored: "no reference" });
 
-    const key = "bookings:" + (email || "guest");
-    const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
-    const i = arr.findIndex(o => o.ref === ref);
-    if (i < 0) return json({ ok: true, ignored: "unknown booking" });
-
-    const job = arr[i];
-    job.payments = Array.isArray(job.payments) ? job.payments : [];
-    // Stripe retries until it gets a 2xx, so the same event can arrive more
-    // than once. Keying on the session id makes a repeat a no-op rather than
-    // a second payment against the job.
-    if (job.payments.some(x => x.stripeSession === s.id)) return json({ ok: true, duplicate: true });
-
-    const pence = Number(s.amount_total) || 0;
-    job.payments.push({ t: Date.now(), kind: "payment", pence, method: "card (Stripe)", note: "Deposit paid online", by: "stripe", stripeSession: s.id });
-    job.paidPence = (Number(job.paidPence) || 0) + pence;
-    job.updates = [...(job.updates || []), { t: Date.now(), s: "Deposit received", d: "£" + (pence / 100).toFixed(2) + " paid by card" }];
-    await env.CMS_KV.put(key, JSON.stringify(arr));
-    await audit(env, email || "guest", "stripe_payment", ref + " £" + (pence / 100).toFixed(2));
-
-    if (job.email) {
-      const unsub = await unsubUrl(env, job.email);
-      const subject = "Payment received — " + ref + " — " + BUSINESS.shortName;
-      const html = renderEmail("payment_received", {
-        subject, preheader: "£" + (pence / 100).toFixed(2) + " received for " + ref,
-        firstname: String(job.name || "there").trim().split(/\s+/)[0],
-        // No £ here. The template already prints &pound; in front of {{{amount}}},
-        // so this said "££25.00" on every card receipt the Stripe webhook sent.
-        // The other receipt path, further down, passes it bare and was right.
-        booking_ref: ref, amount: (pence / 100).toFixed(2),
-        vehicle_reg: job.reg || "Not given",
-        service: job.svcLabel || job.service || "Mobile job",
-      }, { footer_note: "This is a receipt for job " + esc(ref) + ", not marketing." + (unsub ? '<br /><a href="' + unsub + '" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>' : "") });
-      sendEmailTracked(env, ctx, job.email, subject,
-        "Hi " + (job.name || "there") + ",\n\nWe have received your £" + (pence / 100).toFixed(2)
-        + " deposit for job " + ref + ".\n\nThe balance is payable on site when the work is done.\n\n" + BUSINESS.legalName,
-        null, { html, unsubscribeUrl: unsub });
-    }
-    if (validEmail(env.OWNER_EMAIL) || env.MAIL_FROM) {
-      sendEmailTracked(env, ctx, validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM,
-        "DEPOSIT PAID " + ref + " — £" + (pence / 100).toFixed(2),
-        "£" + (pence / 100).toFixed(2) + " deposit received for " + ref + " (" + (job.name || "") + ").");
-    }
-    return json({ ok: true });
+    // Everything from here is shared with the SumUp path, so there is one
+    // receipt to keep correct rather than two that drift.
+    const out = await creditPayment(env, ctx, {
+      ref, email,
+      pence: Number(s.amount_total) || 0,
+      method: "card (Stripe)",
+      providerRef: s.id,
+      auditEvent: "stripe_payment",
+    });
+    return json({ ok: true, ...out });
   }
 
   if (p === "/crm-config" && request.method === "GET") {
@@ -2072,7 +2296,8 @@ async function api(request, env, url, ctx) {
         studioFlow: !!(env.TWILIO_STUDIO_FLOW_SID && env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         crm: !!env.HUBSPOT_PORTAL_ID,
         crmSync: !!env.HUBSPOT_TOKEN,
-        cardPayments: stripeReady(env),
+        cardPayments: paymentsReady(env),
+        paymentProvider: paymentProvider(env),
         calendar: calendarReady(env),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -4066,7 +4291,7 @@ async function processTyreStockForOrder(env, order) {
     /* Deposit amount and whether to ask for one at all. */
     if (p === "/admin/deposit") {
       if (request.method === "GET") {
-        return json({ settings: await depositSettings(env), stripeReady: stripeReady(env), defaults: DEFAULT_DEPOSIT });
+        return json({ settings: await depositSettings(env), stripeReady: paymentsReady(env), provider: paymentProvider(env), defaults: DEFAULT_DEPOSIT });
       }
       if (request.method === "POST") {
         // Switching deposits on starts charging customers before a job exists.
@@ -4082,7 +4307,7 @@ async function processTyreStockForOrder(env, order) {
           pence,
           label: String(b.label || cur.label).slice(0, 60),
         };
-        if (next.enabled && !stripeReady(env)) return bad("Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET before switching deposits on.", 400);
+        if (next.enabled && !paymentsReady(env)) return bad("Set the card payment keys before switching deposits on — SUMUP_API_KEY and SUMUP_MERCHANT_CODE, or the Stripe pair.", 400);
         await env.CMS_KV.put("deposit_settings", JSON.stringify(next));
         await audit(env, actor, "deposit_settings_updated", JSON.stringify(next));
         return json({ settings: next });
@@ -5066,6 +5291,25 @@ async function processTyreStockForOrder(env, order) {
        * mark a job paid. Say so rather than implying both were checked.
        */
       results.payments = await (async () => {
+        if (paymentProvider(env) === "sumup") {
+          // Prove the key AND the merchant code together. A valid key with the
+          // wrong merchant code creates checkouts against somebody else's
+          // account, which is the one failure here that moves real money to
+          // the wrong place — so it is worth an explicit check.
+          const me = await sumupCall(env, "GET", "/me");
+          if (!me.ok) {
+            return { ok: false, reason: "SumUp rejected the API key: " + (me.reason || "unknown") };
+          }
+          const merchant = me.data && me.data.merchant_profile && me.data.merchant_profile.merchant_code;
+          if (merchant && merchant !== env.SUMUP_MERCHANT_CODE) {
+            return { ok: false, reason: "The API key belongs to merchant " + merchant
+              + " but SUMUP_MERCHANT_CODE is set to " + env.SUMUP_MERCHANT_CODE
+              + ". Payments would be raised against the wrong account." };
+          }
+          if (!env.SUMUP_MERCHANT_CODE) return { ok: false, reason: "SUMUP_MERCHANT_CODE is not set." };
+          return { ok: true, reason: "SumUp key accepted for merchant " + (merchant || env.SUMUP_MERCHANT_CODE)
+            + ". Take a £1 booking to prove the full round trip." };
+        }
         if (!env.STRIPE_SECRET_KEY) return { skipped: true, reason: "Card payments are off" };
         try {
           const r = await fetch("https://api.stripe.com/v1/balance", {

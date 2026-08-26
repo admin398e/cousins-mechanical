@@ -255,7 +255,7 @@
             </div>
             <sc-if value="{{ depNoStripe }}" hint-placeholder-val="{{ false }}">
               <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13px;margin-bottom:14px;line-height:1.5">
-                Card payments are not set up yet, so deposits cannot be switched on. Until <strong>STRIPE_SECRET_KEY</strong> and <strong>STRIPE_WEBHOOK_SECRET</strong> are set, sending a customer to a checkout would take them to a page that fails.
+                Card payments are not set up yet, so deposits cannot be switched on. Until the card keys are set — <strong>SUMUP_API_KEY</strong> and <strong>SUMUP_MERCHANT_CODE</strong> — sending a customer to a checkout would take them to a page that fails.
               </div>
             </sc-if>
             <div style="display:grid;grid-template-columns:170px 1.4fr auto auto;gap:10px;align-items:end" class="adm-stockform">
