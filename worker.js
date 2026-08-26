@@ -835,6 +835,162 @@ function gsmSafe(text) {
   return out;
 }
 
+/* ---------------------------------------------------------- SPEND CAP ----
+ *
+ * Twilio is the one service billed to the developer's master account and
+ * resold, so it is the one place a client's traffic can run up somebody else's
+ * bill. This is the brake.
+ *
+ * THREE DECISIONS, EACH DELIBERATE:
+ *
+ * 1. It never blocks a job-critical message. A cap that stops a customer being
+ *    told their van is on the way has broken the product to save a few pounds,
+ *    and the client would rightly rather pay. Only the discretionary traffic —
+ *    test messages, bulk sends — stops. Job messages keep flowing and the
+ *    ALERTS get louder instead.
+ *
+ * 2. It fails open. If Twilio's usage API is unreachable we do not know the
+ *    spend, and refusing to send on a guess would take the site down every
+ *    time Twilio has a bad afternoon. Unknown means allowed, and says so.
+ *
+ * 3. Only a developer can change it. The client can SEE the cap and their
+ *    usage — that is the point, it makes the invoice evidence rather than a
+ *    claim — but a client who can raise their own ceiling is not a ceiling.
+ *
+ * The spend figure is cached and refreshed hourly by the cron rather than
+ * fetched per message: a booking confirmation should not wait on Twilio's
+ * billing API, and that API is rate limited.
+ */
+/*
+ * TWO ceilings, because one is not enough and I nearly shipped only the soft one.
+ *
+ *   monthlyCap  the budget. Alerts, and stops DISCRETIONARY traffic — tests,
+ *               bulk sends. Job messages keep flowing.
+ *   hardCap     the runaway brake. Stops EVERYTHING, including job messages.
+ *
+ * The soft cap alone protects nobody, and it took writing it to see why: the
+ * traffic that would actually run up a surprise bill — a retry loop, a
+ * compromised token, a client doing ten times the volume they were quoted — is
+ * all job traffic, and job traffic is exactly what the soft cap refuses to
+ * touch. A brake that cannot stop the runaway case is decoration.
+ *
+ * So hardCap exists and should be set well above any honest month, because
+ * reaching it means something is wrong rather than busy. When it does bite,
+ * every blocked message is written to the delivery-failure log and surfaces in
+ * the dashboard banner. Nothing is ever dropped quietly.
+ */
+const DEFAULT_LIMITS = {
+  monthlyCap: 0,        // in Twilio's own billing currency. 0 = no cap.
+  hardCap: 0,           // 0 = no runaway brake.
+  warnAtPct: 80,
+  blockDiscretionary: true,
+};
+
+async function usageLimits(env) {
+  const raw = await env.CMS_KV.get("usage_limits");
+  return { ...DEFAULT_LIMITS, ...(raw ? JSON.parse(raw) : {}) };
+}
+
+/** Month-to-date Twilio spend for this subaccount. Cached; `force` refetches. */
+async function twilioSpend(env, force = false) {
+  const CACHE = "twilio_spend";
+  if (!force) {
+    const c = JSON.parse((await env.CMS_KV.get(CACHE)) || "null");
+    if (c && Date.now() - c.at < 60 * 60 * 1000) return c;
+  }
+  if (!(env.TWILIO_SID && env.TWILIO_TOKEN)) {
+    return { at: Date.now(), known: false, reason: "Twilio is not configured" };
+  }
+  const r = await fetch(
+    "https://api.twilio.com/2010-04-01/Accounts/" + env.TWILIO_SID + "/Usage/Records/ThisMonth.json?PageSize=50",
+    { headers: { authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) } },
+  ).catch(() => null);
+  if (!r || !r.ok) {
+    // Deliberately NOT cached — a transient failure must not pin "unknown" in
+    // place for an hour and blind the cap for the rest of it.
+    return { at: Date.now(), known: false, reason: r ? "Twilio returned " + r.status : "could not reach Twilio" };
+  }
+  const d = await r.json().catch(() => ({}));
+  const rows = d.usage_records || [];
+  const total = rows.reduce((n, x) => n + (Number(x.price) || 0), 0);
+  const out = {
+    at: Date.now(), known: true,
+    spend: Math.round(total * 10000) / 10000,
+    currency: (rows.find(x => x.price_unit) || {}).price_unit || "",
+    month: new Date().toISOString().slice(0, 7),
+  };
+  await env.CMS_KV.put(CACHE, JSON.stringify(out));
+  return out;
+}
+
+/**
+ * May we send a discretionary message right now?
+ *
+ * `essential` traffic is never blocked — see decision 1 above.
+ */
+async function spendAllows(env, essential) {
+  const lim = await usageLimits(env);
+  if (!lim.monthlyCap && !lim.hardCap) return { allowed: true, reason: "no cap set" };
+
+  const s = await twilioSpend(env);
+  if (!s.known) return { allowed: true, reason: "spend unknown — failing open: " + (s.reason || "") };
+  const money = n => (s.currency ? s.currency + " " : "") + Number(n).toFixed(2);
+
+  // The runaway brake applies to everything, job messages included.
+  if (lim.hardCap && s.spend >= Number(lim.hardCap)) {
+    return {
+      allowed: false, hard: true, spend: s.spend, cap: lim.hardCap, currency: s.currency,
+      reason: "Runaway spend brake hit at " + money(s.spend) + " against a hard cap of "
+        + money(lim.hardCap) + ". ALL messages are stopped, including job updates, "
+        + "because spend this far above the budget means something is wrong rather than busy.",
+    };
+  }
+  // The budget cap stops only discretionary traffic.
+  if (essential) return { allowed: true, essential: true };
+  if (!lim.monthlyCap || !lim.blockDiscretionary) return { allowed: true, reason: "no soft cap" };
+  if (s.spend < Number(lim.monthlyCap)) return { allowed: true, spend: s.spend, cap: lim.monthlyCap };
+  return {
+    allowed: false, spend: s.spend, cap: lim.monthlyCap, currency: s.currency,
+    reason: "Monthly message spend cap reached (" + money(s.spend) + " of " + money(lim.monthlyCap)
+      + "). Job messages are still being sent; this one was not.",
+  };
+}
+
+/**
+ * Warn once when the spend crosses the threshold, and once more at the cap.
+ * Once per month per level — an alert that arrives every hour is an alert
+ * nobody reads by the second day.
+ */
+async function spendWatch(env) {
+  const lim = await usageLimits(env);
+  if (!lim.monthlyCap) return { skipped: true, reason: "no cap set" };
+  const s = await twilioSpend(env, true);
+  if (!s.known) return { skipped: true, reason: s.reason };
+
+  const pct = (s.spend / Number(lim.monthlyCap)) * 100;
+  const level = pct >= 100 ? "cap" : pct >= Number(lim.warnAtPct) ? "warn" : null;
+  if (!level) return { ok: true, spend: s.spend, pct: Math.round(pct) };
+
+  const stamp = "spend_alert:" + s.month + ":" + level;
+  if (await env.CMS_KV.get(stamp)) return { ok: true, alreadyAlerted: level };
+  await env.CMS_KV.put(stamp, "1", { expirationTtl: 60 * 60 * 24 * 40 });
+
+  const to = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
+  if (to) {
+    await sendEmail(env, to,
+      level === "cap"
+        ? "Message spend cap reached — " + BUSINESS.name
+        : "Message spend at " + Math.round(pct) + "% — " + BUSINESS.name,
+      "Twilio spend so far this month: " + s.currency + " " + s.spend.toFixed(2)
+      + " against a cap of " + Number(lim.monthlyCap).toFixed(2) + ".\n\n"
+      + (level === "cap"
+        ? "Discretionary messages have stopped. Booking confirmations and job updates are STILL being sent — the cap deliberately does not break customer communication.\n\nRaise the cap in the dashboard, or top up Twilio."
+        : "Nothing has stopped. This is the early warning.")
+      + "\n\nUsage: " + (env.SITE_URL || "") + "/admin");
+  }
+  return { ok: true, alerted: level, spend: s.spend, pct: Math.round(pct) };
+}
+
 /**
  * Add to this month's tally. Read-modify-write on one small key per month —
  * fine at a garage's volume, and deliberately never allowed to break a send:
@@ -860,8 +1016,21 @@ async function recordUsage(env, kind, n = 1) {
  * version returned that rejection and stopped, which is why customers were
  * getting no updates at all while the config looked complete.
  */
-async function sendSMS(env, to, body) {
+async function sendSMS(env, to, body, opts = {}) {
   if (!to) return { skipped: true, reason: "no phone number" };
+
+  // Essential by default. Anything genuinely discretionary — a test send, a
+  // bulk push — has to opt IN to being stoppable, so a new caller can never
+  // accidentally make a customer's job update droppable.
+  const essential = opts.essential !== false;
+  const budget = await spendAllows(env, essential);
+  if (!budget.allowed) {
+    // Recorded, never dropped quietly: this surfaces in the dashboard's
+    // delivery-failure banner exactly like a Twilio rejection would.
+    await noteMailFailure(env, to, "SMS blocked by spend cap", { reason: budget.reason, channel: "spend-cap" });
+    return { ok: false, blocked: true, reason: budget.reason };
+  }
+
   const attempts = [];
 
   if (env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_ID) {
@@ -4480,6 +4649,37 @@ async function processTyreStockForOrder(env, order) {
      * undercharge on long messages; quoting Twilio's as activity would miss
      * every WhatsApp message. So both are shown, labelled.
      */
+    /* The spend cap. Readable by anyone in the dashboard — the client should be
+     * able to see their own ceiling and where they are against it — but only a
+     * developer may change it, because a client who can raise their own cap
+     * does not have one. */
+    if (p === "/admin/limits") {
+      if (request.method === "GET") {
+        return json({ limits: await usageLimits(env), spend: await twilioSpend(env), defaults: DEFAULT_LIMITS });
+      }
+      if (request.method === "POST") {
+        const denied = needs("developer");
+        if (denied) return denied;
+        const b = await request.json().catch(() => ({}));
+        const cur = await usageLimits(env);
+        const num = (v, f) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : f; };
+        const next = {
+          monthlyCap: num(b.monthlyCap, cur.monthlyCap),
+          hardCap: num(b.hardCap, cur.hardCap),
+          warnAtPct: Math.max(10, Math.min(100, num(b.warnAtPct, cur.warnAtPct))),
+          blockDiscretionary: b.blockDiscretionary === undefined ? cur.blockDiscretionary : !!b.blockDiscretionary,
+        };
+        // A hard cap below the budget would stop everything the moment the
+        // budget is reached, which is not what "runaway brake" means.
+        if (next.hardCap && next.monthlyCap && next.hardCap < next.monthlyCap) {
+          return bad("The runaway brake must be higher than the budget, or it stops all messages as soon as the budget is reached.", 400);
+        }
+        await env.CMS_KV.put("usage_limits", JSON.stringify(next));
+        await audit(env, actor, "spend_limits_updated", JSON.stringify(next));
+        return json({ limits: next });
+      }
+    }
+
     if (p === "/admin/usage" && request.method === "GET") {
       const months = [];
       const now = new Date();
@@ -5409,7 +5609,7 @@ async function processTyreStockForOrder(env, order) {
         : { skipped: true, reason: "RESEND_API_KEY or MAIL_FROM not set" };
 
       results.phone = env.OWNER_PHONE
-        ? await sendSMS(env, env.OWNER_PHONE, `${BUSINESS.shortName}: test message sent ${stamp}. Your booking alerts are working.`)
+        ? await sendSMS(env, env.OWNER_PHONE, `${BUSINESS.shortName}: test message sent ${stamp}. Your booking alerts are working.`, { essential: false })
         : { skipped: true, reason: "OWNER_PHONE not set" };
 
       results.calendar = await addCalendarEvent(env, {
@@ -5909,6 +6109,8 @@ export default {
     // The cron fires hourly. Reminders decide for themselves whether it is the
     // right hour; the GDPR purge only needs to run once a day.
     ctx.waitUntil(reminderSweep(env).catch(e => console.error("[reminders]", e)));
+    // Hourly, so the warning arrives while there is still time to act on it.
+    ctx.waitUntil(spendWatch(env).catch(e => console.error("[spend]", e)));
     if (londonHour() === 3) {
       ctx.waitUntil(retentionSweep(env).catch(e => console.error("[retention]", e)));
     }

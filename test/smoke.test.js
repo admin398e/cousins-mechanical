@@ -848,6 +848,80 @@ try {
     assert.ok(!d.credited, 'confirm credited an unknown booking');
   });
 
+  await check('the spend cap can be read by anyone but only changed by a developer', async () => {
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+
+    const r = await (await api('/api/admin/limits', { headers: h })).json();
+    assert.ok(r.limits, 'no limits returned');
+    assert.equal(typeof r.limits.monthlyCap, 'number');
+    assert.equal(typeof r.limits.hardCap, 'number');
+
+    // A client who can raise their own ceiling does not have one. Built inline
+    // rather than via the shared helper, which is declared further down.
+    const password = 'a-properly-long-password';
+    // The FIRST account ever created is forced to owner by design, so make one
+    // to absorb that rule before testing what a real staff account may do.
+    // Without this the test passes or fails purely on suite ordering.
+    await api('/api/admin/staff', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ email: `cap-first-${Date.now()}@cousinsmechanicalservices.co.uk`, password }),
+    });
+    const email = `cap-staff-${Date.now()}@cousinsmechanicalservices.co.uk`;
+    const mk = await api('/api/admin/staff', {
+      method: 'POST', headers: h, body: JSON.stringify({ email, password, role: 'staff' }),
+    });
+    assert.equal(mk.status, 200, 'could not create the staff account');
+    // Assert the role really is staff, so a 403 below cannot pass for the
+    // wrong reason.
+    assert.equal((await mk.json()).staff.role, 'staff', 'the account under test is not actually staff');
+    const login = await postJson('/api/admin-login', { email, password, code: totpNow(totpSecret) });
+    const staffTok = (await login.json()).token;
+    const denied = await api('/api/admin/limits', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + staffTok },
+      body: JSON.stringify({ monthlyCap: 9999 }),
+    });
+    assert.equal(denied.status, 403, 'day-to-day staff changed the spend cap');
+  });
+
+  await check('the runaway brake must sit above the budget, not below it', async () => {
+    // A hard cap under the soft cap would stop every job message the instant
+    // the budget was reached — the opposite of what a runaway brake is for.
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const bad1 = await api('/api/admin/limits', {
+      method: 'POST', headers: h, body: JSON.stringify({ monthlyCap: 100, hardCap: 50 }),
+    });
+    assert.equal(bad1.status, 400, 'accepted a runaway brake below the budget');
+
+    const good = await api('/api/admin/limits', {
+      method: 'POST', headers: h, body: JSON.stringify({ monthlyCap: 100, hardCap: 300, warnAtPct: 80 }),
+    });
+    const goodBody = await good.json().catch(() => ({}));
+    assert.equal(good.status, 200, JSON.stringify(goodBody));
+    assert.equal(goodBody.limits.hardCap, 300);
+
+    // Put it back so the rest of the suite runs with no cap.
+    await api('/api/admin/limits', {
+      method: 'POST', headers: h, body: JSON.stringify({ monthlyCap: 0, hardCap: 0 }),
+    });
+  });
+
+  await check('a capped send is recorded as a failure, never dropped quietly', async () => {
+    // The whole point: if a message does not go, somebody has to be able to
+    // find out. A silent drop is the failure mode this project has been
+    // chasing all along.
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const i = src.indexOf('if (!budget.allowed)');
+    assert.ok(i > 0, 'the spend gate is gone from sendSMS');
+    const block = src.slice(i, i + 600);
+    assert.ok(block.includes('noteMailFailure'), 'a blocked message is not written to the failure log');
+    assert.ok(/essential\s*=\s*opts\.essential\s*!==\s*false/.test(src),
+      'messages are not essential-by-default — a new caller could make a job update droppable');
+  });
+
   await check('the metered third-party proxies are not open to the world', async () => {
     // These bill the client per call. Nothing on the public site uses them, so
     // open access was pure liability: anyone could run the quota to zero.
