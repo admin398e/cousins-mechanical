@@ -81,6 +81,10 @@
     { "@type": "City", "name": "Lyme Regis" },
     { "@type": "City", "name": "Beaminster" },
     { "@type": "City", "name": "Weymouth" },
+    { "@type": "City", "name": "Charmouth" },
+    { "@type": "City", "name": "Axminster" },
+    { "@type": "City", "name": "Crewkerne" },
+    { "@type": "City", "name": "Burton Bradstock" },
     { "@type": "AdministrativeArea", "name": "West Dorset" }
   ],
   "serviceArea": {
@@ -118,6 +122,39 @@
   "name": "Cousins Mechanical Services",
   "inLanguage": "en-GB",
   "publisher": { "@id": "https://cousinsmechanicalservices.co.uk/#business" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Do you charge a call-out fee in Bridport and West Dorset?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes — there is a £45 call-out charge, confirmed before you book. Tyre prices are shown per tyre and include fitting, and for any other work we confirm the full price with you before anything starts. Payment is taken on site when the job is done — card or cash, nothing to pay when you book." }
+    },
+    {
+      "@type": "Question",
+      "name": "Which areas does your mobile mechanic service cover?",
+      "acceptedAnswer": { "@type": "Answer", "text": "We cover Bridport, Dorchester, Lyme Regis, Beaminster, Charmouth, Burton Bradstock, Axminster, Crewkerne, Weymouth and the surrounding villages across West Dorset. We come to your home, your work or the roadside." }
+    },
+    {
+      "@type": "Question",
+      "name": "Can you fit new tyres at my home or workplace?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Pick your tyre size on our website to see live fitted prices per tyre, choose a time, and our mobile tyre fitter comes to you anywhere in the Bridport and West Dorset area. Fitting, balancing and disposal are included in the price shown." }
+    },
+    {
+      "@type": "Question",
+      "name": "Do you offer 24 hour breakdown and recovery?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes — breakdown and recovery runs 24 hours a day, 7 days a week across Bridport, Dorchester and West Dorset. Call 07925 340977 any time and we will come to you." }
+    },
+    {
+      "@type": "Question",
+      "name": "Can you service or repair my car at home?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Interim and full servicing, brakes, clutches, batteries and fault-code diagnostics are all carried out at your address by a fully equipped mobile mechanic, so you keep your day while the work gets done." }
+    }
+  ]
 }
 </script>
 <link rel="manifest" href="/site.webmanifest">
@@ -432,6 +469,36 @@
       </div>
     </div>
     </sc-if>
+  </div>
+</section>
+
+<!-- ===== FAQ (visible copy backing the FAQPage schema — keep the two in step) ===== -->
+<section id="faq" style="background:#efeae4;padding:64px 20px">
+  <div style="max-width:860px;margin:0 auto">
+    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:clamp(28px,4vw,40px);line-height:1.05;color:#14100e;margin-bottom:6px">COMMON QUESTIONS</div>
+    <p style="color:#5c534d;font-size:15px;margin:0 0 26px">Mobile mechanic, tyre fitting and 24hr recovery across Bridport &amp; West Dorset — the things people ask before they book.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <details style="background:#fff;border:1px solid #e0d9d2;border-radius:12px;padding:16px 18px">
+        <summary style="font-weight:700;color:#1c1817;cursor:pointer;font-size:15.5px">Do you charge a call-out fee in Bridport and West Dorset?</summary>
+        <p style="color:#5c534d;font-size:14.5px;line-height:1.65;margin:10px 0 0">Yes — there is a <strong>£45 call-out charge</strong>, confirmed before you book. Tyre prices are shown per tyre and include fitting, and for any other work we confirm the full price with you before anything starts. Payment is taken on site when the job is done — card or cash, nothing to pay when you book.</p>
+      </details>
+      <details style="background:#fff;border:1px solid #e0d9d2;border-radius:12px;padding:16px 18px">
+        <summary style="font-weight:700;color:#1c1817;cursor:pointer;font-size:15.5px">Which areas does your mobile mechanic service cover?</summary>
+        <p style="color:#5c534d;font-size:14.5px;line-height:1.65;margin:10px 0 0">We cover Bridport, Dorchester, Lyme Regis, Beaminster, Charmouth, Burton Bradstock, Axminster, Crewkerne, Weymouth and the surrounding villages across West Dorset. We come to your home, your work or the roadside.</p>
+      </details>
+      <details style="background:#fff;border:1px solid #e0d9d2;border-radius:12px;padding:16px 18px">
+        <summary style="font-weight:700;color:#1c1817;cursor:pointer;font-size:15.5px">Can you fit new tyres at my home or workplace?</summary>
+        <p style="color:#5c534d;font-size:14.5px;line-height:1.65;margin:10px 0 0">Yes. Pick your tyre size on our website to see live fitted prices per tyre, choose a time, and our mobile tyre fitter comes to you anywhere in the Bridport and West Dorset area. Fitting, balancing and disposal are included in the price shown.</p>
+      </details>
+      <details style="background:#fff;border:1px solid #e0d9d2;border-radius:12px;padding:16px 18px">
+        <summary style="font-weight:700;color:#1c1817;cursor:pointer;font-size:15.5px">Do you offer 24 hour breakdown and recovery?</summary>
+        <p style="color:#5c534d;font-size:14.5px;line-height:1.65;margin:10px 0 0">Yes — breakdown and recovery runs 24 hours a day, 7 days a week across Bridport, Dorchester and West Dorset. Call <a href="tel:07925340977" style="color:#c25e0c;font-weight:700">07925 340977</a> any time and we will come to you.</p>
+      </details>
+      <details style="background:#fff;border:1px solid #e0d9d2;border-radius:12px;padding:16px 18px">
+        <summary style="font-weight:700;color:#1c1817;cursor:pointer;font-size:15.5px">Can you service or repair my car at home?</summary>
+        <p style="color:#5c534d;font-size:14.5px;line-height:1.65;margin:10px 0 0">Yes. Interim and full servicing, brakes, clutches, batteries and fault-code diagnostics are all carried out at your address by a fully equipped mobile mechanic, so you keep your day while the work gets done.</p>
+      </details>
+    </div>
   </div>
 </section>
 

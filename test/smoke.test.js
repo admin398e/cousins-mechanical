@@ -1227,6 +1227,12 @@ try {
     }
   });
 
+  await check('a forged SumUp callback bounces instead of storing anything', async () => {
+    const r = await api('/api/oauth/sumup/callback?code=fake&state=never-issued', { redirect: 'manual' });
+    assert.equal(r.status, 302, `forged SumUp callback did not redirect (status ${r.status})`);
+    assert.ok((r.headers.get('location') || '').includes('sumup=expired'), 'forged SumUp callback was not refused readably');
+  });
+
   await check('a forged Google Calendar callback bounces instead of storing anything', async () => {
     // The state nonce is the whole defence: without it, anyone who found the
     // callback URL could connect THEIR Google account as the business diary.
@@ -1524,6 +1530,33 @@ try {
       const d = await r.json();
       assert.ok(String(d.error).includes('GOOGLE_CLIENT_ID'), 'failure does not say what needs setting');
     }
+  });
+
+  await check('connecting SumUp is configuration, not day-to-day staff work', async () => {
+    const s = await asStaff('staff');
+    const denied = await staffApi('/api/admin/sumup/connect-url', s.token, { method: 'POST' });
+    assert.equal(denied.status, 403, 'day-to-day staff started a SumUp connection');
+
+    const dev = await asStaff('developer');
+    const start = await staffApi('/api/admin/sumup/connect-url', dev.token, { method: 'POST' });
+    if (start.status === 200) {
+      const d = await start.json();
+      assert.ok(String(d.url).startsWith('https://api.sumup.com/authorize?'), 'not a SumUp consent URL: ' + d.url);
+    } else {
+      assert.equal(start.status, 400, `unexpected status ${start.status}`);
+      assert.ok(String((await start.json()).error).includes('SUMUP_CLIENT_ID'), 'failure does not say what to set');
+    }
+
+    const status = await staffApi('/api/admin/sumup/status', dev.token);
+    assert.equal(status.status, 200, 'sumup status endpoint broken');
+    assert.equal(typeof (await status.json()).connected, 'boolean');
+
+    // The tyre list export: today's live prices, importable into SumUp Items.
+    const csv = await staffApi('/api/admin/sumup/items.csv', dev.token);
+    assert.equal(csv.status, 200, 'items csv export broken');
+    const text = await csv.text();
+    assert.ok(text.startsWith('"Item name","Price (GBP)"'), 'csv header wrong: ' + text.slice(0, 60));
+    assert.ok(text.split('\r\n').length > 100, 'csv suspiciously short — catalogue missing?');
   });
 
   await check('a staff account cannot promote anyone, including itself', async () => {

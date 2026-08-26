@@ -291,6 +291,25 @@
             </div>
           </div>
 
+          <!-- SUMUP: how the money comes in -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">CARD PAYMENTS — SUMUP</div>
+              <span style="{{ suStateStyle }}">{{ suState }}</span>
+            </div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              Connect the business SumUp account and card payments (deposits, pay-by-link) go straight into it. Every checkout is raised at the site's live price at that moment, so what the customer pays can never lag behind a price change made here.
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button onClick="{{ connectSumup }}" style="background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:11px 16px;cursor:pointer;font-size:14px">Connect SumUp</button>
+              <button onClick="{{ downloadSumupItems }}" style="background:#241d19;border:1px solid #3a322d;color:#d9d2cc;font-weight:700;border-radius:10px;padding:11px 16px;cursor:pointer;font-size:14px">{{ suCsvLabel }}</button>
+            </div>
+            <div style="color:#8a817b;font-size:12px;margin-top:12px;line-height:1.55">
+              The download is every tyre at today's selling price with its photo link, ready for <strong>Items → Import</strong> in the SumUp dashboard. SumUp has no way for the site to write into its item list automatically, so re-download and re-import after a price change if you use the SumUp app's own item list — online payments never need it.
+            </div>
+            <sc-if value="{{ suMsg }}" hint-placeholder-val="{{ false }}"><div style="color:#e05a4e;font-size:13px;margin-top:12px;font-weight:600">{{ suMsg }}</div></sc-if>
+          </div>
+
           <!-- DEPOSITS -->
           <sc-if value="{{ depReady }}" hint-placeholder-val="{{ true }}">
           <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
@@ -1446,7 +1465,8 @@ class Component extends DCLogic {
     depSettings: null, depStripeReady: false, depMsg: '', depErr: '', depBusy: false,
     retPolicy: null, retDefaults: null, retLastRun: null, retLastBackup: null, retMsg: '', retErr: '', retBusy: false,
     sysHealth: null, sysBusy: '', sysMsg: '', sysErr: '', sysPurge: null, sysPurgeArm: false,
-    usage: null, svcStatus: null
+    usage: null, svcStatus: null,
+    sumupStatus: null, suMsg: '', suBusy: false
   };
 
   componentDidMount(){
@@ -1477,6 +1497,23 @@ class Component extends DCLogic {
           'no-identity': 'Google did not confirm who you are — try again.',
         };
         this.setState({ loginErr: why[gauth] || ('Google sign-in failed: ' + gauth) });
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }catch(e){}
+    // Back from SumUp's consent screen? Land on the System tab with the verdict.
+    try{
+      const sumup = new URLSearchParams(window.location.search).get('sumup');
+      if(sumup){
+        const why = {
+          'connected': '',
+          'cancelled': 'The SumUp connection was cancelled before it finished.',
+          'expired': 'That connection attempt expired — press Connect SumUp again.',
+          'exchange-failed': 'SumUp rejected the connection. Check the redirect URL is registered on the OAuth app, then try again.',
+          'no-refresh-token': 'SumUp did not hand back a reusable token — press Connect again.',
+          'no-merchant': 'SumUp signed in but did not report a merchant code. Is that SumUp account fully set up as a business?',
+          'not-configured': 'The SumUp connection is not set up yet — the developer needs to add the SUMUP_CLIENT_ID and SUMUP_CLIENT_SECRET secrets.',
+        };
+        this.setState({ tab:'settings', suMsg: why[sumup] !== undefined ? why[sumup] : ('SumUp connection failed: ' + sumup) });
         window.history.replaceState(null, '', window.location.pathname);
       }
     }catch(e){}
@@ -2238,11 +2275,13 @@ class Component extends DCLogic {
   async loadSystem(){
     if(!this.hasServer() || this.state.demoMode) return;
     try{
-      const [d, r, u, st] = await Promise.all([
+      const [d, r, u, st, su] = await Promise.all([
         this.af('/admin/deposit'), this.af('/admin/retention'), this.af('/admin/usage'), this.af('/admin/service-status'),
+        this.af('/admin/sumup/status'),
       ]);
       if(u.ok) this.setState({ usage: await u.json() });
       if(st.ok) this.setState({ svcStatus: await st.json() });
+      if(su.ok) this.setState({ sumupStatus: await su.json() });
       if(d.ok){
         const dd = await d.json();
         this.setState({ depSettings: dd.settings || null, depStripeReady: !!dd.stripeReady });
@@ -2254,6 +2293,34 @@ class Component extends DCLogic {
       }
     }catch(e){ this.setState({ sysErr: 'Could not load the system settings — check your connection and press Refresh.' }); }
   }
+
+  // "Connect SumUp" — same shape as the calendar connect: the server builds
+  // the consent URL and the whole sign-in happens on SumUp's own pages.
+  connectSumup = async () => {
+    try {
+      const r = await this.af('/admin/sumup/connect-url', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) { window.location.href = d.url; return; }
+      this.setState({ suMsg: d.error || 'Could not start the SumUp connection.' });
+    } catch (e) {
+      this.setState({ suMsg: 'Could not start the SumUp connection: ' + e.message });
+    }
+  };
+  // Authenticated CSV download: fetch with the session header, save the blob.
+  downloadSumupItems = async () => {
+    try {
+      this.setState({ suBusy: true, suMsg: '' });
+      const r = await this.af('/admin/sumup/items.csv');
+      if (!r.ok) { const d = await r.json().catch(()=>({})); this.setState({ suBusy:false, suMsg: d.error || 'Export failed.' }); return; }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'sumup-tyre-items.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      this.setState({ suBusy: false });
+    } catch (e) { this.setState({ suBusy:false, suMsg: 'Export failed: ' + e.message }); }
+  };
 
   setDep = (field, val) => this.setState(s => ({ depSettings: { ...(s.depSettings||{}), [field]: val }, depMsg:'', depErr:'' }));
   setDepPounds = e => {
@@ -2350,6 +2417,24 @@ class Component extends DCLogic {
       sysRefresh: () => this.loadSystem(),
 
       /* Deposits */
+      // SumUp panel. `sumupStatus` is null until /admin/sumup/status answers,
+      // and every label renders sensibly from null — same rule as deposits.
+      connectSumup: this.connectSumup,
+      downloadSumupItems: this.downloadSumupItems,
+      suMsg: s.suMsg || '',
+      suCsvLabel: s.suBusy ? 'Preparing…' : 'Download tyre list for SumUp',
+      suState: (() => {
+        const su = s.sumupStatus;
+        if (!su) return 'Checking…';
+        if (su.viaApiKey) return 'LIVE — via API key' + (su.merchant ? ' (' + su.merchant + ')' : '');
+        if (su.connected) return 'CONNECTED — ' + (su.account || su.merchant || 'SumUp account');
+        if (su.provider === 'stripe') return 'NOT CONNECTED — payments running on Stripe';
+        return 'NOT CONNECTED';
+      })(),
+      suStateStyle: 'border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:700;'
+        + ((s.sumupStatus && (s.sumupStatus.connected || s.sumupStatus.viaApiKey))
+          ? 'background:rgba(57,168,84,.16);color:#4fe06a;border:1px solid #39a854'
+          : 'background:#2a2320;color:#9a918a;border:1px solid #3a322d'),
       depReady: !!dep,
       depOn: !!(dep && dep.enabled),
       depAmount: dep ? (dep.poundsInput !== undefined ? dep.poundsInput : (Number(dep.pence||0)/100).toFixed(2)) : '',

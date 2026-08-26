@@ -1177,15 +1177,69 @@ async function stripeSigOk(env, rawBody, header) {
  *    place. The worst a forger achieves is making us ask SumUp about a
  *    checkout id, and being told it is not paid.
  */
-function sumupReady(env) { return !!(env.SUMUP_API_KEY && env.SUMUP_MERCHANT_CODE); }
+/*
+ * Two ways in, one rule. An API key set as a secret (the client makes one in
+ * his own SumUp dashboard) always wins — it is a deliberate configuration.
+ * Otherwise the "Connect SumUp" button: the client signs in with HIS SumUp
+ * account, the OAuth tokens land in KV under "sumup_oauth", and access tokens
+ * are refreshed on demand. SumUp ROTATES refresh tokens — every refresh hands
+ * back a new one and the old one dies — so the rotated token is persisted
+ * immediately or the connection silently breaks within the hour.
+ */
+async function sumupStored(env) {
+  try { return JSON.parse((await env.CMS_KV.get("sumup_oauth")) || "null"); }
+  catch { return null; }
+}
+
+/** Live SumUp credentials: { token, merchant } — or null when not configured. */
+async function sumupAuth(env) {
+  if (env.SUMUP_API_KEY && env.SUMUP_MERCHANT_CODE) {
+    return { token: env.SUMUP_API_KEY, merchant: env.SUMUP_MERCHANT_CODE };
+  }
+  if (!env.SUMUP_CLIENT_ID || !env.SUMUP_CLIENT_SECRET) return null;
+  const s = await sumupStored(env);
+  if (!s || !s.refresh_token) return null;
+  if (s.access_token && Number(s.access_expires) > Date.now() + 60000) {
+    return { token: s.access_token, merchant: s.merchant_code || "" };
+  }
+  const r = await fetch("https://api.sumup.com/token", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: s.refresh_token,
+      client_id: env.SUMUP_CLIENT_ID,
+      client_secret: env.SUMUP_CLIENT_SECRET,
+    }),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    const detail = r ? await r.text().catch(() => "") : "network error";
+    console.error("[sumup] token refresh failed:", String(detail).slice(0, 300));
+    // invalid_grant means the refresh token is dead (revoked, or a rotation
+    // was lost). The connection is over; the dashboard shows Connect again.
+    if (String(detail).includes("invalid_grant")) await env.CMS_KV.delete("sumup_oauth");
+    return null;
+  }
+  const t = await r.json().catch(() => ({}));
+  if (!t.access_token) return null;
+  const next = {
+    ...s,
+    access_token: t.access_token,
+    access_expires: Date.now() + (Number(t.expires_in) || 3599) * 1000,
+    refresh_token: t.refresh_token || s.refresh_token,
+  };
+  await env.CMS_KV.put("sumup_oauth", JSON.stringify(next));
+  return { token: next.access_token, merchant: next.merchant_code || "" };
+}
+
+async function sumupReady(env) { return !!(await sumupAuth(env)); }
 
 /** Which provider is live. Explicit, because "both configured" must not be ambiguous. */
-function paymentProvider(env) {
-  if (sumupReady(env)) return "sumup";
+async function paymentProvider(env) {
+  if (await sumupReady(env)) return "sumup";
   if (stripeReady(env)) return "stripe";
   return null;
 }
-const paymentsReady = env => paymentProvider(env) !== null;
+const paymentsReady = async env => (await paymentProvider(env)) !== null;
 
 /** Pence in, SumUp's decimal string out. The only place this conversion happens. */
 const penceToMajor = pence => (Math.round(Number(pence) || 0) / 100).toFixed(2);
@@ -1193,11 +1247,12 @@ const penceToMajor = pence => (Math.round(Number(pence) || 0) / 100).toFixed(2);
 const majorToPence = major => Math.round(Number(major) * 100);
 
 async function sumupCall(env, method, path, body) {
-  if (!env.SUMUP_API_KEY) return { ok: false, reason: "SumUp not configured" };
+  const auth = await sumupAuth(env);
+  if (!auth) return { ok: false, reason: "SumUp not configured" };
   const r = await fetch("https://api.sumup.com/v0.1" + path, {
     method,
     headers: {
-      authorization: "Bearer " + env.SUMUP_API_KEY,
+      authorization: "Bearer " + auth.token,
       ...(body ? { "content-type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -2386,7 +2441,7 @@ async function api(request, env, url, ctx) {
    */
   if (p === "/deposit-config" && request.method === "GET") {
     const d = await depositSettings(env);
-    const live = d.enabled && paymentsReady(env);
+    const live = d.enabled && (await paymentsReady(env));
     return json({ enabled: live, pence: live ? d.pence : 0, label: d.label });
   }
 
@@ -2401,7 +2456,7 @@ async function api(request, env, url, ctx) {
     const b = await request.json().catch(() => ({}));
     const ref = String(b.ref || "").trim();
     if (!ref) return bad("Missing booking reference");
-    if (!paymentsReady(env)) return bad("Card payment is not switched on.", 503);
+    if (!(await paymentsReady(env))) return bad("Card payment is not switched on.", 503);
 
     const d = await depositSettings(env);
     if (!d.enabled) return bad("Card payment is not switched on.", 503);
@@ -2415,7 +2470,7 @@ async function api(request, env, url, ctx) {
 
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
 
-    if (paymentProvider(env) === "sumup") {
+    if ((await paymentProvider(env)) === "sumup") {
       /*
        * checkout_reference is the booking ref, and it is how the webhook finds
        * the job later. That matters: the webhook is unsigned, so the reference
@@ -2427,7 +2482,7 @@ async function api(request, env, url, ctx) {
         // conversion lives in penceToMajor and nowhere else.
         amount: Number(penceToMajor(d.pence)),
         currency: "GBP",
-        merchant_code: env.SUMUP_MERCHANT_CODE,
+        merchant_code: (await sumupAuth(env)).merchant,
         description: d.label + " — " + (job.svcLabel || job.service || "Mobile job") + " (" + ref + ")",
         redirect_url: site + "/#paid=" + encodeURIComponent(ref),
         return_url: site + "/api/sumup-webhook",
@@ -2481,7 +2536,7 @@ async function api(request, env, url, ctx) {
    * one of ours".
    */
   if (p === "/sumup-webhook") {
-    if (!sumupReady(env)) {
+    if (!(await sumupReady(env))) {
       console.error("[sumup-webhook] rejected: SumUp is not configured");
       return json({ ok: true, ignored: "not configured" });
     }
@@ -2518,7 +2573,7 @@ async function api(request, env, url, ctx) {
     if (await edgeLimited(env, "RL_LOOKUP", "payc:" + clientIp(request))) return bad("Too many attempts — try again shortly.", 429);
     const ref = String(url.searchParams.get("ref") || "").trim();
     if (!ref) return bad("Missing booking reference");
-    if (paymentProvider(env) !== "sumup") return json({ ok: true, paid: false, reason: "not applicable" });
+    if ((await paymentProvider(env)) !== "sumup") return json({ ok: true, paid: false, reason: "not applicable" });
 
     const owner = (await findBookingOwner(env, ref)) || "";
     const arr = JSON.parse((await env.CMS_KV.get("bookings:" + (owner || "guest"))) || "[]");
@@ -2612,8 +2667,8 @@ async function api(request, env, url, ctx) {
         studioFlow: !!(env.TWILIO_STUDIO_FLOW_SID && env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM),
         crm: !!env.HUBSPOT_PORTAL_ID,
         crmSync: !!env.HUBSPOT_TOKEN,
-        cardPayments: paymentsReady(env),
-        paymentProvider: paymentProvider(env),
+        cardPayments: await paymentsReady(env),
+        paymentProvider: await paymentProvider(env),
         calendar: await calendarReady(env),
         adminToken: !!env.ADMIN_TOKEN,
         sessionPepper: !!env.SESSION_PEPPER,
@@ -4141,6 +4196,72 @@ async function processTyreStockForOrder(env, order) {
     return back("connected");
   }
 
+  /*
+   * "Connect SumUp" — step two. Same discipline as the Google callback: the
+   * state nonce proves a signed-in owner/developer started this minutes ago,
+   * the code is exchanged server-side, and the rotating refresh token lives
+   * in KV. The merchant code is read from SumUp's own /me answer — never
+   * typed, so it can never be somebody else's account by typo.
+   */
+  if (p === "/oauth/sumup/callback" && request.method === "GET") {
+    const back = (msg) => new Response(null, {
+      status: 302,
+      headers: { ...SECURITY_HEADERS, Location: "/admin?sumup=" + encodeURIComponent(msg) },
+    });
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state") || "";
+    if (!code || !state) return back("cancelled");
+    const stRaw = await env.CMS_KV.get("gcal_state:" + state);
+    if (!stRaw) return back("expired");
+    await env.CMS_KV.delete("gcal_state:" + state);
+    let st = {};
+    try { st = JSON.parse(stRaw) || {}; } catch (e) { /* fall through */ }
+    if (st.kind !== "sumup") return back("expired");
+    if (!env.SUMUP_CLIENT_ID || !env.SUMUP_CLIENT_SECRET) return back("not-configured");
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const r = await fetch("https://api.sumup.com/token", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code,
+        client_id: env.SUMUP_CLIENT_ID, client_secret: env.SUMUP_CLIENT_SECRET,
+        redirect_uri: site + "/api/oauth/sumup/callback",
+      }),
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      const detail = r ? await r.text().catch(() => "") : "network error";
+      console.error("[sumup] code exchange failed:", String(detail).slice(0, 300));
+      return back("exchange-failed");
+    }
+    const tok = await r.json().catch(() => ({}));
+    if (!tok.access_token) return back("exchange-failed");
+    if (!tok.refresh_token) return back("no-refresh-token");
+    // Whose account is this really? Ask SumUp, then store its answer.
+    let merchant = "", email = "";
+    try {
+      const me = await fetch("https://api.sumup.com/v0.1/me", {
+        headers: { authorization: "Bearer " + tok.access_token },
+      });
+      if (me.ok) {
+        const d = await me.json();
+        merchant = (d.merchant_profile && d.merchant_profile.merchant_code) || "";
+        email = (d.account && d.account.username) || d.personal_profile && d.personal_profile.email || "";
+      }
+    } catch (e) { /* status shows blank merchant; connect can be retried */ }
+    if (!merchant) return back("no-merchant");
+    await env.CMS_KV.put("sumup_oauth", JSON.stringify({
+      refresh_token: tok.refresh_token,
+      access_token: tok.access_token,
+      access_expires: Date.now() + (Number(tok.expires_in) || 3599) * 1000,
+      merchant_code: merchant,
+      email,
+      connected_at: Date.now(),
+    }));
+    let who = "oauth";
+    try { who = st.actor || "oauth"; } catch (e) { /* keep default */ }
+    await audit(env, who, "sumup-connected", merchant + (email ? " " + email : ""));
+    return back("connected");
+  }
+
   if (p === "/firebase-config" && request.method === "GET") {
     if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 404);
     return new Response(env.FIREBASE_WEB_CONFIG, {
@@ -4770,7 +4891,7 @@ async function processTyreStockForOrder(env, order) {
     /* Deposit amount and whether to ask for one at all. */
     if (p === "/admin/deposit") {
       if (request.method === "GET") {
-        return json({ settings: await depositSettings(env), stripeReady: paymentsReady(env), provider: paymentProvider(env), defaults: DEFAULT_DEPOSIT });
+        return json({ settings: await depositSettings(env), stripeReady: await paymentsReady(env), provider: await paymentProvider(env), defaults: DEFAULT_DEPOSIT });
       }
       if (request.method === "POST") {
         // Switching deposits on starts charging customers before a job exists.
@@ -4786,7 +4907,7 @@ async function processTyreStockForOrder(env, order) {
           pence,
           label: String(b.label || cur.label).slice(0, 60),
         };
-        if (next.enabled && !paymentsReady(env)) return bad("Set the card payment keys before switching deposits on — SUMUP_API_KEY and SUMUP_MERCHANT_CODE, or the Stripe pair.", 400);
+        if (next.enabled && !(await paymentsReady(env))) return bad("Connect SumUp (or set the SumUp/Stripe secrets) before switching deposits on.", 400);
         await env.CMS_KV.put("deposit_settings", JSON.stringify(next));
         await audit(env, actor, "deposit_settings_updated", JSON.stringify(next));
         return json({ settings: next });
@@ -5928,23 +6049,24 @@ async function processTyreStockForOrder(env, order) {
        * mark a job paid. Say so rather than implying both were checked.
        */
       results.payments = await (async () => {
-        if (paymentProvider(env) === "sumup") {
-          // Prove the key AND the merchant code together. A valid key with the
-          // wrong merchant code creates checkouts against somebody else's
-          // account, which is the one failure here that moves real money to
-          // the wrong place — so it is worth an explicit check.
+        if ((await paymentProvider(env)) === "sumup") {
+          // Prove the credentials AND the merchant code together. Valid
+          // credentials with the wrong merchant code create checkouts against
+          // somebody else's account — the one failure here that moves real
+          // money to the wrong place — so it is worth an explicit check.
+          const auth = await sumupAuth(env);
           const me = await sumupCall(env, "GET", "/me");
           if (!me.ok) {
-            return { ok: false, reason: "SumUp rejected the API key: " + (me.reason || "unknown") };
+            return { ok: false, reason: "SumUp rejected the credentials: " + (me.reason || "unknown") };
           }
           const merchant = me.data && me.data.merchant_profile && me.data.merchant_profile.merchant_code;
-          if (merchant && merchant !== env.SUMUP_MERCHANT_CODE) {
-            return { ok: false, reason: "The API key belongs to merchant " + merchant
-              + " but SUMUP_MERCHANT_CODE is set to " + env.SUMUP_MERCHANT_CODE
+          if (merchant && auth.merchant && merchant !== auth.merchant) {
+            return { ok: false, reason: "The credentials belong to merchant " + merchant
+              + " but the configured merchant code is " + auth.merchant
               + ". Payments would be raised against the wrong account." };
           }
-          if (!env.SUMUP_MERCHANT_CODE) return { ok: false, reason: "SUMUP_MERCHANT_CODE is not set." };
-          return { ok: true, reason: "SumUp key accepted for merchant " + (merchant || env.SUMUP_MERCHANT_CODE)
+          if (!merchant && !auth.merchant) return { ok: false, reason: "SumUp accepted the credentials but no merchant code is known." };
+          return { ok: true, reason: "SumUp connected for merchant " + (merchant || auth.merchant)
             + ". Take a £1 booking to prove the full round trip." };
         }
         if (!env.STRIPE_SECRET_KEY) return { skipped: true, reason: "Card payments are off" };
@@ -6051,6 +6173,94 @@ async function processTyreStockForOrder(env, order) {
       await env.CMS_KV.delete("gcal_oauth");
       await audit(env, actor, "gcal-disconnected", "");
       return json({ ok: true });
+    }
+
+    /*
+     * "Connect SumUp" — the client signs in with his own SumUp account, the
+     * same shape as the Google Calendar connect. Owner/developer only.
+     */
+    if (p === "/admin/sumup/connect-url" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      if (!env.SUMUP_CLIENT_ID || !env.SUMUP_CLIENT_SECRET) {
+        return bad("The SumUp connection is not set up yet. The developer needs to add the SUMUP_CLIENT_ID and SUMUP_CLIENT_SECRET secrets first.", 400);
+      }
+      const nonce = crypto.randomUUID();
+      await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "sumup", actor, t: Date.now() }), { expirationTtl: 600 });
+      const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+      const u = new URL("https://api.sumup.com/authorize");
+      u.searchParams.set("response_type", "code");
+      u.searchParams.set("client_id", env.SUMUP_CLIENT_ID);
+      u.searchParams.set("redirect_uri", site + "/api/oauth/sumup/callback");
+      // "payments" creates checkouts, and SumUp enables it per app on request.
+      // If the consent screen refuses the scope, that is the signal to email
+      // SumUp's integration team — the error names the scope for exactly that.
+      u.searchParams.set("scope", "payments transactions.history user.profile_readonly");
+      u.searchParams.set("state", nonce);
+      return json({ url: u.toString(), redirectUri: site + "/api/oauth/sumup/callback" });
+    }
+
+    if (p === "/admin/sumup/disconnect" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      await env.CMS_KV.delete("sumup_oauth");
+      await audit(env, actor, "sumup-disconnected", "");
+      return json({ ok: true });
+    }
+
+    /* What the payments panel shows: which provider, whose account, how connected. */
+    if (p === "/admin/sumup/status" && request.method === "GET") {
+      const s = await sumupStored(env);
+      return json({
+        provider: await paymentProvider(env),
+        viaApiKey: !!(env.SUMUP_API_KEY && env.SUMUP_MERCHANT_CODE),
+        connected: !!(s && s.refresh_token),
+        merchant: (env.SUMUP_MERCHANT_CODE || (s && s.merchant_code)) || "",
+        account: (s && s.email) || "",
+        canConnect: !!(env.SUMUP_CLIENT_ID && env.SUMUP_CLIENT_SECRET),
+      });
+    }
+
+    /*
+     * The tyre catalogue as a SumUp-importable CSV. SumUp has no public
+     * catalogue API, so this is the honest version of "keep SumUp in step
+     * with the site": one click exports every priced tyre at TODAY'S retail
+     * price, with the site's image URL, ready for the Items import in the
+     * SumUp dashboard. Prices on the site itself never depend on this —
+     * every checkout is raised at the live site price.
+     */
+    if (p === "/admin/sumup/items.csv" && request.method === "GET") {
+      const { catalogue, costMap } = await tyreData(env);
+      const pricing = await getPricing(env);
+      const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+      const esc2 = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+      const rows = [["Item name", "Price (GBP)", "Category", "Description", "Image URL", "SKU"]];
+      for (const [sizeKey, list] of Object.entries(catalogue)) {
+        if (!Array.isArray(list) || !list.length) continue;
+        // Same pricing path the live site uses — lookupBySize prices whole
+        // sizes through pricedSize, so the CSV can never disagree with the
+        // price a customer sees today.
+        for (const t of lookupBySize(catalogue, costMap, sizeKey, pricing).tyres) {
+          if (t.price == null) continue;
+          const tierName = t.tier === "P" ? "Premium tyres" : t.tier === "M" ? "Mid-range tyres" : "Budget tyres";
+          rows.push([
+            [t.brand, t.model, t.label || sizeKey].filter(Boolean).join(" "),
+            Number(t.price).toFixed(2),
+            tierName,
+            `${t.tierLabel || "Budget"} tyre, fitted at your location — ${sizeKey}. Price includes mobile fitting, balancing and disposal.`,
+            t.image ? site + t.image : "",
+            t.sku || t.id || "",
+          ]);
+        }
+      }
+      await audit(env, actor, "sumup_items_exported", (rows.length - 1) + " items");
+      return new Response(rows.map(r => r.map(esc2).join(",")).join("\r\n"), {
+        headers: {
+          ...SECURITY_HEADERS,
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": 'attachment; filename="sumup-tyre-items.csv"',
+        },
+      });
     }
 
     return bad("Not found", 404);
