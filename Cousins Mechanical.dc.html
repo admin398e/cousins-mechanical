@@ -667,7 +667,7 @@
       <sc-if value="{{ bookInProgress }}" hint-placeholder-val="{{ true }}">
         <div style="margin:0 22px 4px;background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:14px 16px;font-size:13.5px;color:#5c534d;line-height:1.6">
           <sc-if value="{{ hasRates }}" hint-placeholder-val="{{ false }}">
-            <div style="color:#1c1817;font-weight:700;margin-bottom:2px">{{ rateCallout }} · {{ rateHourly }}</div>
+            <div style="color:#1c1817;font-weight:700;margin-bottom:2px">{{ rateLine }}</div>
           </sc-if>
           <div>Tyre prices are shown per tyre and include fitting. For other work we confirm the full price with you before anything starts — you are never committed to a cost by booking.</div>
           <div style="margin-top:6px"><strong style="color:#1c1817">Nothing to pay now.</strong> We take card or cash on site once the job is done.</div>
@@ -2032,8 +2032,12 @@ class Component extends DCLogic {
       // Labour rates are only shown when the owner has actually set them in
       // admin. Unset means we promise a quote rather than invent a number.
       hasRates: !!(s.svcPricing && s.svcPricing.configured),
-      rateCallout: s.svcPricing && s.svcPricing.calloutFee ? ('£'+s.svcPricing.calloutFee+' call-out') : '',
-      rateHourly: s.svcPricing && s.svcPricing.hourlyRate ? ('£'+s.svcPricing.hourlyRate+' per hour labour') : '',
+      // Joined in code, not the template: with only one rate set, a template
+      // join would print a dangling "£45 call-out · " separator.
+      rateLine: [
+        s.svcPricing && s.svcPricing.calloutFee ? ('£'+s.svcPricing.calloutFee+' call-out charge') : '',
+        s.svcPricing && s.svcPricing.hourlyRate ? ('£'+s.svcPricing.hourlyRate+' per hour labour') : '',
+      ].filter(Boolean).join(' · '),
       bookSubmitLabel: s.bookBusy ? 'Booking…' : 'Confirm booking',
       waConfirm: 'https://wa.me/447925340977?text='+encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.'),
       // portal / account

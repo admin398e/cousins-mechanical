@@ -2063,7 +2063,7 @@ const EMAIL_BLOCKS = {
     </tr>
   </table>
 </div>
-<p style="color: #4a4a4a; margin-bottom: 25px;">Payment is taken on site when the work is done — card or cash. We'll confirm the price with you before any work starts.</p>
+<p style="color: #4a4a4a; margin-bottom: 25px;">{{{payment_terms}}}</p>
 <div style="text-align: center; margin-bottom: 25px;">
   <a href="{{{manage_booking_url}}}" class="btn" style="display: inline-block; background-color: #ed6b23; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; border-radius: 4px; text-decoration: none;">Track &amp; manage booking</a>
 </div>
@@ -3577,6 +3577,15 @@ async function processTyreStockForOrder(env, order) {
         const ics = buildICS(order, env.MAIL_FROM);
         const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
         const unsub = await unsubUrl(env, order.email);
+        // Same price terms the booking form showed, so the email never
+        // promises less than the site did. The call-out charge comes from the
+        // owner's pricing settings — one number, changed in one place.
+        const svcPr = await getPricing(env).catch(() => ({}));
+        const calloutSentence = Number(svcPr.calloutFee)
+          ? `A £${Number(svcPr.calloutFee)} call-out charge applies. `
+          : "";
+        const paymentTerms = calloutSentence
+          + "Payment is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts.";
         const subject = `Booking confirmed — ${order.ref} — ${BUSINESS.shortName}`;
         const html = renderEmail("booking_confirmed", {
           subject,
@@ -3593,6 +3602,7 @@ async function processTyreStockForOrder(env, order) {
           // Deep link into the tracker on the public site. The homepage reads
           // this hash on load and opens that job.
           manage_booking_url: `${site}/#track=${encodeURIComponent(order.ref)}`,
+          payment_terms: paymentTerms,
         }, {
           footer_note: `You are receiving this because you booked job ${esc(order.ref)} with us. This is a service message about that job, not marketing.`
             + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
@@ -3602,7 +3612,7 @@ async function processTyreStockForOrder(env, order) {
           sendEmailTracked(env, null, order.email, subject,
           `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
           + `Track it: ${site}/#track=${order.ref}\n\n`
-          + `Payment is taken on site when the work is done — card or cash. We will confirm the price with you before any work starts.\n\n`
+          + paymentTerms + `\n\n`
           + `Need to change or cancel it? Call ${BUSINESS.landline} or ${BUSINESS.phone}, or reply to this email.\n\n`
           + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}\n${BUSINESS.registeredOffice}`,
           ics, { html, unsubscribeUrl: unsub })));

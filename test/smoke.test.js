@@ -1400,7 +1400,7 @@ try {
     const { EMAIL_BLOCKS } = await import('../worker.js');
     const declared = new Set([...EMAIL_BLOCKS.booking_confirmed.matchAll(/\{\{\{\s*([a-z_]+)\s*\}\}\}/gi)].map(m => m[1]));
     const supplied = new Set(['firstname', 'booking_ref', 'service', 'vehicle_reg',
-      'booking_date', 'booking_time', 'booking_location', 'manage_booking_url']);
+      'booking_date', 'booking_time', 'booking_location', 'manage_booking_url', 'payment_terms']);
     for (const d of declared) assert.ok(supplied.has(d), `template needs {{{${d}}}} but the booking handler never passes it`);
     for (const sup of supplied) assert.ok(declared.has(sup), `booking handler passes ${sup} but no template uses it`);
   });
