@@ -4050,6 +4050,8 @@ async function processTyreStockForOrder(env, order) {
     if (!stRaw) return back("expired");
     await env.CMS_KV.delete("gcal_state:" + state);
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return back("not-configured");
+    let st = {};
+    try { st = JSON.parse(stRaw) || {}; } catch (e) { /* treated as connect below */ }
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
     const r = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -4065,6 +4067,48 @@ async function processTyreStockForOrder(env, order) {
       return back("exchange-failed");
     }
     const tok = await r.json().catch(() => ({}));
+
+    /*
+     * Same door, two keys. A "login" state means this person pressed "Sign in
+     * with Google" on the login screen — identity only, no calendar scope. The
+     * id_token is verified BY GOOGLE (tokeninfo checks the signature), the
+     * audience must be OUR client id, and the address must already be a live
+     * staff account. Google sign-in never creates an account: whoever is not
+     * in Staff Logins stays outside, however real their Google account is.
+     */
+    if (st.kind === "login") {
+      const fail = (msg) => new Response(null, {
+        status: 302,
+        headers: { ...SECURITY_HEADERS, Location: "/admin?gauth=" + encodeURIComponent(msg) },
+      });
+      if (!tok.id_token) return fail("no-identity");
+      const vr = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(tok.id_token)).catch(() => null);
+      const info = vr && vr.ok ? await vr.json().catch(() => null) : null;
+      const email = ((info && info.email) || "").toLowerCase();
+      if (!info || info.aud !== env.GOOGLE_CLIENT_ID || String(info.email_verified) !== "true" || !email) {
+        await audit(env, email || "unknown", "admin_login_google_rejected", "bad id_token");
+        return fail("rejected");
+      }
+      const acctRaw = await env.CMS_KV.get("staff:" + email);
+      const acct = acctRaw ? JSON.parse(acctRaw) : null;
+      if (!acct || acct.disabled) {
+        await audit(env, email, "admin_login_google_rejected", "not a staff account");
+        return fail("not-staff");
+      }
+      const t = token();
+      await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
+      // The session token travels in the URL FRAGMENT via a one-shot grant:
+      // fragments never reach server logs, and the grant dies on first use
+      // or in 60 seconds, whichever comes first.
+      const grant = crypto.randomUUID();
+      await env.CMS_KV.put("glogin_grant:" + grant, JSON.stringify({ token: t, email, name: acct.name || "" }), { expirationTtl: 60 });
+      await audit(env, email, "admin_login_google", email + " " + clientIp(request));
+      return new Response(null, {
+        status: 302,
+        headers: { ...SECURITY_HEADERS, Location: "/admin#glogin=" + grant },
+      });
+    }
+
     if (!tok.refresh_token) return back("no-refresh-token");
     // Ask Google whose diary this is, so the dashboard can say "connected as
     // help@…" instead of leaving everyone to hope it was the right account.
@@ -4133,6 +4177,51 @@ async function processTyreStockForOrder(env, order) {
     await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
     await audit(env, email, "admin_login_google", email + " " + clientIp(request));
     return json({ token: t, user: { email, name: u.displayName || email } });
+  }
+
+  /*
+   * "Sign in with Google" — the version that needs no Firebase project. It
+   * reuses the calendar's OAuth client: /start mints a login-flavoured state
+   * and sends the browser to Google's own account chooser; the shared
+   * /oauth/google/callback (above) verifies the identity and parks a one-shot
+   * grant; /claim swaps that grant for the session token. Identity only —
+   * scope is openid email, no calendar, nothing offline.
+   */
+  if (p === "/admin-login-google/start" && request.method === "POST") {
+    const rlKey = "admin:" + clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      return bad("Google sign-in is not configured — set the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets.", 400);
+    }
+    const nonce = crypto.randomUUID();
+    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "login", t: Date.now() }), { expirationTtl: 600 });
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    u.searchParams.set("redirect_uri", site + "/api/oauth/google/callback");
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", "openid email");
+    u.searchParams.set("prompt", "select_account");
+    u.searchParams.set("state", nonce);
+    return json({ url: u.toString() });
+  }
+
+  if (p === "/admin-login-google/claim" && request.method === "POST") {
+    const rlKey = "admin:" + clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
+    const b = await request.json().catch(() => ({}));
+    const grant = String(b.grant || "");
+    // UUIDs only: anything else is not something we issued.
+    if (!/^[0-9a-f-]{36}$/.test(grant)) return bad("Sign-in expired — try again.", 401);
+    const raw = await env.CMS_KV.get("glogin_grant:" + grant);
+    if (!raw) { await noteFailure(env, rlKey); return bad("Sign-in expired — try again.", 401); }
+    await env.CMS_KV.delete("glogin_grant:" + grant);
+    const g = JSON.parse(raw);
+    return json({ token: g.token, who: g.email, name: g.name || "", enrolled: !!(await env.CMS_KV.get("admin_totp")) });
   }
 
   if (p === "/admin-login" && request.method === "POST") {
@@ -4270,7 +4359,14 @@ async function processTyreStockForOrder(env, order) {
   // setup. Reveals only whether any staff account exists, never who.
   if (p === "/admin-auth/mode" && request.method === "GET") {
     const list = await env.CMS_KV.list({ prefix: "staff:" });
-    return json({ staffConfigured: list.keys.length > 0, enrolled: !!(await env.CMS_KV.get("admin_totp")), google: !!(env.FIREBASE_WEB_CONFIG && env.ADMIN_EMAILS) });
+    return json({
+      staffConfigured: list.keys.length > 0,
+      enrolled: !!(await env.CMS_KV.get("admin_totp")),
+      // Two ways Google sign-in can be live: the OAuth client (shared with the
+      // calendar — the normal route) or the older Firebase setup.
+      google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) || !!(env.FIREBASE_WEB_CONFIG && env.ADMIN_EMAILS),
+      googleOauth: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+    });
   }
 
   // --- ADMIN (business owner) — all protected by 2FA-verified session ---
@@ -5922,7 +6018,7 @@ async function processTyreStockForOrder(env, order) {
         return bad("The Google connection is not set up yet. The developer needs to add the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets first.", 400);
       }
       const nonce = crypto.randomUUID();
-      await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ actor, t: Date.now() }), { expirationTtl: 600 });
+      await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "connect", actor, t: Date.now() }), { expirationTtl: 600 });
       const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
       const redirectUri = site + "/api/oauth/google/callback";
       const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");

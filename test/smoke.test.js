@@ -1208,6 +1208,25 @@ try {
     assert.equal(r.status, 403, `calendar event creation is open to the world (status ${r.status})`);
   });
 
+  await check('Google sign-in never hands out a session without a grant we issued', async () => {
+    // The claim endpoint is the last step of "Sign in with Google" — a guessed
+    // or replayed grant must die here, not become somebody's 12-hour session.
+    const bogus = await postJson('/api/admin-login-google/claim', { grant: '00000000-0000-4000-8000-000000000000' });
+    assert.ok(bogus.status === 401 || bogus.status === 429, `a made-up grant was not rejected (status ${bogus.status})`);
+    const mangled = await postJson('/api/admin-login-google/claim', { grant: '../admin_totp' });
+    assert.ok(mangled.status === 401 || mangled.status === 429, `a malformed grant was not rejected (status ${mangled.status})`);
+
+    const start = await postJson('/api/admin-login-google/start', {});
+    if (start.status === 200) {
+      const d = await start.json();
+      assert.ok(String(d.url).startsWith('https://accounts.google.com/o/oauth2/v2/auth?'), 'login start is not a Google URL');
+      assert.ok(d.url.includes('scope=openid+email') || d.url.includes('scope=openid%20email'), 'login asks for more than identity');
+      assert.ok(!d.url.includes('calendar'), 'a LOGIN must never request calendar scope');
+    } else {
+      assert.ok(start.status === 400 || start.status === 429, `unexpected status ${start.status}`);
+    }
+  });
+
   await check('a forged Google Calendar callback bounces instead of storing anything', async () => {
     // The state nonce is the whole defence: without it, anyone who found the
     // callback URL could connect THEIR Google account as the business diary.

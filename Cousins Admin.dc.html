@@ -1452,6 +1452,34 @@ class Component extends DCLogic {
   componentDidMount(){
     this.probeAuthMode();
     setTimeout(()=>this.mountTurnstile('admin'), 60);
+    // Back from "Sign in with Google"? Swap the one-shot grant in the URL
+    // fragment for a real session. The fragment never reached any server log,
+    // and the grant is dead the moment it is claimed.
+    try{
+      const m = (window.location.hash||'').match(/glogin=([0-9a-f-]{36})/);
+      if(m){
+        window.history.replaceState(null, '', window.location.pathname);
+        this.raw('/admin-login-google/claim', { method:'POST', body: JSON.stringify({ grant: m[1] }) })
+          .then(r=>r.json()).then(d=>{
+            if(d.token){
+              try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
+              this.setState({ token:d.token, loggedIn:true, demoMode:false }, ()=>this.enter());
+            } else {
+              this.setState({ loginErr: d.error || 'Google sign-in expired — try again.' });
+            }
+          }).catch(()=>this.setState({ loginErr:'Google sign-in failed — try again.' }));
+      }
+      const gauth = new URLSearchParams(window.location.search).get('gauth');
+      if(gauth){
+        const why = {
+          'not-staff': 'That Google account is not a staff login here. Ask the owner to add it under Staff Logins first.',
+          'rejected': 'Google could not verify that sign-in — try again.',
+          'no-identity': 'Google did not confirm who you are — try again.',
+        };
+        this.setState({ loginErr: why[gauth] || ('Google sign-in failed: ' + gauth) });
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }catch(e){}
     // Back from Google's consent screen? Say how it went, on the right tab.
     try{
       const gcal = new URLSearchParams(window.location.search).get('gcal');
@@ -1502,6 +1530,21 @@ class Component extends DCLogic {
   }
 
   googleSignIn = async () => {
+    // The normal route: the server builds a Google consent URL from the same
+    // OAuth client the calendar uses, and the whole sign-in happens on
+    // Google's own pages. The Firebase popup below is only a fallback for
+    // installs that configured it before this existed.
+    try {
+      const st = await this.raw('/admin-auth/mode');
+      const mode = st.ok ? await st.json() : {};
+      if (mode.googleOauth) {
+        const r = await this.raw('/admin-login-google/start', { method: 'POST', body: '{}' });
+        const d = await r.json().catch(() => ({}));
+        if (d.url) { window.location.href = d.url; return; }
+        this.setState({ loginErr: d.error || 'Google sign-in could not start.' });
+        return;
+      }
+    } catch (e) { /* fall through to Firebase */ }
     try {
       const cfgRes = await fetch("/api/firebase-config");
       const firebaseConfig = await cfgRes.json();
@@ -1605,7 +1648,7 @@ class Component extends DCLogic {
   }
 
   async probeAuthMode(){
-    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google}); } }catch(e){}
+    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google, googleOauth:!!d.googleOauth}); } }catch(e){}
   }
   setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
   toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
