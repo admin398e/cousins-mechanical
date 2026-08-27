@@ -207,18 +207,31 @@ notice, so this list and that page must be kept in step.
 | Resend (Plus Five Five, Inc.) | Sends confirmations and receipts | Name, email, job details | US |
 | Twilio Inc. | Texts and calls about a job | Name, mobile, job details | US |
 | Meta Platforms Ireland Ltd | WhatsApp job updates, where used | Mobile number, message content | EU/US |
-| HubSpot, Inc. | Customer records; site analytics with consent | Name, email, phone, job history | EU data centre, US company |
-| Google Ireland Ltd | The diary jobs are booked into; maps on the site | First name, postcode, job type, time | EU/US |
 | UK Vehicle Data | Registration lookups | The registration only | UK |
 | Postcodes.io | Turns a map pin into a postcode | Approximate location only | UK |
 
-**SumUp is not a sub-processor.** SumUp Limited takes card payments into
-Cousins' own merchant account. Because it is a regulated payment institution
-with its own legal duties — anti-money-laundering checks, transaction
-monitoring, records it must keep whatever Cousins says — SumUp decides its own
-purposes for that data and acts as a **controller in its own right**, not on the
-Supplier's instructions. Cousins' relationship with SumUp is therefore direct,
-under SumUp's own terms, and the merchant account is in Cousins' name. The
+**Cousins' own accounts are not the Supplier's sub-processors.** The following
+services are contracted by Cousins directly, in Cousins' own name, on Cousins'
+own terms with each provider. The Supplier writes into them on Cousins'
+instruction; it does not engage them, pay for them or decide how they are used,
+and Cousins can reach and revoke each one without the Supplier's involvement.
+
+| Service | Whose account | What it holds |
+| --- | --- | --- |
+| HubSpot, Inc. | Cousins' | Customer records; site analytics where consent is given |
+| Google Ireland Ltd | Cousins' | The diary jobs are booked into, and the business mailbox |
+| SumUp Limited | Cousins' | Card payments into Cousins' own merchant account |
+
+This distinction matters in both directions. It means Cousins — not the
+Supplier — holds the contract, the data and the ability to switch provider for
+everything that carries its customers' records and its takings. It also means
+Cousins is responsible for the terms it has accepted with each of them.
+
+**SumUp is a controller in its own right**, not anybody's processor. As a
+regulated payment institution it has its own legal duties — anti-money-laundering
+checks, transaction monitoring, records it must keep whatever Cousins says — so
+it decides its own purposes for that data. The merchant account is in Cousins'
+name because the law requires the business receiving the money to hold it. The
 Supplier never holds Cousins' takings and never sees a card number.
 
 **Changes.** The Supplier shall give Cousins at least **30 days' written notice**
@@ -343,5 +356,5 @@ Name: `[  ]`  Position: `[  ]`  Signature: `[  ]`  Date: `[  ]`
 
 ---
 
-*Version 1.0. Review when a sub-processor changes, when the security measures in
+*Version 1.1. Review when a sub-processor changes, when the security measures in
 section 5 change, or annually — whichever comes first.*
