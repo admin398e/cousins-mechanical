@@ -80,14 +80,14 @@ staff who hold logins to the system.
 | Marketing preferences | Whether consent was given, and when it was withdrawn |
 | Account credentials | Password hashes and salts for customer, driver and staff logins |
 | Approximate live location | A driver's position while they are sharing it on an active job |
-| Payment records | The fact and amount of a payment, and Stripe's reference for it |
+| Payment records | The fact and amount of a payment, and SumUp's reference for it |
 
 **No special category data and no criminal offence data** is knowingly collected
 by the system. Free-text note fields could in principle contain anything a
 person types, which is a reason to keep notes factual and about the vehicle.
 
 **Card details are never processed by the Supplier.** Card numbers are entered
-on Stripe's own hosted checkout page and never reach the Cousins system, so
+on SumUp's own hosted checkout page and never reach the Cousins system, so
 Cousins is in scope for SAQ-A rather than the far heavier SAQ-D.
 
 ---
@@ -159,13 +159,28 @@ rather than quietly wrong.
   as PBKDF2 hashes with a per-record random salt and a server-side pepper held
   outside the database.
 - **Two-factor authentication** is available on the owner's admin account.
-- **Least privilege.** Staff logins are separate accounts and can be disabled
-  individually. Wholesale costs and margins are never sent to the public site.
+- **Sign in with Google.** Staff may sign in with the business Google account
+  instead of a password, in which case Google's own account security applies.
+  Google sign-in never creates an account: the address must already exist as a
+  staff login, so it grants no access on its own.
+- **Least privilege, enforced.** Staff logins are separate named accounts with
+  one of three roles — owner, developer, staff — and the role is checked on
+  every administrative action, not merely displayed. A developer account cannot
+  delete, disable or demote an owner, so a contractor with a login can never
+  lock Cousins out of its own business. The last remaining owner cannot be
+  removed. Wholesale costs and margins are never sent to the public site.
+- **Third-party accounts are connected, not handed over.** Google Calendar and
+  SumUp are linked by Cousins signing in to its own accounts through a consent
+  screen; the resulting tokens are held server-side. No password or API key for
+  a Cousins account is shared with the Supplier or typed into this system.
 - **Rate limiting** on authentication, lookups and bookings, to blunt
   credential-stuffing and scraping.
 - **Session handling.** Admin sessions live in `sessionStorage` and expire; the
   dashboard signs itself out after 30 minutes of inactivity.
-- **Audit log** of administrative actions, retained for 12 months.
+- **Audit log** of administrative actions, retained for 12 months, recording the
+  named account that performed each one rather than a shared login.
+- **Spend limits** on outbound messaging, so a fault or abuse cannot run up an
+  unbounded bill or flood a customer with texts.
 - **Backups.** A weekly export, with password hashes and salts stripped out, so
   that a backup cannot be turned into a way of logging in as somebody.
 - **Automatic deletion** of data past its retention period, run nightly, with
@@ -193,10 +208,18 @@ notice, so this list and that page must be kept in step.
 | Twilio Inc. | Texts and calls about a job | Name, mobile, job details | US |
 | Meta Platforms Ireland Ltd | WhatsApp job updates, where used | Mobile number, message content | EU/US |
 | HubSpot, Inc. | Customer records; site analytics with consent | Name, email, phone, job history | EU data centre, US company |
-| Google Ireland Ltd | The diary jobs are booked into | First name, postcode, job type, time | EU/US |
-| Stripe Payments Europe Ltd | Card payments | Card details, which Cousins never sees | EU/US |
+| Google Ireland Ltd | The diary jobs are booked into; maps on the site | First name, postcode, job type, time | EU/US |
 | UK Vehicle Data | Registration lookups | The registration only | UK |
 | Postcodes.io | Turns a map pin into a postcode | Approximate location only | UK |
+
+**SumUp is not a sub-processor.** SumUp Limited takes card payments into
+Cousins' own merchant account. Because it is a regulated payment institution
+with its own legal duties — anti-money-laundering checks, transaction
+monitoring, records it must keep whatever Cousins says — SumUp decides its own
+purposes for that data and acts as a **controller in its own right**, not on the
+Supplier's instructions. Cousins' relationship with SumUp is therefore direct,
+under SumUp's own terms, and the merchant account is in Cousins' name. The
+Supplier never holds Cousins' takings and never sees a card number.
 
 **Changes.** The Supplier shall give Cousins at least **30 days' written notice**
 before adding or replacing a sub-processor. Cousins may object on reasonable
@@ -259,21 +282,52 @@ The Supplier shall confirm deletion in writing within **30 days**.
 
 ## 10. Liability, term and general
 
-`[TO BE AGREED — this is the part your solicitor should look at hardest.]`
+**This is the section a solicitor should look at hardest.** The clauses below
+are ordinary, middle-of-the-road positions offered so that the agreement can be
+signed rather than left open. Either party may strike or change any of them
+before signing. Amend the numbers to what you actually agree.
 
-Points to settle before signing:
+**10.1 Term and notice.** This agreement runs from the date of signature for as
+long as the Supplier processes personal data for Cousins. Either party may end
+it on `[30 / 60 / 90]` days' written notice. During the notice period the
+Supplier shall keep the site and booking system running normally, and shall not
+withhold service, data or access over a commercial dispute.
 
-- **Liability caps and indemnities.** Whether the Supplier's liability is capped,
-  and at what — typically related to the fees paid. Note that a cap cannot limit
-  what the ICO may fine either party directly.
-- **Insurance.** Whether the Supplier carries professional indemnity or cyber
-  insurance, and at what level.
-- **Notice period** for terminating the arrangement, and what happens to the
-  data and the running site in the gap.
-- **Business continuity.** What happens if the Supplier is unavailable — who else
-  can reach the Cloudflare account, the domain and the mailbox. This is the one
-  most likely to actually hurt Cousins, and it is not really a legal question.
-- **Governing law.** England and Wales, presumably.
+**10.2 Liability.** Each party's liability to the other under this agreement is
+capped at `[the total fees paid by Cousins to the Supplier in the 12 months
+before the claim / £____]`. Nothing in this agreement limits liability for death
+or personal injury caused by negligence, for fraud, or for anything else that
+cannot lawfully be limited. **A cap between the parties does not limit what the
+ICO may fine either party directly** — the ICO is not bound by private contract.
+
+**10.3 Insurance.** The Supplier `[does / does not]` carry professional
+indemnity and cyber insurance at `[£____]`. If it does, it shall maintain that
+cover for the term and provide evidence on request. *Note: if the answer is "does
+not", say so honestly here rather than leaving it blank. Cousins is entitled to
+know, and a false statement in a signed contract is a worse problem than no
+cover.*
+
+**10.4 Business continuity — the clause that matters most.** This is a practical
+risk, not a legal one, and it is the likeliest of anything here to actually hurt
+Cousins. The Supplier shall ensure that Cousins is able to regain sole control
+of its own business if the Supplier becomes unavailable for any reason. In
+particular:
+
+- Cousins holds, or can obtain within `[5]` working days, administrative access
+  to the domain `cousinsmechanicalservices.co.uk` and to the hosting account.
+- Cousins' own accounts — Google, SumUp, HubSpot — are registered in Cousins'
+  name and remain accessible to Cousins independently of the Supplier.
+- At least one Cousins-held login to the dashboard carries the **owner** role at
+  all times, and it is not the Supplier's account.
+- The Supplier provides a current data export on request, and in any event on
+  termination, under section 9.
+
+**10.5 Governing law.** This agreement is governed by the law of England and
+Wales, and the courts of England and Wales have exclusive jurisdiction.
+
+**10.6 Whole agreement.** This agreement covers data protection. Where it
+conflicts with any other agreement between the parties on the handling of
+personal data, this one prevails.
 
 ---
 

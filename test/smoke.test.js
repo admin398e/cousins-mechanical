@@ -2197,8 +2197,19 @@ try {
     const tok = await adminTok();
     const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
     const em = `release-${Date.now()}@example.com`;
-    const day = new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10);
+    // NOT a fixed number of days ahead. Sunday is a closed day, so one run in
+    // seven this landed on a Sunday and the window was unavailable for a
+    // reason that had nothing to do with capacity — the first assertion below
+    // then passed for the wrong reason and the second failed, which read as a
+    // booking bug that was not there. Step forward to the next open weekday.
+    let ahead = new Date(Date.now() + 31 * 86400000);
+    while (ahead.getUTCDay() === 0) ahead = new Date(ahead.getTime() + 86400000);
+    const day = ahead.toISOString().slice(0, 10);
     await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 1 }) });
+
+    const before = await (await api('/api/availability?date=' + day)).json();
+    assert.equal(before.slots.find(s => s.key === MORNING).available, true,
+      `${day} was not bookable before the test even started (reason: ${before.slots.find(s => s.key === MORNING).reason})`);
 
     const first = await bookAs({
       name: 'Will Cancel', phone: '07900003000', email: em,
@@ -2207,13 +2218,19 @@ try {
     const { ref } = await first.json();
 
     let d = await (await api('/api/availability?date=' + day)).json();
-    assert.equal(d.slots.find(s => s.key === MORNING).available, false, 'capacity 1 did not fill');
+    let slot = d.slots.find(s => s.key === MORNING);
+    // Assert the REASON, not just the boolean. "Unavailable" is true of a
+    // closed day, a day in the past and a day the diary is busy; only one of
+    // those means the capacity check did its job.
+    assert.equal(slot.available, false, 'capacity 1 did not fill');
+    assert.equal(slot.reason, 'fully booked', `filled for the wrong reason: ${slot.reason}`);
 
     await api('/api/admin/jobs/' + ref, { method: 'PATCH', headers: h,
       body: JSON.stringify({ customerEmail: em, status: 'cancelled', label: 'Cancelled' }) });
 
     d = await (await api('/api/availability?date=' + day)).json();
-    assert.equal(d.slots.find(s => s.key === MORNING).available, true, 'a cancelled job still blocks its window');
+    slot = d.slots.find(s => s.key === MORNING);
+    assert.equal(slot.available, true, `a cancelled job still blocks its window (reason: ${slot.reason})`);
 
     await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2 }) });
   });
@@ -2372,8 +2389,19 @@ try {
     // Art. 13 wants the recipients named. This test exists because the notice
     // listed Google and WhatsApp while the code was also sending data to
     // Cloudflare, Resend, Twilio and HubSpot.
-    for (const who of ['Cloudflare', 'Resend', 'Twilio', 'HubSpot', 'Stripe', 'Meta']) {
+    for (const who of ['Cloudflare', 'Resend', 'Twilio', 'HubSpot', 'Meta']) {
       assert.ok(html.includes(who), 'the privacy notice does not name ' + who);
+    }
+    // The card processor is named by whichever one is actually configured,
+    // not by a hardcoded guess. This used to assert 'Stripe' outright, so on
+    // the day the business moved to SumUp the test would have failed while the
+    // notice was right, and — worse — it would have gone on passing if the
+    // notice still named a processor no longer in use.
+    const cfg = (await (await api('/api/health')).json()).configured || {};
+    const payName = { sumup: 'SumUp', stripe: 'Stripe' }[cfg.paymentProvider];
+    if (payName) {
+      assert.ok(html.includes(payName),
+        `card payments run through ${payName} but the privacy notice does not name it`);
     }
     assert.ok(/outside the UK|International Data Transfer|adequacy/i.test(html), 'no international transfer wording');
     assert.ok(/6 years/.test(html), 'no concrete retention period is stated');
