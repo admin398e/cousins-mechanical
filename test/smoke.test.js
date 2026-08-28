@@ -1542,6 +1542,13 @@ try {
     if (start.status === 200) {
       const d = await start.json();
       assert.ok(String(d.url).startsWith('https://api.sumup.com/authorize?'), 'not a SumUp consent URL: ' + d.url);
+      // Least privilege, asserted. Asking a client for their whole financial
+      // history "in case" is the thing this integration promises not to do.
+      const scope = new URL(d.url).searchParams.get('scope') || '';
+      assert.ok(scope.includes('payments'), 'cannot take a payment without the payments scope');
+      assert.ok(!scope.includes('transactions.history'), 'requesting transaction history that nothing reads');
+      assert.ok(!scope.includes('user.profile '), 'requesting WRITE access to the merchant profile');
+      assert.ok(!scope.includes('payout'), 'requesting access to payout settings');
     } else {
       assert.equal(start.status, 400, `unexpected status ${start.status}`);
       assert.ok(String((await start.json()).error).includes('SUMUP_CLIENT_ID'), 'failure does not say what to set');

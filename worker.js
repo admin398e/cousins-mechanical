@@ -6192,10 +6192,26 @@ async function processTyreStockForOrder(env, order) {
       u.searchParams.set("response_type", "code");
       u.searchParams.set("client_id", env.SUMUP_CLIENT_ID);
       u.searchParams.set("redirect_uri", site + "/api/oauth/sumup/callback");
-      // "payments" creates checkouts, and SumUp enables it per app on request.
-      // If the consent screen refuses the scope, that is the signal to email
-      // SumUp's integration team — the error names the scope for exactly that.
-      u.searchParams.set("scope", "payments transactions.history user.profile_readonly");
+      /*
+       * Exactly the two scopes this system uses, and no more.
+       *
+       *   payments             POST /checkouts and GET /checkouts/{id} — taking
+       *                        the money, and verifying it was really taken.
+       *   user.profile_readonly  GET /me, read once at connect time to learn the
+       *                        merchant code from SumUp rather than have anybody
+       *                        type it and get it wrong.
+       *
+       * transactions.history is deliberately NOT requested. Nothing reads a
+       * transaction list, and asking a client to hand over their financial
+       * history "in case we need it later" is the opposite of what the rest of
+       * this integration promises them. If a reconciliation view is built one
+       * day, adding the scope costs the client one more button press.
+       *
+       * "payments" is a RESTRICTED scope: SumUp enables it per app on request.
+       * Until they do, the consent screen will refuse it — that is expected,
+       * not a bug in this code.
+       */
+      u.searchParams.set("scope", "payments user.profile_readonly");
       u.searchParams.set("state", nonce);
       return json({ url: u.toString(), redirectUri: site + "/api/oauth/sumup/callback" });
     }
