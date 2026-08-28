@@ -9,6 +9,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { neutralisePlaceholderFetches } from './dc-placeholder.js';
 import { BUSINESS, fillBusinessTokens } from './business.js';
@@ -226,7 +227,25 @@ for (const [slug, title, desc] of LEGAL) {
 // Sitemap — generated at build time so lastmod tracks the real page instead of
 // going stale the moment someone edits the site.
 // ---------------------------------------------------------------------------
+/*
+ * When did this page last actually change?
+ *
+ * From git, not from the file's mtime. A fresh `git clone` stamps every file
+ * with the moment of the clone, so an mtime-based sitemap says "everything
+ * changed today" on any new machine — which is both a lie to Google and a
+ * working tree that is dirty the instant anyone runs the build. Two people on
+ * two clones could never agree on the output.
+ *
+ * The commit date is the same on every checkout, which is the whole point.
+ * Falls back to mtime where git is not available (a tarball, a CI shallow
+ * copy with no history), because a slightly wrong date beats a failed build.
+ */
 const lastmodOf = file => {
+  try {
+    const out = execFileSync('git', ['log', '-1', '--format=%cs', '--', file],
+      { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
+  } catch (e) { /* no git, or the file is untracked — fall through */ }
   const p = path.join(__dirname, file);
   return (fs.existsSync(p) ? fs.statSync(p).mtime : new Date()).toISOString().slice(0, 10);
 };
