@@ -245,6 +245,118 @@ await check('the API does not send a wildcard CORS header', async () => {
   assert(r.headers.get('access-control-allow-origin') !== '*', 'wildcard CORS on the API');
 });
 
+// --- the sign-in rebuild, checked on the real edge ---------------------------
+
+await check('the front door offers exactly the providers that are configured', async () => {
+  const d = await (await get(BASE + '/api/auth/providers')).json();
+  assert(d.google === true, 'Google sign-in is off in production');
+  assert(d.apple === true, 'Apple sign-in is off in production');
+  // It must never grow into a place that leaks configuration.
+  assert(JSON.stringify(Object.keys(d).sort()) === '["apple","google"]',
+    'the provider list says more than it should: ' + Object.keys(d));
+});
+
+await check('every sign-in button on every page is actually wired', async () => {
+  /*
+   * The bug this exists for: googleSignIn was written as a class field and
+   * never returned by renderVals(), so the binding resolved to undefined and
+   * React rendered a button with NO onClick. It looked perfect and did
+   * nothing, on the only route customers had, for weeks. A dead handler is
+   * invisible from the outside — nothing 404s, nothing errors — so the only
+   * place to catch it is in the bytes the edge actually serves.
+   */
+  for (const [path, needs] of [
+    ['/',       ['googleSignIn:this.googleSignIn', 'appleSignIn:this.appleSignIn', 'toggleBookMarketing:this.toggleBookMarketing']],
+    ['/admin',  ['googleSignIn:this.googleSignIn', 'appleSignIn:this.appleSignIn']],
+    ['/driver', ['googleSignIn:this.googleSignIn', 'appleSignIn:this.appleSignIn']],
+  ]) {
+    const html = await (await get(BASE + path)).text();
+    for (const n of needs) {
+      assert(html.includes(n), `${path} is serving a page where ${n.split(':')[0]} is not bound — that button does nothing`);
+    }
+    // And no binding may be left in an attribute the browser fetches: the
+    // placeholder pass strips those, so they render as a blank image forever.
+    //
+    // Comments are stripped first. The code carries a comment explaining that
+    // very mistake, quoting `src="{{ t.image }}"` verbatim, and a scan that
+    // reads comments as markup fails on the documentation of the bug rather
+    // than the bug. That is the second checker this has caught out.
+    const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+    assert(!/\b(src|srcset|poster)\s*=\s*["']\s*\{\{/.test(markup),
+      `${path} has a {{ binding }} in src/srcset/poster — it will never render`);
+  }
+});
+
+await check('the two-factor card carries a scannable QR, not just a key', async () => {
+  const html = await (await get(BASE + '/admin')).text();
+  assert(html.includes('twofaQrStyle'), 'the enrolment card has no QR code');
+  assert(html.includes('Copy key'), 'the setup key cannot be copied');
+});
+
+await check('Apple sign-in starts a real Apple flow', async () => {
+  for (const [path, body] of [['/api/auth/apple/start', '{}'], ['/api/admin-login-apple/start', '{"return":"/driver"}']]) {
+    const r = await get(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    assert(r.status === 200, `${path} returned ${r.status} — Apple is not configured in production`);
+    const u = new URL((await r.json()).url);
+    assert(u.origin + u.pathname === 'https://appleid.apple.com/auth/authorize', 'not an Apple consent URL');
+    assert(/^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$/.test(u.searchParams.get('client_id') || ''),
+      'the client_id is not a Services ID — a stray newline in the secret?');
+    assert(u.searchParams.get('scope') === 'name email', 'wrong Apple scope');
+    // Without form_post Apple never calls the callback and sign-in hangs.
+    assert(u.searchParams.get('response_mode') === 'form_post', 'a scoped Apple request must be form_post');
+    assert((u.searchParams.get('redirect_uri') || '').startsWith(BASE + '/api/oauth/apple/callback'),
+      'the return URL does not match what is registered with Apple');
+  }
+});
+
+await check('Google sign-in starts a real Google flow, for customers and staff', async () => {
+  for (const [path, wanted] of [['/api/auth/google/start', 'openid email profile'], ['/api/admin-login-google/start', 'openid email']]) {
+    const r = await get(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert(r.status === 200, `${path} returned ${r.status}`);
+    const u = new URL((await r.json()).url);
+    assert(u.origin + u.pathname === 'https://accounts.google.com/o/oauth2/v2/auth', 'not a Google consent URL');
+    assert(u.searchParams.get('scope') === wanted, `wrong scope: ${u.searchParams.get('scope')}`);
+    // Identity only. A customer sign-in must never ask for a mailbox again.
+    assert(!/gmail|calendar|drive/.test(u.searchParams.get('scope') || ''), 'sign-in is asking for far more than identity');
+  }
+});
+
+await check('the Firebase admin door is gone from production', async () => {
+  /*
+   * It issued an admin session to any address in ADMIN_EMAILS without ever
+   * checking the staff table — the check that makes "other staff cannot log in
+   * without being approved" true. It was inert only because one environment
+   * variable was unset.
+   */
+  for (const [path, init] of [['/api/firebase-config', {}], ['/api/admin-login-firebase', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }]]) {
+    const r = await get(BASE + path, init);
+    assert(r.status === 404, `${path} still answers (${r.status}) — the second admin door is open`);
+  }
+});
+
+await check('a forged Apple callback bounces instead of signing anyone in', async () => {
+  const r = await fetch(BASE + '/api/oauth/apple/callback', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code: 'fake', state: '11111111-2222-3333-4444-555555555555' }).toString(),
+    redirect: 'manual',
+  });
+  assert(r.status === 302, `forged Apple callback did not redirect (${r.status})`);
+  assert((r.headers.get('location') || '').includes('gauth=expired'), 'a state nonce nobody issued was accepted');
+});
+
+await check("Apple's domain file is served by the Worker, and fails closed", async () => {
+  const r = await get(BASE + '/.well-known/apple-developer-domain-association.txt');
+  const body = await r.text();
+  if (r.status === 404) {
+    // Not set: it must say what to set, never a blank 200 Apple reads as an
+    // empty token and fails on without explaining why.
+    assert(/APPLE_DOMAIN_ASSOCIATION/.test(body), 'the failure does not name the secret');
+  } else {
+    assert(r.status === 200 && body.trim().length > 0, 'the domain file is empty');
+  }
+});
+
 // --- report -----------------------------------------------------------------
 
 console.log('\nProduction smoke — ' + BASE + '\n');
