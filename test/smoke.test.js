@@ -1292,6 +1292,33 @@ try {
     assert.ok((r2.headers.get('location') || '').includes('gauth=expired'), 'an unissued state nonce was accepted');
   });
 
+  await check('a mis-set Apple secret is caught here, not by Apple', async () => {
+    /*
+     * Setting these from a terminal goes wrong quietly. `echo` leaves a
+     * trailing newline; an interactive `wrangler secret put` inside a pasted
+     * block reads the NEXT PASTED LINE as the value and the rest of the block
+     * never runs. Either way nothing is visible anywhere, the button appears,
+     * and Apple answers invalid_client without saying which of the four values
+     * it means.
+     *
+     * So the shape is checked, not just the presence, and the failure names
+     * the field. This test asserts the endpoint fails closed and readably —
+     * whichever way this environment happens to be configured.
+     */
+    const r = await postJson('/api/auth/apple/start', {});
+    if (r.status === 400) {
+      const err = String((await r.json()).error);
+      assert.match(err, /APPLE_(SERVICES_ID|TEAM_ID|KEY_ID|PRIVATE_KEY)/,
+        'the failure does not name the secret that is wrong: ' + err);
+    } else {
+      // Configured: then it must be a real Apple URL, never a half-built one.
+      assert.equal(r.status, 200, `unexpected status ${r.status}`);
+      const u = new URL((await r.json()).url);
+      assert.match(u.searchParams.get('client_id') || '', /^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$/,
+        'the client_id is not a Services ID — a stray newline or a pasted command line?');
+    }
+  });
+
   await check('Apple sign-in asks for a name and an email, and nothing else', async () => {
     const r = await postJson('/api/auth/apple/start', {});
     if (r.status === 200) {

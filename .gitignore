@@ -30,3 +30,8 @@ Thumbs.db
 # Large regenerable scrape artefacts (rebuild with ctyres_scraper.py)
 ctyres_catalogue.zip
 email-preview.html
+
+# Scratch: the device bridge cannot delete files, so spent patches and stale
+# git lock files get moved here instead. Never part of the project.
+_to_delete/
+*.patch

@@ -897,14 +897,36 @@ async function totpEnrolled(env, who) {
  *     authorisation, in a separate `user` field — never in the identity token,
  *     and never again. Read it there or lose it permanently.
  */
-const appleReady = env => !!(env.APPLE_SERVICES_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY);
+/*
+ * The three Apple identifiers, trimmed.
+ *
+ * A secret set from a terminal picks up whitespace with depressing ease — a
+ * trailing newline from `echo`, or a whole command line if a pasted block gets
+ * eaten by an interactive prompt reading stdin. None of it is visible
+ * anywhere, and Apple's only answer is invalid_client, which says nothing
+ * about which of the four values is wrong.
+ *
+ * So they are trimmed on the way out, and appleReady() checks their SHAPE
+ * rather than merely that they are non-empty: Team ID and Key ID are exactly
+ * ten alphanumeric characters, and a Services ID is a reverse-domain string.
+ * A secret holding something else means the button stays hidden and the start
+ * endpoint says so, instead of sending somebody to Apple to be refused.
+ */
+const appleId = v => String(v || "").trim();
+const APPLE_TEN = /^[A-Za-z0-9]{10}$/;
+const appleReady = env => !!(
+  /^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$/.test(appleId(env.APPLE_SERVICES_ID))
+  && APPLE_TEN.test(appleId(env.APPLE_TEAM_ID))
+  && APPLE_TEN.test(appleId(env.APPLE_KEY_ID))
+  && String(env.APPLE_PRIVATE_KEY || "").includes("PRIVATE KEY")
+);
 
 async function appleClientSecret(env) {
   const now = Math.floor(Date.now() / 1000);
-  const header = b64url(new TextEncoder().encode(JSON.stringify({ alg: "ES256", kid: env.APPLE_KEY_ID, typ: "JWT" })));
+  const header = b64url(new TextEncoder().encode(JSON.stringify({ alg: "ES256", kid: appleId(env.APPLE_KEY_ID), typ: "JWT" })));
   const claim = b64url(new TextEncoder().encode(JSON.stringify({
-    iss: env.APPLE_TEAM_ID, iat: now, exp: now + 300,
-    aud: "https://appleid.apple.com", sub: env.APPLE_SERVICES_ID,
+    iss: appleId(env.APPLE_TEAM_ID), iat: now, exp: now + 300,
+    aud: "https://appleid.apple.com", sub: appleId(env.APPLE_SERVICES_ID),
   })));
   const unsigned = header + "." + claim;
   const pem = String(env.APPLE_PRIVATE_KEY).replace(/\\n/g, "\n").replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
@@ -952,7 +974,7 @@ async function appleVerifyIdToken(env, idToken) {
   if (!ok) return null;
   if (claims.iss !== "https://appleid.apple.com") return null;
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!aud.includes(env.APPLE_SERVICES_ID)) return null;
+  if (!aud.includes(appleId(env.APPLE_SERVICES_ID))) return null;
   if (!(Number(claims.exp) * 1000 > Date.now())) return null;
   return claims;
 }
@@ -4746,7 +4768,14 @@ async function processTyreStockForOrder(env, order) {
       return bad("Too many attempts — try again in 15 minutes", 429);
     }
     if (!appleReady(env)) {
-      return bad("Apple sign-in is not configured — set the APPLE_SERVICES_ID, APPLE_TEAM_ID, APPLE_KEY_ID and APPLE_PRIVATE_KEY secrets.", 400);
+      // Name which one is wrong. "Not configured" when three of four are set
+      // is the least useful sentence a setup screen can produce.
+      const missing = [];
+      if (!/^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$/.test(appleId(env.APPLE_SERVICES_ID))) missing.push("APPLE_SERVICES_ID (the Services ID, e.g. uk.co.example.web)");
+      if (!APPLE_TEN.test(appleId(env.APPLE_TEAM_ID))) missing.push("APPLE_TEAM_ID (10 characters)");
+      if (!APPLE_TEN.test(appleId(env.APPLE_KEY_ID))) missing.push("APPLE_KEY_ID (10 characters)");
+      if (!String(env.APPLE_PRIVATE_KEY || "").includes("PRIVATE KEY")) missing.push("APPLE_PRIVATE_KEY (the whole .p8 file, BEGIN and END lines included)");
+      return bad("Apple sign-in is not set up correctly. Check: " + missing.join("; ") + ".", 400);
     }
     const b0 = await request.json().catch(() => ({}));
     const backTo = String(b0.return || "") === "/driver" ? "/driver" : "/admin";
@@ -4756,7 +4785,7 @@ async function processTyreStockForOrder(env, order) {
     }), { expirationTtl: 600 });
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
     const u = new URL("https://appleid.apple.com/auth/authorize");
-    u.searchParams.set("client_id", env.APPLE_SERVICES_ID);
+    u.searchParams.set("client_id", appleId(env.APPLE_SERVICES_ID));
     u.searchParams.set("redirect_uri", site + "/api/oauth/apple/callback");
     u.searchParams.set("response_type", "code");
     u.searchParams.set("scope", "name email");
@@ -4801,7 +4830,7 @@ async function processTyreStockForOrder(env, order) {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code", code,
-        client_id: env.APPLE_SERVICES_ID,
+        client_id: appleId(env.APPLE_SERVICES_ID),
         client_secret: await appleClientSecret(env),
         redirect_uri: site + "/api/oauth/apple/callback",
       }),
