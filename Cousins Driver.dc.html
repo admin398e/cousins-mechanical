@@ -47,6 +47,13 @@
       <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
         <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
         <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the email address you registered with.</div>
+        <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+          Sign in with Google
+        </button>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;color:#6f6862;font-size:12px;font-weight:600">
+          <div style="flex:1;height:1px;background:#2a2320"></div>OR<div style="flex:1;height:1px;background:#2a2320"></div>
+        </div>
         <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
@@ -157,6 +164,7 @@ class Component extends DCLogic {
     // The auth card is on screen at load, so mount the widget straight away.
     setTimeout(()=>this.mountTurnstile('driver'), 60);
     try{ const t=localStorage.getItem('cms_driver_token'); const a=localStorage.getItem('cms_driver_api')||''; if(t){ this.setState({token:t,apiBase:a,apiInput:a}, ()=>this.loadJobs()); } }catch(e){}
+    this.claimGoogleLogin();
   }
   componentWillUnmount(){ this.stopShare(); }
 
@@ -177,7 +185,58 @@ class Component extends DCLogic {
    */
   sameOrigin(){ try{ return /^https?:$/.test(location.protocol) && !/(^|\.)omelette|preview/.test(location.hostname); }catch(e){ return false; } }
   base(){ return (this.state.apiBase||'').replace(/\/+$/,''); }
-  async api(path, body){ return fetch(this.base()+'/api'+path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(Object.assign({token:this.state.token}, body||{}))}); }
+  /*
+   * One token, sent both ways.
+   *
+   * A driver session (`dsess:`) is read from the request BODY; an owner or
+   * staff session (`asess:`) is read from the Authorization HEADER. The driver
+   * endpoints already accept either — so sending the same token in both places
+   * means one sign-in works for both, and an owner-operator who is his own
+   * driver never has to keep two sets of credentials for one person.
+   */
+  async api(path, body){
+    return fetch(this.base()+'/api'+path, {
+      method:'POST',
+      headers:{ 'content-type':'application/json', authorization:'Bearer '+this.state.token },
+      body:JSON.stringify(Object.assign({token:this.state.token}, body||{})),
+    });
+  }
+
+  // Same Google sign-in as the dashboard: the server builds the consent URL,
+  // Google does the sign-in, and a staff session comes back through a one-shot
+  // grant in the URL fragment.
+  googleSignIn = async () => {
+    try{
+      this.setState({ busy:true, loginErr:'' });
+      const r = await fetch(this.base()+'/api/admin-login-google/start', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ return:'/driver' })});
+      const d = await r.json().catch(()=>({}));
+      if(d.url){ window.location.href = d.url; return; }
+      this.setState({ busy:false, loginErr: d.error || 'Google sign-in is not available.' });
+    }catch(e){ this.setState({ busy:false, loginErr:'Google sign-in failed: '+e.message }); }
+  };
+
+  claimGoogleLogin(){
+    try{
+      const m = (window.location.hash||'').match(/glogin=([0-9a-f-]{36})/);
+      if(m){
+        window.history.replaceState(null,'',window.location.pathname);
+        fetch(this.base()+'/api/admin-login-google/claim', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({grant:m[1]})})
+          .then(r=>r.json()).then(d=>{
+            if(!d.token) throw new Error(d.error||'Sign-in expired');
+            try{ localStorage.setItem('cms_driver_token', d.token); }catch(e){}
+            this.setState({ token:d.token, busy:false, loginErr:'' }, ()=>this.loadJobs());
+          }).catch(e=>this.setState({ busy:false, loginErr:e.message }));
+        return;
+      }
+      const gerr = new URLSearchParams(window.location.search).get('gauth');
+      if(gerr){
+        window.history.replaceState(null,'',window.location.pathname);
+        this.setState({ loginErr: gerr==='not-staff'
+          ? 'That Google account is not set up here yet. The owner adds it under Staff Logins.'
+          : 'Google sign-in did not complete — try again.' });
+      }
+    }catch(e){}
+  }
 
 
   // ---------- Turnstile ----------

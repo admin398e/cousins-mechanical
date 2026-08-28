@@ -1559,6 +1559,33 @@ try {
     }
   });
 
+  await check('two-factor is per account, and the owner can turn it on himself', async () => {
+    /*
+     * Enrolment used to demand the bootstrap ADMIN_TOKEN — the one that stops
+     * being accepted for login the moment a staff account exists. So the owner,
+     * signed in to his own dashboard, could not turn 2FA on at all. Nobody had.
+     */
+    const dev = await asStaff('developer');
+    const r = await staffApi('/api/admin-2fa/new', dev.token, { method: 'POST', body: '{}' });
+    assert.equal(r.status, 200, `a signed-in owner still cannot enrol 2FA (${r.status})`);
+    const d = await r.json();
+    assert.ok(d.secret && d.otpauth, 'no secret issued');
+    assert.equal(d.account, dev.email, 'the secret was not tied to the signed-in account');
+
+    // A second person gets their OWN secret, not the first person's. A shared
+    // one would mean the second to enrol needs the first person's phone.
+    const dev2 = await asStaff('developer');
+    const r2 = await staffApi('/api/admin-2fa/new', dev2.token, { method: 'POST', body: '{}' });
+    assert.equal(r2.status, 200);
+    const d2 = await r2.json();
+    assert.notEqual(d2.secret, d.secret, 'two accounts were handed the same authenticator secret');
+    assert.equal(d2.account, dev2.email);
+
+    // And a stranger with no session still cannot ask for one.
+    const anon = await postJson('/api/admin-2fa/new', {});
+    assert.ok(anon.status === 401 || anon.status === 429, `2FA enrolment is open to anyone (${anon.status})`);
+  });
+
   await check('connecting SumUp is configuration, not day-to-day staff work', async () => {
     const s = await asStaff('staff');
     const denied = await staffApi('/api/admin/sumup/connect-url', s.token, { method: 'POST' });

@@ -4242,9 +4242,11 @@ async function processTyreStockForOrder(env, order) {
     }
 
     if (st.kind === "login") {
+      // Re-checked against the allowlist here too, not trusted from storage.
+      const backTo = st.backTo === "/driver" ? "/driver" : "/admin";
       const fail = (msg) => new Response(null, {
         status: 302,
-        headers: { ...SECURITY_HEADERS, Location: "/admin?gauth=" + encodeURIComponent(msg) },
+        headers: { ...SECURITY_HEADERS, Location: backTo + "?gauth=" + encodeURIComponent(msg) },
       });
       if (!tok.id_token) return fail("no-identity");
       const vr = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(tok.id_token)).catch(() => null);
@@ -4267,10 +4269,10 @@ async function processTyreStockForOrder(env, order) {
       // or in 60 seconds, whichever comes first.
       const grant = crypto.randomUUID();
       await env.CMS_KV.put("glogin_grant:" + grant, JSON.stringify({ token: t, email, name: acct.name || "" }), { expirationTtl: 60 });
-      await audit(env, email, "admin_login_google", email + " " + clientIp(request));
+      await audit(env, email, "admin_login_google", email + " " + clientIp(request) + " -> " + backTo);
       return new Response(null, {
         status: 302,
-        headers: { ...SECURITY_HEADERS, Location: "/admin#glogin=" + grant },
+        headers: { ...SECURITY_HEADERS, Location: backTo + "#glogin=" + grant },
       });
     }
 
@@ -4426,8 +4428,15 @@ async function processTyreStockForOrder(env, order) {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
       return bad("Google sign-in is not configured — set the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET secrets.", 400);
     }
+    // Where to land afterwards. The same sign-in serves the dashboard and the
+    // driver portal, and an owner-operator who signs in from the van must come
+    // back to the van screen, not be dumped on the office one. An allowlist,
+    // not the caller's string: an open redirect on a login callback is how you
+    // hand somebody's fresh session to another site.
+    const b0 = await request.json().catch(() => ({}));
+    const backTo = String(b0.return || "") === "/driver" ? "/driver" : "/admin";
     const nonce = crypto.randomUUID();
-    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "login", t: Date.now() }), { expirationTtl: 600 });
+    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "login", backTo, t: Date.now() }), { expirationTtl: 600 });
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
     const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
@@ -4471,13 +4480,23 @@ async function processTyreStockForOrder(env, order) {
       await clearFailures(env, rlKey);
       const t = token();
       await env.CMS_KV.put("asess:" + t, who, { expirationTtl: 60 * 60 * 12 });
-      return json({ token: t, who, enrolled: !!(await env.CMS_KV.get("admin_totp")), ...(extra || {}) });
+      const enrolledKey = who && who.includes("@") ? "totp:" + who : "admin_totp";
+      return json({ token: t, who, enrolled: !!(await env.CMS_KV.get(enrolledKey)), ...(extra || {}) });
     };
 
     // Break-glass: OVERRIDE_TOKEN always works and can clear a stuck 2FA, so the
     // owner can never be permanently locked out of his own business.
     if (env.OVERRIDE_TOKEN && safeEqual(b.token, env.OVERRIDE_TOKEN)) {
-      if (b.reset2fa) await env.CMS_KV.delete("admin_totp");
+      // Break-glass clears EVERY authenticator, not just the legacy shared one.
+      // A locked-out owner with a dead phone is exactly who this is for, and
+      // leaving per-account secrets behind would not actually let them back in.
+      if (b.reset2fa) {
+        await env.CMS_KV.delete("admin_totp");
+        const staffKeys = await env.CMS_KV.list({ prefix: "staff:" });
+        for (const k of staffKeys.keys) {
+          await env.CMS_KV.delete("totp:" + k.name.slice("staff:".length));
+        }
+      }
       await audit(env, "override-token", "admin_login_override", clientIp(request));
       return issue("admin", { override: true });
     }
@@ -4502,7 +4521,9 @@ async function processTyreStockForOrder(env, order) {
         await audit(env, em, "admin_login_failed", em + " " + clientIp(request));
         return bad("Email or password not recognised", 401);
       }
-      const enrolled = await env.CMS_KV.get("admin_totp");
+      // THIS account's authenticator, not a single shared one. A shared secret
+      // would mean the second person to enrol needs the first person's phone.
+      const enrolled = await env.CMS_KV.get("totp:" + em);
       if (enrolled && !(await totpValid(enrolled, b.code))) {
         await noteFailure(env, rlKey);
         return bad("Enter the 6-digit code from your authenticator app.", 401);
@@ -4549,16 +4570,35 @@ async function processTyreStockForOrder(env, order) {
     if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
       return bad("Too many attempts — try again in 15 minutes", 429);
     }
-    if (!safeEqual(b.token, env.ADMIN_TOKEN)) { await noteFailure(env, rlKey); return bad("Invalid admin token", 401); }
-    // Refuse to hand out a new secret once 2FA is live — otherwise anyone holding
-    // the admin token could silently re-enrol their own authenticator.
-    if (await env.CMS_KV.get("admin_totp")) {
-      return bad("2FA is already enrolled. Use OVERRIDE_TOKEN with reset2fa to re-enrol.", 409);
+    /*
+     * Who may enrol, and who they enrol FOR.
+     *
+     * This used to demand the bootstrap ADMIN_TOKEN — the one that stops being
+     * accepted for login the moment a staff account exists. So the owner, sat
+     * signed in to his own dashboard, could not turn 2FA on at all: he would
+     * have had to know a secret nobody had given him. Nobody had enrolled.
+     *
+     * A signed-in person may now enrol, and the secret belongs to THEIR
+     * account. It has to be per-account: one shared secret means the second
+     * person to sign in needs the first person's phone, which is not
+     * two-factor authentication, it is a shared password with extra steps.
+     */
+    const who = await whoAmI(env, request);
+    const signedIn = await isAdmin(request, env);
+    if (!signedIn && !safeEqual(b.token, env.ADMIN_TOKEN)) {
+      await noteFailure(env, rlKey);
+      return bad("Sign in first, or use the setup token.", 401);
+    }
+    const key = signedIn && who && who.includes("@") ? "totp:" + who : "admin_totp";
+    // Refuse to hand out a new secret once this account has one — otherwise a
+    // stolen session could silently re-enrol the attacker's own authenticator.
+    if (await env.CMS_KV.get(key)) {
+      return bad("Two-factor is already on for this account. Use OVERRIDE_TOKEN with reset2fa to re-enrol.", 409);
     }
     const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
-    const label = encodeURIComponent(BUSINESS.shortName + " Admin");
+    const label = encodeURIComponent(BUSINESS.shortName + " " + (key === "admin_totp" ? "Admin" : who));
     const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=Cousins%20Mechanical&algorithm=SHA1&digits=6&period=30`;
-    return json({ secret, otpauth, alreadyEnrolled: false });
+    return json({ secret, otpauth, alreadyEnrolled: false, account: key === "admin_totp" ? "admin" : who });
   }
   // Confirm the code works, then lock 2FA on. From now, admin login requires the app.
   if (p === "/admin-2fa/enable" && request.method === "POST") {
@@ -4570,12 +4610,18 @@ async function processTyreStockForOrder(env, order) {
     if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
       return bad("Too many attempts — try again in 15 minutes", 429);
     }
-    if (!safeEqual(b.token, env.ADMIN_TOKEN)) { await noteFailure(env, rlKey); return bad("Invalid admin token", 401); }
-    if (await env.CMS_KV.get("admin_totp")) return bad("2FA is already enrolled.", 409);
+    const who2 = await whoAmI(env, request);
+    const signedIn2 = await isAdmin(request, env);
+    if (!signedIn2 && !safeEqual(b.token, env.ADMIN_TOKEN)) {
+      await noteFailure(env, rlKey);
+      return bad("Sign in first, or use the setup token.", 401);
+    }
+    const key2 = signedIn2 && who2 && who2.includes("@") ? "totp:" + who2 : "admin_totp";
+    if (await env.CMS_KV.get(key2)) return bad("Two-factor is already on for this account.", 409);
     if (!b.secret || !(await totpValid(b.secret, b.code))) return bad("That code didn't match — check the app and try again.", 400);
-    await env.CMS_KV.put("admin_totp", b.secret);
-    await audit(env, "admin-token", "admin_2fa_enrolled", "");
-    return json({ ok: true });
+    await env.CMS_KV.put(key2, b.secret);
+    await audit(env, key2 === "admin_totp" ? "admin-token" : who2, "admin_2fa_enrolled", key2 === "admin_totp" ? "" : who2);
+    return json({ ok: true, account: key2 === "admin_totp" ? "admin" : who2 });
   }
   // Only an admin needs to know whether 2FA is on. Unauthenticated, it told an
   // attacker precisely when a bare ADMIN_TOKEN bearer would still be accepted.
@@ -4583,7 +4629,12 @@ async function processTyreStockForOrder(env, order) {
     return bad("Forbidden", 403);
   }
   if (p === "/admin-2fa/status" && request.method === "GET") {
-    return json({ enrolled: !!(await env.CMS_KV.get("admin_totp")) });
+    const me = await whoAmI(env, request);
+    const mine = me && me.includes("@") ? await env.CMS_KV.get("totp:" + me) : null;
+    return json({
+      enrolled: !!(mine || (!me?.includes("@") && await env.CMS_KV.get("admin_totp"))),
+      account: me || "admin",
+    });
   }
 
   // Unauthenticated: lets the login screen show email+password vs first-run
