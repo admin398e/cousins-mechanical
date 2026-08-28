@@ -1770,6 +1770,14 @@ try {
     assert.ok(String(seeded.qr || '').startsWith('data:image/svg+xml,'),
       'enrolment came back with no QR code to scan');
     assert.ok(!seeded.qr.includes(';'), 'the QR URI would be truncated by the style parser');
+    /*
+     * Base32, RFC 4648: capitals and the digits 2 to 7. No 0, 1, 8 or 9 ever.
+     * This matters more than it looks — the key was being displayed in a
+     * condensed bold face where a capital O reads as a zero, somebody typed
+     * the zero, and the authenticator answered "invalid characters" without
+     * saying which. The alphabet is the fact that makes the fix safe to state.
+     */
+    assert.match(secret, /^[A-Z2-7]{32}$/, 'the setup key is not valid base32 — no app will accept it');
     assert.ok(seeded.otpauth.includes('secret=' + secret), 'the QR would not carry this account\'s secret');
     const on = await api('/api/admin-2fa/enable', {
       method: 'POST',
@@ -2059,15 +2067,38 @@ try {
     assert.ok(/WE COME TO YOU|FIND YOUR TYRE SIZE/.test(html), 'apex root no longer serves the public site');
   });
 
-  await check('Google sign-in endpoints exist and fail closed when unconfigured', async () => {
-    // FIREBASE_WEB_CONFIG is not set in the test environment, so the config
-    // endpoint must 404 (the button hides itself) and the login endpoint must
-    // refuse cleanly rather than granting a session.
-    assert.equal((await api('/api/firebase-config')).status, 404);
-    const r = await postJson('/api/admin-login-firebase', { idToken: 'anything' });
-    assert.equal(r.status, 503);
+  await check('the Firebase admin door is gone, not merely unconfigured', async () => {
+    /*
+     * /admin-login-firebase issued an admin session to any address listed in
+     * ADMIN_EMAILS without ever checking the staff table — the one check that
+     * makes "other staff cannot log in without being approved" true. It was
+     * inert only because a single environment variable happened to be unset.
+     * Both endpoints are removed; these must not answer at all.
+     */
+    for (const [path, init] of [['/api/firebase-config', {}], ['/api/admin-login-firebase', { method: 'POST', body: '{}' }]]) {
+      const r = await api(path, { headers: { 'content-type': 'application/json' }, ...init });
+      assert.equal(r.status, 404, `${path} still answers (${r.status}) — the second admin door is open`);
+    }
     const mode = await (await api('/api/admin-auth/mode')).json();
     assert.equal(mode.google, false, 'auth mode should report Google sign-in as off');
+  });
+
+  await check("Apple's domain check is served by the Worker and fails closed", async () => {
+    /*
+     * Registering the site as a Sign in with Apple return URL means proving the
+     * domain: Apple fetches a token file from /.well-known/ on the apex. It is
+     * served here rather than dropped in public/ because run_worker_first puts
+     * every request through the fetch handler and the assets pipeline is not
+     * dependable for dot-directories.
+     */
+    for (const path of ['/.well-known/apple-developer-domain-association.txt',
+                        '/apple-developer-domain-association.txt']) {
+      const r = await api(path);
+      // Unset in tests: a readable 404 that names the secret, never a blank 200
+      // that Apple would read as an empty, failing token.
+      assert.equal(r.status, 404, `${path} should 404 until the token is set`);
+      assert.match(await r.text(), /APPLE_DOMAIN_ASSOCIATION/, 'the failure does not say what to set');
+    }
   });
 
   await check('admin backup exports durable data and excludes sessions', async () => {

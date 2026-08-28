@@ -4911,53 +4911,21 @@ async function processTyreStockForOrder(env, order) {
     return back("connected");
   }
 
-  if (p === "/firebase-config" && request.method === "GET") {
-    if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 404);
-    return new Response(env.FIREBASE_WEB_CONFIG, {
-      headers: { ...CORS, ...SECURITY_HEADERS, "content-type": "application/json" },
-    });
-  }
+  /*
+   * Firebase sign-in used to live here — /firebase-config handed the browser a
+   * web config, and /admin-login-firebase swapped a Firebase ID token for an
+   * admin session. Both are gone, and the reason is not tidiness.
+   *
+   * That endpoint granted a session to any address listed in ADMIN_EMAILS
+   * WITHOUT checking the staff table. Every other way in goes through
+   * grantStaffSession(), which refuses an address that is not already a staff
+   * account — that is the whole of "other staff cannot log in without being
+   * approved". A second door that skipped it, waiting on one environment
+   * variable being set, is not a door worth keeping for a sign-in method
+   * nothing uses: Google identity comes from the same OAuth client as the
+   * calendar, and needs no Firebase project at all.
+   */
 
-  // Google sign-in for the admin dashboard. The browser gets a Firebase ID
-  // token; we verify it SERVER-SIDE with Google Identity Toolkit (so a forged
-  // token is useless) and only then check the email against ADMIN_EMAILS.
-  // Previously this endpoint existed only in the dev server — on Cloudflare
-  // the Google button 404'd.
-  if (p === "/admin-login-firebase" && request.method === "POST") {
-    const rlKey = "admin:" + clientIp(request);
-    // The most important limiters in the file: these guard the staff password,
-    // the owner's break-glass token and 2FA enrolment. The KV counter alone was
-    // close to useless because KV reads are edge-cached for up to a minute.
-    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
-      return bad("Too many attempts — try again in 15 minutes", 429);
-    }
-    if (!env.FIREBASE_WEB_CONFIG) return bad("Google sign-in is not configured", 503);
-    const admins = String(env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
-    if (!admins.length) return bad("ADMIN_EMAILS is not set — refusing to grant admin access", 503);
-    let apiKey = "";
-    try { apiKey = JSON.parse(env.FIREBASE_WEB_CONFIG).apiKey || ""; } catch {}
-    if (!apiKey) return bad("Google sign-in is misconfigured", 503);
-    const b = await request.json().catch(() => ({}));
-    if (!b.idToken) { await noteFailure(env, rlKey); return bad("Unauthorized", 401); }
-    const vr = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" + encodeURIComponent(apiKey), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idToken: b.idToken }),
-    }).catch(() => null);
-    const vd = vr && vr.ok ? await vr.json().catch(() => null) : null;
-    const u = vd && Array.isArray(vd.users) ? vd.users[0] : null;
-    const email = ((u && u.email) || "").toLowerCase();
-    if (!u || !email || !u.emailVerified || !admins.includes(email)) {
-      await noteFailure(env, rlKey);
-      await audit(env, email || "unknown", "admin_login_google_rejected", email || "invalid-token");
-      return bad("This account is not an administrator", 403);
-    }
-    await clearFailures(env, rlKey);
-    const t = token();
-    await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
-    await audit(env, email, "admin_login_google", email + " " + clientIp(request));
-    return json({ token: t, user: { email, name: u.displayName || email } });
-  }
 
   /*
    * "Sign in with Google" — the version that needs no Firebase project. It
@@ -5222,7 +5190,7 @@ async function processTyreStockForOrder(env, order) {
       enrolled: !!(await env.CMS_KV.get("admin_totp")),
       // Two ways Google sign-in can be live: the OAuth client (shared with the
       // calendar — the normal route) or the older Firebase setup.
-      google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) || !!(env.FIREBASE_WEB_CONFIG && env.ADMIN_EMAILS),
+      google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
       googleOauth: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
       apple: appleReady(env),
     });
@@ -7357,6 +7325,40 @@ export default {
         console.error("[api]", url.pathname, err && err.stack ? err.stack : err);
         return bad("Something went wrong handling that request.", 500);
       }
+    }
+
+    /*
+     * Apple's domain verification.
+     *
+     * Registering the site as a Sign in with Apple return URL means proving
+     * the domain is ours: Apple hands over a token file and then fetches it
+     * from /.well-known/ on the apex. It has to be served by the Worker rather
+     * than dropped in public/, because run_worker_first sends every request
+     * here first and the assets pipeline is not dependable for dot-directories.
+     *
+     * The token is not a secret — it is a public proof of control — but it is
+     * set the same way as everything else so there is one place to look:
+     *   npx wrangler secret put APPLE_DOMAIN_ASSOCIATION
+     *
+     * Apple also accepts the file at the site root, so both are served.
+     */
+    if (url.pathname === "/.well-known/apple-developer-domain-association.txt"
+        || url.pathname === "/apple-developer-domain-association.txt") {
+      if (!env.APPLE_DOMAIN_ASSOCIATION) {
+        return new Response("Not configured. Set the APPLE_DOMAIN_ASSOCIATION secret to the file Apple gave you.", {
+          status: 404,
+          headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+      return new Response(env.APPLE_DOMAIN_ASSOCIATION, {
+        headers: {
+          ...SECURITY_HEADERS,
+          "content-type": "text/plain; charset=utf-8",
+          // Apple re-checks periodically; let it, rather than serving a stale
+          // copy from a cache after the token is rotated.
+          "cache-control": "no-store",
+        },
+      });
     }
 
     // ---------------------------------------------------------------

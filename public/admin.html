@@ -137,9 +137,15 @@
           <div role="img" aria-label="Two-factor setup QR code" style="{{ twofaQrStyle }}"></div>
         </div>
       </sc-if>
+      <!-- Monospace, in blocks of four, with a copy button. The key was set in
+           condensed bold, where a capital O is all but a zero — and base32 has
+           no zero in it, so an authenticator app answers "invalid characters"
+           and gives no hint which one it means. -->
       <div style="background:#14100e;border:1px dashed #3a322d;border-radius:10px;padding:12px;text-align:center;margin-bottom:14px">
-        <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:4px">{{ setupKeyLabel }}</div>
-        <div style="color:#f4a04a;font-family:'Barlow Condensed';font-weight:700;font-size:18px;word-break:break-all;letter-spacing:.05em">{{ twofaSecret }}</div>
+        <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:7px">{{ setupKeyLabel }}</div>
+        <div style="color:#f4a04a;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;font-size:15px;line-height:1.7;word-break:normal;overflow-wrap:break-word;letter-spacing:.08em">{{ twofaSecretGrouped }}</div>
+        <button onClick="{{ copySecret }}" style="margin-top:9px;background:#241d19;border:1px solid #3a322d;color:#d9d2cc;font-weight:700;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12.5px">{{ copyKeyLabel }}</button>
+        <div style="color:#6f6862;font-size:11.5px;line-height:1.5;margin-top:9px">Letters and the digits 2&ndash;7 only. There is never a zero, one, eight or nine in it &mdash; anything round is the letter O.</div>
       </div>
       <input value="{{ enrollCode }}" onInput="{{ setEnrollCode }}" inputmode="numeric" placeholder="6-digit code" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:12px"/>
       <sc-if value="{{ twofaErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ twofaErr }}</div></sc-if>
@@ -1514,7 +1520,7 @@ class Component extends DCLogic {
     // the owner-operator is also the driver.
     choosePortal:false, chooseRole:'',
     overrideOpen:false, reset2fa:false,
-    twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', twofaQr:'', enrollCode:'',
+    twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', twofaQr:'', enrollCode:'', keyCopied:false,
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
     mailHealth:null, crmPortalId:'',
     // Offers & sales
@@ -1667,53 +1673,26 @@ class Component extends DCLogic {
   };
 
   googleSignIn = async () => {
-    // The normal route: the server builds a Google consent URL from the same
-    // OAuth client the calendar uses, and the whole sign-in happens on
-    // Google's own pages. The Firebase popup below is only a fallback for
-    // installs that configured it before this existed.
+    /*
+     * The server builds a Google consent URL from the same OAuth client the
+     * calendar uses, and the whole sign-in happens on Google's own pages.
+     *
+     * There used to be a Firebase popup fallback below this. It is gone with
+     * the endpoint it called: that route granted an admin session to any
+     * address in ADMIN_EMAILS without ever checking the staff table, so it was
+     * a way past "other staff cannot log in without being approved". Firebase
+     * is not needed for Google identity and never was.
+     */
     try {
-      const st = await this.raw('/admin-auth/mode');
-      const mode = st.ok ? await st.json() : {};
-      if (mode.googleOauth) {
-        const r = await this.raw('/admin-login-google/start', { method: 'POST', body: '{}' });
-        const d = await r.json().catch(() => ({}));
-        if (d.url) { window.location.href = d.url; return; }
-        this.setState({ loginErr: d.error || 'Google sign-in could not start.' });
-        return;
-      }
-    } catch (e) { /* fall through to Firebase */ }
-    try {
-      const cfgRes = await fetch("/api/firebase-config");
-      const firebaseConfig = await cfgRes.json();
-      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-      const app = window.firebaseApp || initializeApp(firebaseConfig);
-      window.firebaseApp = app;
-      const authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
-      const auth = authMod.getAuth(app);
-      const provider = new authMod.GoogleAuthProvider();
-      // No extra scopes: admin sign-in only needs identity. Calendar events are
-      // created server-side by the Worker's service account, and requesting
-      // gmail/calendar scopes here would hit Google's unverified-app warning.
-      const result = await authMod.signInWithPopup(auth, provider);
-      const credential = authMod.GoogleAuthProvider.credentialFromResult(result);
-      if (credential && credential.accessToken) {
-        window.googleAccessToken = credential.accessToken;
-        try { localStorage.setItem("cms_google_access_token", credential.accessToken); } catch(e) {}
-      }
-      const idToken = await result.user.getIdToken();
-      const loginRes = await fetch("/api/admin-login-firebase", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken }) });
-      const loginData = await loginRes.json();
-      if (loginData.token) {
-        try { localStorage.setItem("cms_admin_sess", loginData.token); } catch(e) {}
-        this.setState({ token: loginData.token, loggedIn: true, demoMode: !this.hasServer() }, () => this.enter());
-      } else {
-        throw new Error(loginData.error || "Login failed");
-      }
-    } catch(err) {
-      console.error("Google Sign-In failed:", err);
-      this.setState({ loginErr: "Google Sign-In failed: " + err.message });
+      this.setState({ busy: true, loginErr: '' });
+      const r = await this.raw('/admin-login-google/start', { method: 'POST', body: '{}' });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) { window.location.href = d.url; return; }
+      this.setState({ busy: false, loginErr: d.error || 'Google sign-in could not start.' });
+    } catch (e) {
+      this.setState({ busy: false, loginErr: 'Google sign-in failed: ' + e.message });
     }
-    };
+  };
 
   // "Connect Google Calendar" on the Calendar tab. Nothing Google-flavoured
   // happens in the browser: the server builds the consent URL (with a one-shot
@@ -1886,6 +1865,21 @@ class Component extends DCLogic {
     try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
     this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false,
                    mustEnrol:false, twofaOpen:false, choosePortal:false}); };
+  copySecret = async () => {
+    const key = String(this.state.twofaSecret||'');
+    try{ await navigator.clipboard.writeText(key); }
+    catch(e){
+      // Clipboard access is refused outside a secure context and in some
+      // locked-down browsers. Fall back rather than fail silently.
+      try{
+        const ta = document.createElement('textarea');
+        ta.value = key; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      }catch(e2){ return; }
+    }
+    this.setState({keyCopied:true});
+    setTimeout(()=>this.setState({keyCopied:false}), 2500);
+  };
   close2fa = () => this.setState({twofaOpen:false});
   // A compulsory enrolment has no way out but finishing it or signing out.
   maybeClose2fa = () => { if(!this.state.mustEnrol) this.setState({twofaOpen:false}); };
@@ -2306,7 +2300,7 @@ class Component extends DCLogic {
         headers: this.state.token ? { authorization:'Bearer '+this.state.token } : {},
         body:JSON.stringify({token:this.state.tokenInput.trim()})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
-      this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaQr:d.qr||'', twofaOpen:true, twofaBusy:false});
+      this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaQr:d.qr||'', twofaOpen:true, twofaBusy:false, keyCopied:false});
     }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
   };
   setEnrollCode = e => this.setState({enrollCode:e.target.value.replace(/\D/g,'').slice(0,6)});
@@ -3436,6 +3430,10 @@ class Component extends DCLogic {
         style:'font-weight:700;color:'+(h.kind==='refund'?'#f0a884':'#8ee6a0'),
       })),
       twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
+      // Grouped for reading; the copy button copies the raw key, spaces and all
+      // removed, so what lands in the app is what the server issued.
+      twofaSecretGrouped: String(s.twofaSecret||'').replace(/(.{4})/g, '$1 ').trim(),
+      copySecret:this.copySecret, copyKeyLabel: s.keyCopied ? 'Copied' : 'Copy key',
       // The QR travels in a style, not an <img src>: dc-placeholder.js strips a
       // {{ binding }} out of src before the runtime compiles the template, so
       // an <img> here would be a blank 1x1 GIF and nothing else.

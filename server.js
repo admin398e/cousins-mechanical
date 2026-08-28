@@ -138,7 +138,6 @@ const env = {
   GCAL_CALENDAR_ID: process.env.GCAL_CALENDAR_ID || '',
   OWNER_PHONE: process.env.OWNER_PHONE || '',
   EXTRA_ORIGINS: process.env.EXTRA_ORIGINS || '',
-  FIREBASE_WEB_CONFIG: process.env.FIREBASE_WEB_CONFIG || '',
   ADMIN_EMAILS: process.env.ADMIN_EMAILS || '',
 };
 
@@ -155,6 +154,7 @@ const env = {
 for (const name of [
   'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GCAL_REFRESH_TOKEN',
   'APPLE_SERVICES_ID', 'APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY',
+  'APPLE_DOMAIN_ASSOCIATION',
   'SUMUP_CLIENT_ID', 'SUMUP_CLIENT_SECRET', 'SUMUP_API_KEY', 'SUMUP_MERCHANT_CODE',
   'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET',
   'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET',
@@ -170,8 +170,8 @@ for (const name of [
 // wrangler, so give the dev server the same thing.
 if (env.APPLE_PRIVATE_KEY) env.APPLE_PRIVATE_KEY = env.APPLE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
-// Google sign-in routes (/api/firebase-config, /api/admin-login-firebase)
-// are handled by the Worker itself now, same as production.
+// Google sign-in is server-side OAuth (/api/admin-login-google/*), handled by
+// the Worker itself, same as production. There is no Firebase project.
 
 // ---------------------------------------------------------------------------
 // Everything under /api, /v1, /ukvd goes to the real Worker
@@ -206,6 +206,16 @@ const handleWorkerRequest = async (req, res) => {
 };
 
 app.use(['/api', '/v1', '/ukvd'], express.raw({ type: '*/*', limit: '1mb' }), handleWorkerRequest);
+
+/*
+ * Apple's domain-verification file is served by the Worker, not from public/,
+ * so it has to reach the Worker here too. In production run_worker_first sends
+ * every request through the fetch handler; this Express app only forwards
+ * /api, /v1 and /ukvd, so without this line the file would 404 locally and
+ * work live — the exact kind of divergence that hid the last two auth bugs.
+ */
+app.use(['/.well-known/apple-developer-domain-association.txt',
+         '/apple-developer-domain-association.txt'], handleWorkerRequest);
 
 // ---------------------------------------------------------------------------
 // Static site
@@ -266,7 +276,7 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!env.RESEND_API_KEY) off.push('email');
   if (!env.TWILIO_SID && !env.WHATSAPP_TOKEN) off.push('SMS/WhatsApp');
   if (!env.GCAL_CALENDAR_ID) off.push('calendar');
-  if (!process.env.FIREBASE_WEB_CONFIG && !process.env.GOOGLE_CLIENT_ID) off.push('Google sign-in');
+  if (!process.env.GOOGLE_CLIENT_ID) off.push('Google sign-in');
   if (!process.env.APPLE_SERVICES_ID) off.push('Apple sign-in');
   if (off.length) console.log(`  Disabled (no key set): ${off.join(', ')}`);
 
