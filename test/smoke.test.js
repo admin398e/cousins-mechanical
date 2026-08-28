@@ -1269,6 +1269,54 @@ try {
     assert.ok(loc.includes('gcal=expired'), `forged callback did not land on the readable failure page: ${loc}`);
   });
 
+  await check('a forged Apple callback bounces instead of signing anyone in', async () => {
+    // Apple posts a form, so this one is a POST — and the state nonce is the
+    // whole defence, exactly as for Google.
+    const r = await api('/api/oauth/apple/callback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code: 'fake', state: 'never-issued' }).toString(),
+      redirect: 'manual',
+    });
+    assert.equal(r.status, 302, `forged Apple callback did not redirect (status ${r.status})`);
+    const loc = r.headers.get('location') || '';
+    assert.ok(loc.includes('gauth=expired'), `forged Apple callback was not refused readably: ${loc}`);
+    // And a well-formed uuid that was simply never issued fares no better.
+    const r2 = await api('/api/oauth/apple/callback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code: 'fake', state: '11111111-2222-3333-4444-555555555555' }).toString(),
+      redirect: 'manual',
+    });
+    assert.ok((r2.headers.get('location') || '').includes('gauth=expired'), 'an unissued state nonce was accepted');
+  });
+
+  await check('Apple sign-in asks for a name and an email, and nothing else', async () => {
+    const r = await postJson('/api/auth/apple/start', {});
+    if (r.status === 200) {
+      const u = new URL((await r.json()).url);
+      assert.equal(u.origin + u.pathname, 'https://appleid.apple.com/auth/authorize', 'not an Apple consent URL');
+      assert.equal(u.searchParams.get('scope'), 'name email', 'wrong scope requested');
+      // Requesting a scope obliges Apple to POST the answer back. Without this
+      // the callback would never fire and sign-in would hang on a blank page.
+      assert.equal(u.searchParams.get('response_mode'), 'form_post', 'a scoped Apple request must be form_post');
+      assert.match(u.searchParams.get('state') || '', /^[0-9a-f-]{36}$/, 'state is not a nonce');
+      assert.ok((u.searchParams.get('redirect_uri') || '').endsWith('/api/oauth/apple/callback'), 'wrong redirect_uri');
+    } else {
+      // Not configured: the failure has to say which secrets to set, not shrug.
+      assert.equal(r.status, 400, `unexpected status ${r.status}`);
+      assert.ok(String((await r.json()).error).includes('APPLE_SERVICES_ID'), 'failure does not say what to set');
+    }
+  });
+
+  await check('the front door advertises only the providers that are configured', async () => {
+    const d = await (await api('/api/auth/providers')).json();
+    assert.equal(typeof d.google, 'boolean');
+    assert.equal(typeof d.apple, 'boolean');
+    // It must never leak anything but the two flags.
+    assert.deepEqual(Object.keys(d).sort(), ['apple', 'google'], 'the provider list says more than it should');
+  });
+
   await check('driver endpoints reject a missing or wrong token', async () => {
     // These compared with raw === against ADMIN_TOKEN. With the token unset,
     // omitting it gave undefined === undefined, i.e. open access.
@@ -1506,6 +1554,14 @@ try {
    * and export every customer record. The tests below are the difference
    * between roles that mean something and roles that are decoration.
    */
+  /*
+   * Create a staff account and take it all the way to a working session.
+   *
+   * That is now four steps, not two, because a staff account with no
+   * authenticator holds a session that can do exactly one thing: enrol one.
+   * The helper walks the same path a real person walks on their first sign-in,
+   * so every role test below is also, incidentally, proof that the path works.
+   */
   const asStaff = async (role) => {
     const tok = await adminTok();
     const email = `role-${role}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@cousinsmechanicalservices.co.uk`;
@@ -1516,9 +1572,31 @@ try {
       body: JSON.stringify({ email, password, name: role, role }),
     });
     assert.equal(mk.status, 200, `could not create a ${role}: ${await mk.text()}`);
-    const login = await postJson('/api/admin-login', { email, password, code: totpNow(totpSecret) });
-    assert.equal(login.status, 200, `${role} could not sign in`);
-    return { email, token: (await login.json()).token };
+
+    const first = await postJson('/api/admin-login', { email, password });
+    assert.equal(first.status, 200, `${role} could not sign in`);
+    const f = await first.json();
+    assert.equal(f.mustEnrol, true, 'a brand new staff account was not asked to set up two-factor');
+
+    const seed = await api('/api/admin-2fa/new', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + f.token },
+      body: '{}',
+    });
+    assert.equal(seed.status, 200, `enrolment refused the session it is meant to serve (${seed.status})`);
+    const secret = (await seed.json()).secret;
+    const on = await api('/api/admin-2fa/enable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + f.token },
+      body: JSON.stringify({ secret, code: totpNow(secret) }),
+    });
+    assert.equal(on.status, 200, `could not finish enrolment: ${await on.text()}`);
+
+    const login = await postJson('/api/admin-login', { email, password, code: totpNow(secret) });
+    assert.equal(login.status, 200, `${role} could not sign in after enrolling`);
+    const d = await login.json();
+    assert.ok(!d.mustEnrol, 'still being asked to enrol after enrolling');
+    return { email, token: d.token, secret, role: d.role };
   };
   const staffApi = (path, token, init = {}) => api(path, {
     ...init,
@@ -1566,24 +1644,166 @@ try {
      * signed in to his own dashboard, could not turn 2FA on at all. Nobody had.
      */
     const dev = await asStaff('developer');
-    const r = await staffApi('/api/admin-2fa/new', dev.token, { method: 'POST', body: '{}' });
-    assert.equal(r.status, 200, `a signed-in owner still cannot enrol 2FA (${r.status})`);
-    const d = await r.json();
-    assert.ok(d.secret && d.otpauth, 'no secret issued');
-    assert.equal(d.account, dev.email, 'the secret was not tied to the signed-in account');
-
+    const dev2 = await asStaff('developer');
     // A second person gets their OWN secret, not the first person's. A shared
     // one would mean the second to enrol needs the first person's phone.
-    const dev2 = await asStaff('developer');
-    const r2 = await staffApi('/api/admin-2fa/new', dev2.token, { method: 'POST', body: '{}' });
-    assert.equal(r2.status, 200);
-    const d2 = await r2.json();
-    assert.notEqual(d2.secret, d.secret, 'two accounts were handed the same authenticator secret');
-    assert.equal(d2.account, dev2.email);
+    assert.notEqual(dev.secret, dev2.secret, 'two accounts were handed the same authenticator secret');
+
+    // Once it is on, a stolen session cannot quietly re-enrol somebody else's
+    // phone in place of the owner's.
+    const again = await staffApi('/api/admin-2fa/new', dev.token, { method: 'POST', body: '{}' });
+    assert.equal(again.status, 409, `an enrolled account was handed a fresh secret (${again.status})`);
+
+    // The account's own code, and only its own, opens the account.
+    const wrongPhone = await postJson('/api/admin-login', {
+      email: dev.email, password: 'a-properly-long-password', code: totpNow(dev2.secret),
+    });
+    assert.equal(wrongPhone.status, 401, "another person's authenticator opened this account");
 
     // And a stranger with no session still cannot ask for one.
     const anon = await postJson('/api/admin-2fa/new', {});
     assert.ok(anon.status === 401 || anon.status === 429, `2FA enrolment is open to anyone (${anon.status})`);
+  });
+
+  await check('a staff account with no authenticator can enrol and do nothing else', async () => {
+    /*
+     * The owner's words: "this is vital so noone can access without the auth".
+     * A UI that merely shows an enrolment card is not that — the session behind
+     * it has to be inert. This is the test that makes it inert: sign in, then
+     * try the dashboard, the customer list and the staff list with a session
+     * that has no second factor on it.
+     */
+    const tok = await adminTok();
+    const email = `noauth-${Date.now()}-${Math.floor(Math.random() * 1e6)}@cousinsmechanicalservices.co.uk`;
+    const password = 'a-properly-long-password';
+    const mk = await api('/api/admin/staff', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ email, password, name: 'Not Enrolled', role: 'owner' }),
+    });
+    assert.equal(mk.status, 200, `could not create the account: ${await mk.text()}`);
+
+    const login = await postJson('/api/admin-login', { email, password });
+    assert.equal(login.status, 200, 'sign-in was refused outright, leaving nowhere to enrol from');
+    const d = await login.json();
+    assert.equal(d.mustEnrol, true, 'the dashboard was not told to demand enrolment');
+    assert.equal(d.enrolled, false);
+
+    // Even as an owner — the highest role there is — the session is inert.
+    for (const path of ['/api/admin/jobs', '/api/admin/customers', '/api/admin/staff']) {
+      const r = await api(path, { headers: { authorization: 'Bearer ' + d.token } });
+      assert.equal(r.status, 403, `${path} was open to an owner with no authenticator (${r.status})`);
+    }
+
+    // The one thing it may do.
+    const seed = await api('/api/admin-2fa/new', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + d.token },
+      body: '{}',
+    });
+    assert.equal(seed.status, 200, 'the only permitted action was also refused — a dead end');
+    const secret = (await seed.json()).secret;
+    const on = await api('/api/admin-2fa/enable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + d.token },
+      body: JSON.stringify({ secret, code: totpNow(secret) }),
+    });
+    assert.equal(on.status, 200, `enrolment did not complete: ${await on.text()}`);
+
+    // Enrolling wakes the session it was made from — no second sign-in needed.
+    const now = await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + d.token } });
+    assert.equal(now.status, 200, 'the session stayed dead after enrolling');
+
+    // And from here the password alone is no longer enough.
+    const noCode = await postJson('/api/admin-login', { email, password });
+    assert.equal(noCode.status, 401, 'the password alone still opened an enrolled account');
+  });
+
+  await check('one sign-in serves the office and the van', async () => {
+    /*
+     * The owner-operator is his own driver. The dashboard's "Van — driver
+     * view" button hands this very session to the driver screen rather than
+     * minting a second set of credentials, so the driver endpoints have to
+     * accept a staff session in the Authorization header — and refuse one that
+     * has not been through two-factor.
+     */
+    const owner = await asStaff('owner');
+    // A fresh client address: the driver endpoints rate-limit by IP, and the
+    // tests above deliberately hammer them with bad tokens from the default one.
+    const fromVan = { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.' + (10 + Math.floor(Math.random() * 200)) };
+    const ok = await api('/api/driver/jobs', {
+      method: 'POST',
+      headers: { ...fromVan, authorization: 'Bearer ' + owner.token },
+      body: '{}',
+    });
+    assert.equal(ok.status, 200, `an owner's session was refused by the van view (${ok.status})`);
+    assert.ok(Array.isArray((await ok.json()).jobs), 'the van view returned no job list');
+
+    // The same session before enrolment must not get there.
+    const email = `van-${Date.now()}-${Math.floor(Math.random() * 1e6)}@cousinsmechanicalservices.co.uk`;
+    const password = 'a-properly-long-password';
+    const tok = await adminTok();
+    await api('/api/admin/staff', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ email, password, name: 'Van Owner', role: 'owner' }),
+    });
+    const bare = await (await postJson('/api/admin-login', { email, password })).json();
+    const denied = await api('/api/driver/jobs', {
+      method: 'POST',
+      headers: { ...fromVan, authorization: 'Bearer ' + bare.token },
+      body: '{}',
+    });
+    assert.equal(denied.status, 403, `the van view let in a session with no authenticator (${denied.status})`);
+  });
+
+  await check('only an owner or developer can approve, edit or remove a driver', async () => {
+    /*
+     * Approving a driver is what puts somebody in the van view, where every
+     * live customer's name, address and registration is. It had no role check
+     * at all: any day-to-day staff account could approve a colleague, reset a
+     * driver's password, or delete one.
+     */
+    const s = await asStaff('staff');
+    const dev = await asStaff('developer');
+
+    const made = await staffApi('/api/admin/drivers', dev.token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Gate Test', vanReg: 'GA71TES' }),
+    });
+    const madeBody = await made.json().catch(() => ({}));
+    assert.equal(made.status, 200, `a developer could not create a driver: ${JSON.stringify(madeBody)}`);
+    const driver = (madeBody.drivers || []).find(x => x.vanReg === 'GA71TES');
+    assert.ok(driver, 'the driver was not created');
+
+    const approve = await staffApi('/api/admin/drivers', s.token, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'approve', id: driver.id }),
+    });
+    assert.equal(approve.status, 403, `day-to-day staff approved a driver (${approve.status})`);
+
+    const reset = await staffApi('/api/admin/drivers', s.token, {
+      method: 'POST',
+      body: JSON.stringify({ id: driver.id, password: 'a-brand-new-long-password' }),
+    });
+    assert.equal(reset.status, 403, "day-to-day staff reset a driver's password");
+
+    const del = await staffApi('/api/admin/drivers', s.token, {
+      method: 'DELETE',
+      body: JSON.stringify({ id: driver.id }),
+    });
+    assert.equal(del.status, 403, 'day-to-day staff deleted a driver');
+
+    // Reading the van list is not the same as changing it — a staff member
+    // still needs to know who is out today.
+    const read = await staffApi('/api/admin/drivers', s.token);
+    assert.equal(read.status, 200, 'staff can no longer even see the van list');
+
+    const gone = await staffApi('/api/admin/drivers', dev.token, {
+      method: 'DELETE',
+      body: JSON.stringify({ id: driver.id }),
+    });
+    assert.equal(gone.status, 200, `a developer could not remove a driver (${gone.status})`);
   });
 
   await check('connecting SumUp is configuration, not day-to-day staff work', async () => {

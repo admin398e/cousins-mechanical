@@ -142,6 +142,34 @@ const env = {
   ADMIN_EMAILS: process.env.ADMIN_EMAILS || '',
 };
 
+/*
+ * Everything else the Worker reads.
+ *
+ * This list used to be hand-maintained above and had drifted twenty-six
+ * variables behind worker.js — every OAuth secret among them. The effect was
+ * that no sign-in, payment or calendar flow could be exercised locally at all:
+ * the dev server always reported them unconfigured, so the only place those
+ * paths ran was production, in front of customers. Keep this in step with
+ * `grep -o 'env\.[A-Z][A-Z0-9_]*' worker.js`.
+ */
+for (const name of [
+  'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GCAL_REFRESH_TOKEN',
+  'APPLE_SERVICES_ID', 'APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY',
+  'SUMUP_CLIENT_ID', 'SUMUP_CLIENT_SECRET', 'SUMUP_API_KEY', 'SUMUP_MERCHANT_CODE',
+  'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET',
+  'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET',
+  'HUBSPOT_TOKEN', 'HUBSPOT_PORTAL_ID', 'HUBSPOT_PIPELINE', 'HUBSPOT_WON_STAGE',
+  'RESEND_AUDIENCE_ID', 'RESEND_CUSTOMER_AUDIENCE_ID', 'RESEND_WEBHOOK_SECRET',
+  'MAIL_REPLY_TO', 'OWNER_EMAIL',
+  'TWILIO_STUDIO_FLOW_SID', 'WHATSAPP_REMINDER_TEMPLATE',
+]) {
+  env[name] = process.env[name] || '';
+}
+// The .p8 and the service-account key arrive with literal backslash-n when they
+// come from a shell or an .env file. The Worker gets real newlines from
+// wrangler, so give the dev server the same thing.
+if (env.APPLE_PRIVATE_KEY) env.APPLE_PRIVATE_KEY = env.APPLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
 // Google sign-in routes (/api/firebase-config, /api/admin-login-firebase)
 // are handled by the Worker itself now, same as production.
 
@@ -238,7 +266,8 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!env.RESEND_API_KEY) off.push('email');
   if (!env.TWILIO_SID && !env.WHATSAPP_TOKEN) off.push('SMS/WhatsApp');
   if (!env.GCAL_CALENDAR_ID) off.push('calendar');
-  if (!process.env.FIREBASE_WEB_CONFIG) off.push('Google sign-in');
+  if (!process.env.FIREBASE_WEB_CONFIG && !process.env.GOOGLE_CLIENT_ID) off.push('Google sign-in');
+  if (!process.env.APPLE_SERVICES_ID) off.push('Apple sign-in');
   if (off.length) console.log(`  Disabled (no key set): ${off.join(', ')}`);
 
   if (devGenerated.length) {

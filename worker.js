@@ -532,13 +532,21 @@ async function revokeAdminSessions(env, email) {
   return killed;
 }
 
-async function isAdmin(request, env) {
+/**
+ * The identity behind this request, enrolment aside.
+ *
+ * Split out of isAdmin() so that a staff member who has signed in but has not
+ * yet set up an authenticator still has somewhere to go: they hold a real
+ * session, it is just not one that may touch the business yet. Everything that
+ * is not enrolment asks isAdmin(); the three enrolment endpoints ask this.
+ *
+ * Returns the signed-in email, "admin" for the identity-less bootstrap token,
+ * or "" for no session at all.
+ */
+async function adminSession(request, env) {
   const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!t) return false;
+  if (!t) return "";
 
-  // A session issued by /admin-login is always valid — that is what the dashboard
-  // actually sends. (This used to be rejected whenever 2FA was not yet enrolled,
-  // which broke the whole admin portal on a fresh install.)
   const who = await env.CMS_KV.get("asess:" + t);
   if (who != null) {
     // Re-read the staff record on every request. A session alone is not proof
@@ -548,10 +556,10 @@ async function isAdmin(request, env) {
       const raw = await env.CMS_KV.get("staff:" + who);
       if (raw) {
         const acct = JSON.parse(raw);
-        if (acct.disabled) { await env.CMS_KV.delete("asess:" + t); return false; }
+        if (acct.disabled) { await env.CMS_KV.delete("asess:" + t); return ""; }
       }
     }
-    return true;
+    return who || "admin";
   }
 
   // Bootstrap only. Before ANY staff account exists the raw admin token is
@@ -560,10 +568,180 @@ async function isAdmin(request, env) {
   // at /admin-login — or the per-person accountability those accounts provide
   // is bypassable by anyone still holding the old shared secret.
   const staff = await env.CMS_KV.list({ prefix: "staff:" });
-  if (staff.keys.length > 0) return false;
+  if (staff.keys.length > 0) return "";
   const enrolled = await env.CMS_KV.get("admin_totp");
-  if (!enrolled) return safeEqual(t, env.ADMIN_TOKEN);
-  return false;
+  if (!enrolled && safeEqual(t, env.ADMIN_TOKEN)) return "admin";
+  return "";
+}
+
+/**
+ * Has this identity got an authenticator on it?
+ *
+ * Per account, never shared: one secret for everybody means the second person
+ * to enrol needs the first person's phone, which is a shared password with
+ * extra steps rather than a second factor.
+ */
+async function totpEnrolled(env, who) {
+  if (!who) return false;
+  if (!who.includes("@")) return !!(await env.CMS_KV.get("admin_totp"));
+  return !!(await env.CMS_KV.get("totp:" + who));
+}
+
+/**
+ * A staff session that may actually do something.
+ *
+ * A signed-in staff account with no authenticator gets a session that can do
+ * exactly one thing — enrol one. Every other admin endpoint answers 403 until
+ * it has. The owner asked for this in those words: nobody reaches the business
+ * without the second factor. The break-glass identity ("admin", issued only by
+ * OVERRIDE_TOKEN or first-run setup) is deliberately outside the rule, because
+ * the point of break-glass is to work on the day the phone is lost.
+ */
+/* ============================ SIGN IN WITH APPLE ===========================
+ *
+ * Apple's OAuth is Google's with three differences that matter here.
+ *
+ *  1. There is no client secret to paste. You sign one yourself: an ES256 JWT
+ *     made from the .p8 key Apple issues. Apple will accept one that lasts six
+ *     months — and a six-month secret is a secret somebody has to remember to
+ *     replace on a Tuesday in February, or Apple sign-in stops dead with no
+ *     warning. This one is minted per exchange and lasts five minutes, so
+ *     there is nothing to expire and nothing to diarise.
+ *  2. Asking for the name or the email makes Apple POST the answer back as a
+ *     form instead of redirecting with it, which is why the callback is a POST.
+ *  3. The person's name arrives exactly once, on their very first
+ *     authorisation, in a separate `user` field — never in the identity token,
+ *     and never again. Read it there or lose it permanently.
+ */
+const appleReady = env => !!(env.APPLE_SERVICES_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY);
+
+async function appleClientSecret(env) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(new TextEncoder().encode(JSON.stringify({ alg: "ES256", kid: env.APPLE_KEY_ID, typ: "JWT" })));
+  const claim = b64url(new TextEncoder().encode(JSON.stringify({
+    iss: env.APPLE_TEAM_ID, iat: now, exp: now + 300,
+    aud: "https://appleid.apple.com", sub: env.APPLE_SERVICES_ID,
+  })));
+  const unsigned = header + "." + claim;
+  const pem = String(env.APPLE_PRIVATE_KEY).replace(/\\n/g, "\n").replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
+  const binaryStr = typeof Buffer !== "undefined" ? Buffer.from(pem, "base64").toString("binary") : atob(pem);
+  const der = Uint8Array.from(binaryStr, c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(unsigned));
+  return unsigned + "." + b64url(sig);
+}
+
+// base64url -> bytes, padding restored. Used on both halves of a JWT.
+function b64urlBytes(s) {
+  const t = String(s).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(t.padEnd(Math.ceil(t.length / 4) * 4, "=")), c => c.charCodeAt(0));
+}
+
+/**
+ * Verify an Apple identity token against Apple's own published signing keys.
+ *
+ * The code was swapped with Apple over TLS moments ago, so this is belt and
+ * braces — but an identity assertion nobody checks is how a system ends up
+ * trusting whatever the last hop felt like sending it.
+ */
+async function appleVerifyIdToken(env, idToken) {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3) return null;
+  const [h, pl, sg] = parts;
+  let head, claims;
+  try {
+    head = JSON.parse(new TextDecoder().decode(b64urlBytes(h)));
+    claims = JSON.parse(new TextDecoder().decode(b64urlBytes(pl)));
+  } catch (e) { return null; }
+  const jr = await fetch("https://appleid.apple.com/auth/keys").catch(() => null);
+  if (!jr || !jr.ok) return null;
+  const jwks = await jr.json().catch(() => null);
+  const jwk = jwks && Array.isArray(jwks.keys) ? jwks.keys.find(k => k.kid === head.kid) : null;
+  if (!jwk) return null;
+  let ok = false;
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true },
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64urlBytes(sg), new TextEncoder().encode(h + "." + pl));
+  } catch (e) { return null; }
+  if (!ok) return null;
+  if (claims.iss !== "https://appleid.apple.com") return null;
+  const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!aud.includes(env.APPLE_SERVICES_ID)) return null;
+  if (!(Number(claims.exp) * 1000 > Date.now())) return null;
+  return claims;
+}
+
+/**
+ * The last few inches of a staff sign-in, whichever provider proved the
+ * address: check the person is actually on the staff list, mint the session,
+ * and park it as a one-shot grant.
+ *
+ * The session token travels back in the URL FRAGMENT: fragments never reach
+ * server logs, and the grant dies on first use or in 60 seconds, whichever
+ * comes first. Returns the grant id, or null if this address is nobody here —
+ * which is the whole of "other staff cannot log in without being approved".
+ * Nothing in this path can create an account.
+ */
+async function grantStaffSession(env, request, email, backTo, provider) {
+  const acctRaw = await env.CMS_KV.get("staff:" + email);
+  const acct = acctRaw ? JSON.parse(acctRaw) : null;
+  if (!acct || acct.disabled) {
+    await audit(env, email, "admin_login_" + provider + "_rejected", "not a staff account");
+    return null;
+  }
+  const t = token();
+  await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
+  const grant = crypto.randomUUID();
+  await env.CMS_KV.put("glogin_grant:" + grant, JSON.stringify({
+    token: t, email, name: acct.name || "", role: acct.role || "staff",
+  }), { expirationTtl: 60 });
+  await audit(env, email, "admin_login_" + provider, email + " " + clientIp(request) + " -> " + backTo);
+  return grant;
+}
+
+/**
+ * The same for a customer, who unlike a staff member may be new. The provider
+ * has proved the address, so the account starts verified — but marketing stays
+ * OFF, because signing in is consent to have an account, never consent to be
+ * marketed at.
+ */
+async function grantCustomerSession(env, request, email, name, provider) {
+  const raw = await env.CMS_KV.get("user:" + email);
+  let user = raw ? JSON.parse(raw) : null;
+  if (!user) {
+    user = {
+      name: String(name || email.split("@")[0]).trim(),
+      email, phone: "",
+      marketing: false,
+      smsUpdates: true,
+      emailVerified: true,
+      [provider]: true,
+      consentAt: Date.now(), privacyVersion: PRIVACY_VERSION, createdAt: Date.now(),
+    };
+    await env.CMS_KV.put("user:" + email, JSON.stringify(user));
+    await audit(env, email, "account_created", provider + " sign-in, consent v" + PRIVACY_VERSION);
+  } else if (!isVerified(user)) {
+    // They signed up with a password and never confirmed the address. The
+    // provider just confirmed it for them, which is stronger than the code.
+    user.emailVerified = true;
+    await env.CMS_KV.put("user:" + email, JSON.stringify(user));
+    await audit(env, email, "email_verified", "by " + provider + " sign-in");
+  }
+  const t = token();
+  await env.CMS_KV.put("sess:" + t, email, { expirationTtl: 60 * 60 * 24 * 30 });
+  const grant = crypto.randomUUID();
+  await env.CMS_KV.put("cglogin_grant:" + grant, JSON.stringify({ token: t, email }), { expirationTtl: 60 });
+  await audit(env, email, "login_" + provider, clientIp(request));
+  return grant;
+}
+
+async function isAdmin(request, env) {
+  const who = await adminSession(request, env);
+  if (!who) return false;
+  if (who.includes("@") && !(await env.CMS_KV.get("totp:" + who))) return false;
+  return true;
 }
 /**
  * Which staff member is behind this request.
@@ -4206,35 +4384,7 @@ async function processTyreStockForOrder(env, order) {
       if (!info || info.aud !== env.GOOGLE_CLIENT_ID || String(info.email_verified) !== "true" || !email) {
         return fail("rejected");
       }
-      const raw = await env.CMS_KV.get("user:" + email);
-      let user = raw ? JSON.parse(raw) : null;
-      if (!user) {
-        // First time in. Google has proved the address, so the account starts
-        // verified — but marketing stays OFF, because signing in is consent to
-        // have an account, never consent to be marketed at.
-        user = {
-          name: String((info.name || info.given_name || email.split("@")[0])).trim(),
-          email, phone: "",
-          marketing: false,
-          smsUpdates: true,
-          emailVerified: true,
-          google: true,
-          consentAt: Date.now(), privacyVersion: PRIVACY_VERSION, createdAt: Date.now(),
-        };
-        await env.CMS_KV.put("user:" + email, JSON.stringify(user));
-        await audit(env, email, "account_created", "google sign-in, consent v" + PRIVACY_VERSION);
-      } else if (!isVerified(user)) {
-        // They signed up with a password and never confirmed the address.
-        // Google just confirmed it for them, which is stronger than the code.
-        user.emailVerified = true;
-        await env.CMS_KV.put("user:" + email, JSON.stringify(user));
-        await audit(env, email, "email_verified", "by google sign-in");
-      }
-      const t = token();
-      await env.CMS_KV.put("sess:" + t, email, { expirationTtl: 60 * 60 * 24 * 30 });
-      const grant = crypto.randomUUID();
-      await env.CMS_KV.put("cglogin_grant:" + grant, JSON.stringify({ token: t, email }), { expirationTtl: 60 });
-      await audit(env, email, "login_google", clientIp(request));
+      const grant = await grantCustomerSession(env, request, email, info.name || info.given_name || "", "google");
       return new Response(null, {
         status: 302,
         headers: { ...SECURITY_HEADERS, Location: site2 + "/#glogin=" + grant },
@@ -4256,20 +4406,8 @@ async function processTyreStockForOrder(env, order) {
         await audit(env, email || "unknown", "admin_login_google_rejected", "bad id_token");
         return fail("rejected");
       }
-      const acctRaw = await env.CMS_KV.get("staff:" + email);
-      const acct = acctRaw ? JSON.parse(acctRaw) : null;
-      if (!acct || acct.disabled) {
-        await audit(env, email, "admin_login_google_rejected", "not a staff account");
-        return fail("not-staff");
-      }
-      const t = token();
-      await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
-      // The session token travels in the URL FRAGMENT via a one-shot grant:
-      // fragments never reach server logs, and the grant dies on first use
-      // or in 60 seconds, whichever comes first.
-      const grant = crypto.randomUUID();
-      await env.CMS_KV.put("glogin_grant:" + grant, JSON.stringify({ token: t, email, name: acct.name || "" }), { expirationTtl: 60 });
-      await audit(env, email, "admin_login_google", email + " " + clientIp(request) + " -> " + backTo);
+      const grant = await grantStaffSession(env, request, email, backTo, "google");
+      if (!grant) return fail("not-staff");
       return new Response(null, {
         status: 302,
         headers: { ...SECURITY_HEADERS, Location: backTo + "#glogin=" + grant },
@@ -4296,6 +4434,131 @@ async function processTyreStockForOrder(env, order) {
     try { who = (JSON.parse(stRaw).actor) || "oauth"; } catch (e) { /* keep default */ }
     await audit(env, who, "gcal-connected", email);
     return back("connected");
+  }
+
+  /*
+   * Which sign-in buttons the front door should show. Public on purpose: it
+   * says only which providers are configured, never anything about a person.
+   */
+  if (p === "/auth/providers" && request.method === "GET") {
+    return json({
+      google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+      apple: appleReady(env),
+    });
+  }
+
+  /*
+   * "Sign in with Apple" — step one. Same shape as the Google routes: a state
+   * nonce in KV records which flow this is and where to land afterwards, then
+   * the browser goes to Apple's own screen. /auth/apple/start is the customer
+   * door; /admin-login-apple/start is the staff one, with the same two-entry
+   * return allowlist — an open redirect on a login callback is how you hand
+   * somebody's fresh session to another site.
+   */
+  if ((p === "/auth/apple/start" || p === "/admin-login-apple/start") && request.method === "POST") {
+    const staffFlow = p === "/admin-login-apple/start";
+    const rlKey = (staffFlow ? "admin:" : "cglogin:") + clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes", 429);
+    }
+    if (!appleReady(env)) {
+      return bad("Apple sign-in is not configured — set the APPLE_SERVICES_ID, APPLE_TEAM_ID, APPLE_KEY_ID and APPLE_PRIVATE_KEY secrets.", 400);
+    }
+    const b0 = await request.json().catch(() => ({}));
+    const backTo = String(b0.return || "") === "/driver" ? "/driver" : "/admin";
+    const nonce = crypto.randomUUID();
+    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({
+      kind: staffFlow ? "apple-login" : "apple-customer", backTo, t: Date.now(),
+    }), { expirationTtl: 600 });
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const u = new URL("https://appleid.apple.com/auth/authorize");
+    u.searchParams.set("client_id", env.APPLE_SERVICES_ID);
+    u.searchParams.set("redirect_uri", site + "/api/oauth/apple/callback");
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", "name email");
+    // Asking for a name or an email obliges Apple to POST the answer back
+    // rather than redirect with it — hence the POST callback below.
+    u.searchParams.set("response_mode", "form_post");
+    u.searchParams.set("state", nonce);
+    // Apple is strict about the encoding of the scope separator: it wants %20,
+    // and URLSearchParams always writes a space as "+". A "+" here reads to
+    // Apple as a scope literally named "name+email", which it rejects.
+    u.search = u.searchParams.toString().replace(/(^|&)scope=[^&]*/, "$1scope=name%20email");
+    return json({ url: u.toString() });
+  }
+
+  /*
+   * "Sign in with Apple" — step two. Apple posts a form here. Everything that
+   * decides anything comes from the identity token, verified against Apple's
+   * published keys; the form is trusted for exactly one thing, the person's
+   * name, which is cosmetic and arrives only once in a lifetime.
+   */
+  if (p === "/oauth/apple/callback" && request.method === "POST") {
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const form = await request.formData().catch(() => null);
+    const state = form ? String(form.get("state") || "") : "";
+    const code = form ? String(form.get("code") || "") : "";
+    const stRaw = /^[0-9a-f-]{36}$/.test(state) ? await env.CMS_KV.get("gcal_state:" + state) : null;
+    let st = {};
+    try { st = JSON.parse(stRaw || "{}") || {}; } catch (e) { st = {}; }
+    const staffFlow = st.kind === "apple-login";
+    const backTo = staffFlow ? (st.backTo === "/driver" ? "/driver" : "/admin") : site + "/";
+    const fail = (msg) => new Response(null, {
+      status: 302,
+      headers: { ...SECURITY_HEADERS, Location: backTo + "?gauth=" + encodeURIComponent(msg) },
+    });
+    if (!stRaw) return fail("expired");
+    await env.CMS_KV.delete("gcal_state:" + state);
+    if (!staffFlow && st.kind !== "apple-customer") return fail("expired");
+    if (!appleReady(env)) return fail("not-configured");
+    if (!code) return fail("cancelled");
+
+    const r = await fetch("https://appleid.apple.com/auth/token", {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code,
+        client_id: env.APPLE_SERVICES_ID,
+        client_secret: await appleClientSecret(env),
+        redirect_uri: site + "/api/oauth/apple/callback",
+      }),
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      const detail = r ? await r.text().catch(() => "") : "network error";
+      console.error("[apple] code exchange failed:", String(detail).slice(0, 300));
+      return fail("exchange-failed");
+    }
+    const tok = await r.json().catch(() => ({}));
+    const claims = await appleVerifyIdToken(env, tok.id_token);
+    const email = claims ? String(claims.email || "").toLowerCase() : "";
+    if (!claims || !email || String(claims.email_verified) === "false") {
+      await audit(env, email || "unknown", "login_apple_rejected", "bad identity token");
+      return fail("rejected");
+    }
+
+    // Apple hands over the person's name exactly once, on the first
+    // authorisation, and never again. Take it now or lose it for good.
+    let appleName = "";
+    try {
+      const u = JSON.parse(String((form && form.get("user")) || "null"));
+      if (u && u.name) appleName = [u.name.firstName, u.name.lastName].filter(Boolean).join(" ").trim();
+    } catch (e) { /* not the first authorisation — nothing to take */ }
+
+    if (staffFlow) {
+      const grant = await grantStaffSession(env, request, email, backTo, "apple");
+      // "Hide My Email" gives a per-app relay address, which will never match a
+      // staff record. Say so, rather than leaving the owner to guess why his
+      // own portal does not know him.
+      if (!grant) return fail(email.endsWith("privaterelay.appleid.com") ? "apple-relay" : "not-staff");
+      return new Response(null, {
+        status: 302,
+        headers: { ...SECURITY_HEADERS, Location: backTo + "#glogin=" + grant },
+      });
+    }
+    const grant = await grantCustomerSession(env, request, email, appleName, "apple");
+    return new Response(null, {
+      status: 302,
+      headers: { ...SECURITY_HEADERS, Location: site + "/#glogin=" + grant },
+    });
   }
 
   /*
@@ -4461,7 +4724,14 @@ async function processTyreStockForOrder(env, order) {
     if (!raw) { await noteFailure(env, rlKey); return bad("Sign-in expired — try again.", 401); }
     await env.CMS_KV.delete("glogin_grant:" + grant);
     const g = JSON.parse(raw);
-    return json({ token: g.token, who: g.email, name: g.name || "", enrolled: !!(await env.CMS_KV.get("admin_totp")) });
+    // This used to report the legacy SHARED secret's state, so an owner who had
+    // never enrolled was told he had. Per account, like everywhere else.
+    const enrolled = await totpEnrolled(env, g.email);
+    return json({
+      token: g.token, who: g.email, name: g.name || "", enrolled,
+      mustEnrol: !enrolled,
+      role: g.role || (await actorRole(env, g.email)),
+    });
   }
 
   if (p === "/admin-login" && request.method === "POST") {
@@ -4480,8 +4750,17 @@ async function processTyreStockForOrder(env, order) {
       await clearFailures(env, rlKey);
       const t = token();
       await env.CMS_KV.put("asess:" + t, who, { expirationTtl: 60 * 60 * 12 });
-      const enrolledKey = who && who.includes("@") ? "totp:" + who : "admin_totp";
-      return json({ token: t, who, enrolled: !!(await env.CMS_KV.get(enrolledKey)), ...(extra || {}) });
+      const enrolled = await totpEnrolled(env, who);
+      return json({
+        token: t, who, enrolled,
+        // The session exists but can do nothing until an authenticator is on
+        // the account. The dashboard shows the enrolment card and nothing else.
+        mustEnrol: who.includes("@") && !enrolled,
+        // Which portals to offer. An owner-operator is his own driver, so the
+        // same sign-in has to be able to land in the van view.
+        role: await actorRole(env, who),
+        ...(extra || {}),
+      });
     };
 
     // Break-glass: OVERRIDE_TOKEN always works and can clear a stuck 2FA, so the
@@ -4583,8 +4862,12 @@ async function processTyreStockForOrder(env, order) {
      * person to sign in needs the first person's phone, which is not
      * two-factor authentication, it is a shared password with extra steps.
      */
-    const who = await whoAmI(env, request);
-    const signedIn = await isAdmin(request, env);
+    // adminSession(), not isAdmin(): isAdmin now refuses a staff account that
+    // has no authenticator, and refusing them here would leave them holding a
+    // session whose only permitted action they are locked out of.
+    const sessWho = await adminSession(request, env);
+    const signedIn = !!sessWho;
+    const who = sessWho || "admin";
     if (!signedIn && !safeEqual(b.token, env.ADMIN_TOKEN)) {
       await noteFailure(env, rlKey);
       return bad("Sign in first, or use the setup token.", 401);
@@ -4610,8 +4893,9 @@ async function processTyreStockForOrder(env, order) {
     if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
       return bad("Too many attempts — try again in 15 minutes", 429);
     }
-    const who2 = await whoAmI(env, request);
-    const signedIn2 = await isAdmin(request, env);
+    const sessWho2 = await adminSession(request, env);
+    const signedIn2 = !!sessWho2;
+    const who2 = sessWho2 || "admin";
     if (!signedIn2 && !safeEqual(b.token, env.ADMIN_TOKEN)) {
       await noteFailure(env, rlKey);
       return bad("Sign in first, or use the setup token.", 401);
@@ -4625,15 +4909,17 @@ async function processTyreStockForOrder(env, order) {
   }
   // Only an admin needs to know whether 2FA is on. Unauthenticated, it told an
   // attacker precisely when a bare ADMIN_TOKEN bearer would still be accepted.
-  if (p === "/admin-2fa/status" && request.method === "GET" && !(await isAdmin(request, env))) {
+  if (p === "/admin-2fa/status" && request.method === "GET" && !(await adminSession(request, env))) {
     return bad("Forbidden", 403);
   }
   if (p === "/admin-2fa/status" && request.method === "GET") {
-    const me = await whoAmI(env, request);
-    const mine = me && me.includes("@") ? await env.CMS_KV.get("totp:" + me) : null;
+    const me = (await adminSession(request, env)) || "admin";
     return json({
-      enrolled: !!(mine || (!me?.includes("@") && await env.CMS_KV.get("admin_totp"))),
-      account: me || "admin",
+      enrolled: await totpEnrolled(env, me),
+      account: me,
+      // The dashboard blocks itself on this. A staff account that has not
+      // enrolled holds a session that can do nothing else.
+      mustEnrol: me.includes("@") && !(await totpEnrolled(env, me)),
     });
   }
 
@@ -4648,6 +4934,7 @@ async function processTyreStockForOrder(env, order) {
       // calendar — the normal route) or the older Firebase setup.
       google: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) || !!(env.FIREBASE_WEB_CONFIG && env.ADMIN_EMAILS),
       googleOauth: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+      apple: appleReady(env),
     });
   }
 
@@ -5785,6 +6072,17 @@ async function processTyreStockForOrder(env, order) {
         return json({ drivers: publicView(drivers) });
       }
       if (request.method === "POST") {
+        /*
+         * Approving a driver, resetting their password, or creating one, is
+         * how somebody gets into the van view and sees every live customer's
+         * name, address and registration. It had no role check at all, so any
+         * day-to-day staff account could approve itself a colleague. The owner
+         * asked for the opposite in as many words: only he or the developer
+         * add, edit or remove people.
+         */
+        const denied = needs("developer");
+        if (denied) return denied;
+
         const b = await request.json().catch(() => ({}));
         const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");
 
@@ -5864,6 +6162,9 @@ async function processTyreStockForOrder(env, order) {
         return json({ drivers: publicView(drivers) });
       }
       if (request.method === "DELETE") {
+        const denied = needs("developer");
+        if (denied) return denied;
+
         const b = await request.json().catch(() => ({}));
         if (!b.id) return bad("Missing driver id");
         const drivers = JSON.parse((await env.CMS_KV.get("drivers")) || "[]");

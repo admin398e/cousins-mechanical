@@ -41,57 +41,96 @@
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin:14px 0 4px">ADMIN & STAFF PORTAL</div>
             <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">{{ loginSubtitle }}</div>
             
-            <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ false }}">
-            <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
+            <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
               <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
               Sign in with Google
             </button>
             </sc-if>
 
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#6f6862;font-size:12px;font-weight:600">
-              <div style="flex:1;height:1px;background:#2a2320"></div>
-              <span>{{ loginDividerLabel }}</span>
-              <div style="flex:1;height:1px;background:#2a2320"></div>
-            </div>
-
-            <!-- Normal staff sign-in: email + password -->
-            <sc-if value="{{ staffMode }}" hint-placeholder-val="{{ true }}">
-              <input value="{{ emailInput }}" onInput="{{ setEmail }}" onKeyDown="{{ onKey }}" type="email" autocomplete="username" placeholder="Your work email" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
-              <input value="{{ passwordInput }}" onInput="{{ setPassword }}" onKeyDown="{{ onKey }}" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            <sc-if value="{{ hasApple }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ appleSignIn }}" style="width:100%;background:#000;color:#fff;font-weight:700;border:1px solid #3a322d;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:10px">
+              <svg width="17" height="17" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+              Sign in with Apple
+            </button>
             </sc-if>
 
-            <!-- First run only: the ADMIN_TOKEN, until the first staff account exists -->
-            <sc-if value="{{ setupMode }}" hint-placeholder-val="{{ false }}">
-              <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:12px;line-height:1.5">First-time setup. Sign in with your <strong>ADMIN_TOKEN</strong>, then create a staff email &amp; password. The token stops working once you do.</div>
-              <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token (setup only)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+            <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13.5px;margin:12px 0">{{ loginErr }}</div></sc-if>
+
+            <!-- The password form is still here and still works — it is simply
+                 not the front door any more. An owner-operator who cannot get
+                 a Google or Apple screen to load at the roadside must still be
+                 able to reach his own business. -->
+            <sc-if value="{{ pwdShut }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ openPwd }}" style="width:100%;background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;font-size:12.5px;margin-top:14px;text-decoration:underline">Trouble signing in?</button>
             </sc-if>
-            <sc-if value="{{ needCode }}" hint-placeholder-val="{{ false }}">
-              <div style="margin-bottom:14px">
-                <div style="color:#f4a04a;font-size:12.5px;font-weight:700;margin-bottom:6px">Two-factor required — enter the 6-digit code from your authenticator app</div>
-                <input value="{{ codeInput }}" onInput="{{ setCode }}" onKeyDown="{{ onKey }}" inputmode="numeric" placeholder="123456" style="width:100%;border:1.5px solid #e8791a;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:22px;letter-spacing:.3em;text-align:center;font-family:'Barlow Condensed';font-weight:700"/>
+
+            <sc-if value="{{ pwdOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;margin:16px 0;color:#6f6862;font-size:12px;font-weight:600">
+                <div style="flex:1;height:1px;background:#2a2320"></div>
+                <span>{{ loginDividerLabel }}</span>
+                <div style="flex:1;height:1px;background:#2a2320"></div>
               </div>
+
+              <!-- Normal staff sign-in: email + password -->
+              <sc-if value="{{ staffMode }}" hint-placeholder-val="{{ true }}">
+                <input value="{{ emailInput }}" onInput="{{ setEmail }}" onKeyDown="{{ onKey }}" type="email" autocomplete="username" placeholder="Your work email" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+                <input value="{{ passwordInput }}" onInput="{{ setPassword }}" onKeyDown="{{ onKey }}" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+              </sc-if>
+
+              <!-- First run only: the ADMIN_TOKEN, until the first staff account exists -->
+              <sc-if value="{{ setupMode }}" hint-placeholder-val="{{ false }}">
+                <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:12px;line-height:1.5">First-time setup. Sign in with your <strong>ADMIN_TOKEN</strong>, then create a staff email &amp; password. The token stops working once you do.</div>
+                <input value="{{ tokenInput }}" onInput="{{ setToken }}" onKeyDown="{{ onKey }}" type="password" placeholder="Admin token (setup only)" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
+              </sc-if>
+              <sc-if value="{{ needCode }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-bottom:14px">
+                  <div style="color:#f4a04a;font-size:12.5px;font-weight:700;margin-bottom:6px">Two-factor required — enter the 6-digit code from your authenticator app</div>
+                  <input value="{{ codeInput }}" onInput="{{ setCode }}" onKeyDown="{{ onKey }}" inputmode="numeric" placeholder="123456" style="width:100%;border:1.5px solid #e8791a;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:22px;letter-spacing:.3em;text-align:center;font-family:'Barlow Condensed';font-weight:700"/>
+                </div>
+              </sc-if>
+              <div id="cf-turnstile-box" style="margin-bottom:12px"></div>
+              <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ loginLabel }}</button>
+              <button onClick="{{ start2fa }}" style="width:100%;background:none;border:0;color:#9a918a;font-weight:600;cursor:pointer;font-size:12.5px;margin-top:12px;text-decoration:underline">Set up / enable two-factor authentication</button>
+              <button onClick="{{ toggleOverride }}" style="width:100%;background:none;border:0;color:#6f6862;font-weight:600;cursor:pointer;font-size:12px;margin-top:8px;text-decoration:underline">Locked out? Owner override</button>
+              <sc-if value="{{ overrideOpen }}" hint-placeholder-val="{{ false }}">
+                <label style="display:flex;align-items:center;gap:9px;margin-top:12px;background:#14100e;border:1px solid #3a322d;border-radius:9px;padding:11px 13px;cursor:pointer">
+                  <input type="checkbox" checked="{{ reset2fa }}" onChange="{{ toggleReset2fa }}" style="width:17px;height:17px;accent-color:#e8791a"/>
+                  <span style="color:#d9d2cc;font-size:12.5px;line-height:1.4">Reset two-factor on login (use your <strong>OVERRIDE_TOKEN</strong> above). Regains access for the client.</span>
+                </label>
+              </sc-if>
             </sc-if>
-            <div id="cf-turnstile-box" style="margin-bottom:12px"></div>
-            <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13.5px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
-            <button onClick="{{ login }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ loginLabel }}</button>
-            <button onClick="{{ start2fa }}" style="width:100%;background:none;border:0;color:#9a918a;font-weight:600;cursor:pointer;font-size:12.5px;margin-top:12px;text-decoration:underline">Set up / enable two-factor authentication</button>
-            <button onClick="{{ toggleOverride }}" style="width:100%;background:none;border:0;color:#6f6862;font-weight:600;cursor:pointer;font-size:12px;margin-top:8px;text-decoration:underline">Locked out? Owner override</button>
-            <sc-if value="{{ overrideOpen }}" hint-placeholder-val="{{ false }}">
-              <label style="display:flex;align-items:center;gap:9px;margin-top:12px;background:#14100e;border:1px solid #3a322d;border-radius:9px;padding:11px 13px;cursor:pointer">
-                <input type="checkbox" checked="{{ reset2fa }}" onChange="{{ toggleReset2fa }}" style="width:17px;height:17px;accent-color:#e8791a"/>
-                <span style="color:#d9d2cc;font-size:12.5px;line-height:1.4">Reset two-factor on login (use your <strong>OVERRIDE_TOKEN</strong> above). Regains access for the client.</span>
-              </label>
-            </sc-if>
-            <div style="color:#6f6862;font-size:12px;margin-top:8px;line-height:1.5">{{ loginFootnote }}</div>
+            <div style="color:#6f6862;font-size:12px;margin-top:14px;line-height:1.5">{{ loginFootnote }}</div>
           </div>
         </div>
       </sc-if>
 
+<!-- WHERE ARE YOU WORKING TODAY? -->
+<!-- The owner is also the driver. One sign-in, then he says which screen he
+     wants; the van view and the office view are the same account. -->
+<sc-if value="{{ choosePortal }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;inset:0;z-index:100;background:rgba(10,8,7,.86);display:flex;align-items:center;justify-content:center;padding:24px">
+    <div style="width:100%;max-width:430px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:28px">
+      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:24px;color:#fff;margin-bottom:4px">WELCOME BACK{{ chooseWho }}</div>
+      <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:20px">Where are you working from today? You can switch at any time by signing in again.</div>
+      <button onClick="{{ goAdmin }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:800;border:0;border-radius:12px;padding:16px;cursor:pointer;font-size:16px;margin-bottom:10px;text-align:left">
+        Office dashboard<div style="font-weight:600;font-size:12.5px;opacity:.75;margin-top:3px">Jobs, customers, pricing, staff and money</div>
+      </button>
+      <button onClick="{{ goDriver }}" style="width:100%;background:#241d19;color:#fff;font-weight:800;border:1px solid #3a322d;border-radius:12px;padding:16px;cursor:pointer;font-size:16px;text-align:left">
+        Van — driver view<div style="font-weight:600;font-size:12.5px;color:#9a918a;margin-top:3px">Today's jobs and live location sharing</div>
+      </button>
+    </div>
+  </div>
+</sc-if>
+
 <!-- 2FA ENROLLMENT -->
 <sc-if value="{{ twofaOpen }}" hint-placeholder-val="{{ false }}">
-  <div style="position:fixed;inset:0;z-index:100;background:rgba(10,8,7,.8);display:flex;align-items:center;justify-content:center;padding:24px" onClick="{{ close2fa }}">
+  <div style="position:fixed;inset:0;z-index:100;background:rgba(10,8,7,.8);display:flex;align-items:center;justify-content:center;padding:24px" onClick="{{ maybeClose2fa }}">
     <div style="width:100%;max-width:420px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:28px" onClick="{{ stop }}">
-      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">ENABLE TWO-FACTOR</div>
+      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">{{ twofaTitle }}</div>
+      <sc-if value="{{ mustEnrol }}" hint-placeholder-val="{{ false }}">
+        <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:11px 13px;font-size:12.5px;line-height:1.5;margin-bottom:14px">Every staff account needs an authenticator before it can be used. Until you finish this, your sign-in can do nothing else.</div>
+      </sc-if>
       <div style="color:#9a918a;font-size:13px;line-height:1.5;margin-bottom:16px">In Google Authenticator / Authy, tap add and either scan or paste this setup key, then enter the 6-digit code to confirm.</div>
       <div style="background:#14100e;border:1px dashed #3a322d;border-radius:10px;padding:12px;text-align:center;margin-bottom:14px">
         <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:4px">SETUP KEY</div>
@@ -101,7 +140,12 @@
       <sc-if value="{{ twofaErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ twofaErr }}</div></sc-if>
       <div style="display:flex;gap:10px">
         <button onClick="{{ enable2fa }}" style="flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer">Confirm &amp; enable</button>
-        <button onClick="{{ close2fa }}" style="background:#2a2320;color:#d9d2cc;font-weight:700;border:0;border-radius:10px;padding:13px 18px;cursor:pointer">Cancel</button>
+        <sc-if value="{{ canSkip2fa }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ close2fa }}" style="background:#2a2320;color:#d9d2cc;font-weight:700;border:0;border-radius:10px;padding:13px 18px;cursor:pointer">Cancel</button>
+        </sc-if>
+        <sc-if value="{{ mustEnrol }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ logout }}" style="background:#2a2320;color:#d9d2cc;font-weight:700;border:0;border-radius:10px;padding:13px 18px;cursor:pointer">Sign out</button>
+        </sc-if>
       </div>
     </div>
   </div>
@@ -1451,6 +1495,16 @@ class Component extends DCLogic {
     emailInput:'', passwordInput:'', staffConfigured:true, mustCreateAccount:false, who:'', googleEnabled:false,
     staff:[], stEmail:'', stName:'', stPassword:'', stRole:'staff', stMsg:'', stErr:'', stBusy:false,
     codeInput:'', needCode:false, enrolled:false,
+    // The front door is Google or Apple. The password form still exists and
+    // still works, it is just behind "Trouble signing in?" — an owner-operator
+    // must never be locked out of his own business by a provider outage.
+    pwdOpen:false, appleEnabled:false,
+    // Set when the account has no authenticator yet. The session it came with
+    // can do exactly one thing until this clears.
+    mustEnrol:false,
+    // Owner and developer accounts are asked which screen they want, because
+    // the owner-operator is also the driver.
+    choosePortal:false, chooseRole:'',
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
@@ -1508,20 +1562,21 @@ class Component extends DCLogic {
         window.history.replaceState(null, '', window.location.pathname);
         this.raw('/admin-login-google/claim', { method:'POST', body: JSON.stringify({ grant: m[1] }) })
           .then(r=>r.json()).then(d=>{
-            if(d.token){
-              try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
-              this.setState({ token:d.token, loggedIn:true, demoMode:false }, ()=>this.enter());
-            } else {
-              this.setState({ loginErr: d.error || 'Google sign-in expired — try again.' });
-            }
-          }).catch(()=>this.setState({ loginErr:'Google sign-in failed — try again.' }));
+            if(d.token){ this.afterSignIn(d); }
+            else { this.setState({ loginErr: d.error || 'Sign-in expired — try again.' }); }
+          }).catch(()=>this.setState({ loginErr:'Sign-in failed — try again.' }));
       }
       const gauth = new URLSearchParams(window.location.search).get('gauth');
       if(gauth){
         const why = {
-          'not-staff': 'That Google account is not a staff login here. Ask the owner to add it under Staff Logins first.',
-          'rejected': 'Google could not verify that sign-in — try again.',
-          'no-identity': 'Google did not confirm who you are — try again.',
+          'not-staff': 'That account is not a staff login here. Ask the owner to add it under Staff Logins first.',
+          'rejected': 'That sign-in could not be verified — try again.',
+          'no-identity': 'The provider did not confirm who you are — try again.',
+          'apple-relay': 'Apple hid your real email address, so we cannot match it to your staff login. Sign in with Google, or turn off "Hide My Email" for this site and try again.',
+          'exchange-failed': 'The provider would not complete the sign-in — try again.',
+          'not-configured': 'That sign-in method is not set up on this site yet.',
+          'expired': 'That sign-in took too long — try again.',
+          'cancelled': 'Sign-in was cancelled.',
         };
         this.setState({ loginErr: why[gauth] || ('Google sign-in failed: ' + gauth) });
         window.history.replaceState(null, '', window.location.pathname);
@@ -1592,6 +1647,16 @@ class Component extends DCLogic {
       window.addEventListener(ev, reset, { passive:true }));
     reset();
   }
+
+  appleSignIn = async () => {
+    try{
+      this.setState({ busy:true, loginErr:'' });
+      const r = await this.raw('/admin-login-apple/start', { method:'POST', body:'{}' });
+      const d = await r.json().catch(()=>({}));
+      if(d.url){ window.location.href = d.url; return; }
+      this.setState({ busy:false, loginErr: d.error || 'Apple sign-in could not start.' });
+    }catch(e){ this.setState({ busy:false, loginErr:'Apple sign-in failed: '+e.message }); }
+  };
 
   googleSignIn = async () => {
     // The normal route: the server builds a Google consent URL from the same
@@ -1712,7 +1777,10 @@ class Component extends DCLogic {
   }
 
   async probeAuthMode(){
-    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google, googleOauth:!!d.googleOauth}); } }catch(e){}
+    try{ const r=await this.raw('/admin-auth/mode'); if(r.ok){ const d=await r.json(); this.setState({staffConfigured:!!d.staffConfigured, googleEnabled:!!d.google, googleOauth:!!d.googleOauth, appleEnabled:!!d.apple,
+      // With neither provider configured there is no front door at all, so the
+      // password form has to be open or the screen is a dead end.
+      pwdOpen: this.state.pwdOpen || !(d.google || d.apple) }); } }catch(e){}
   }
   setCode = e => this.setState({codeInput:e.target.value.replace(/\D/g,'').slice(0,6)});
   toggleOverride = () => this.setState(s=>({overrideOpen:!s.overrideOpen}));
@@ -1757,23 +1825,62 @@ class Component extends DCLogic {
       const d=await r.json().catch(()=>({}));
       if(r.status===401 && /code/i.test(d.error||'')){ this.setState({busy:false, needCode:true, loginErr:this.state.codeInput?'Code incorrect — try the current 6 digits.':''}); return; }
       if(!r.ok){ this.setState({busy:false, loginErr:d.error||'Login failed.'}); return; }
-      // success — d.token is a 2FA-verified admin session
-      // sessionStorage: gone when the browser closes. See componentDidMount.
-      try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
-      this.setState({ token:d.token, apiBase:a, enrolled:!!d.enrolled, needCode:false, codeInput:'', passwordInput:'',
-                      loggedIn:true, demoMode:false, busy:false, who:d.who||'',
-                      mustCreateAccount:!!d.mustCreateAccount, tab:d.mustCreateAccount?'staff':this.state.tab });
-      this.loadAll();
+      // success. d.token may still be a session that has to enrol before it can
+      // do anything — afterSignIn() decides which screen that means.
+      this.setState({ apiBase:a });
+      this.afterSignIn(d);
     }catch(e){ this.setState({busy:false, loginErr:'Could not reach the server. Check your connection and try again.'}); }
   };
+  openPwd = () => this.setState({ pwdOpen:true }, () => setTimeout(()=>this.mountTurnstile('admin'), 60));
+
+  /*
+   * Everything that happens after a sign-in succeeds, whichever door it came
+   * through — password, Google or Apple. Three gates, in this order:
+   *
+   *   1. No authenticator on the account? Then the session is inert (the server
+   *      refuses everything else) and enrolment is the only screen there is.
+   *   2. Owner or developer? Ask which screen they want — office or van. The
+   *      owner-operator is his own driver and both are the same account.
+   *   3. Otherwise straight into the dashboard.
+   */
+  afterSignIn(d){
+    try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
+    this.setState({
+      token:d.token, apiBase:this.apiBaseUrl(), busy:false, demoMode:false,
+      who:d.who||'', enrolled:!!d.enrolled, needCode:false, codeInput:'', passwordInput:'',
+      chooseRole:d.role||'', mustCreateAccount:!!d.mustCreateAccount,
+      tab:d.mustCreateAccount?'staff':this.state.tab,
+    }, ()=>{
+      if(d.mustEnrol){ this.setState({ mustEnrol:true }); this.start2fa(); return; }
+      if(d.role==='owner' || d.role==='developer'){ this.setState({ choosePortal:true }); return; }
+      this.setState({ loggedIn:true });
+      this.loadAll();
+    });
+  }
+  goAdmin = () => { this.setState({ choosePortal:false, loggedIn:true }); this.loadAll(); };
+  /*
+   * Hand this session to the van screen. The driver endpoints already accept a
+   * staff session in the Authorization header, so nothing new is minted — the
+   * token is passed through sessionStorage, which is same-origin, same-tab and
+   * gone when the browser closes. Not the URL: a token in a URL ends up in
+   * history, in a screenshot, and in whatever the next page links to.
+   */
+  goDriver = () => {
+    try{ sessionStorage.setItem('cms_driver_handoff', this.state.token); }catch(e){}
+    window.location.href = '/driver';
+  };
+
   logout = () => {
     // Releases the phone's high-accuracy GPS watch. Logging out used to leave
     // it running: it only stopped transmitting because the token was dead.
     if(this._watch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._watch); this._watch=null; }
     this.setState({gpsRef:''});
     try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
-    this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false}); };
+    this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false,
+                   mustEnrol:false, twofaOpen:false, choosePortal:false}); };
   close2fa = () => this.setState({twofaOpen:false});
+  // A compulsory enrolment has no way out but finishing it or signing out.
+  maybeClose2fa = () => { if(!this.state.mustEnrol) this.setState({twofaOpen:false}); };
 
   // --- Record a payment or refund -------------------------------------------
   openPay(job){
@@ -2184,7 +2291,12 @@ class Component extends DCLogic {
   // ---- 2FA enrollment ----
   start2fa = async () => {
     this.setState({twofaBusy:true, twofaErr:''});
-    try{ const r=await this.raw('/admin-2fa/new',{method:'POST',body:JSON.stringify({token:this.state.tokenInput.trim()})});
+    // Authorization header as well as the setup token: once staff accounts
+    // exist the token is dead, and a signed-in person enrolling for THEIR OWN
+    // account is now the normal case, not the exception.
+    try{ const r=await this.raw('/admin-2fa/new',{method:'POST',
+        headers: this.state.token ? { authorization:'Bearer '+this.state.token } : {},
+        body:JSON.stringify({token:this.state.tokenInput.trim()})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
       this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaOpen:true, twofaBusy:false});
     }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
@@ -2192,9 +2304,19 @@ class Component extends DCLogic {
   setEnrollCode = e => this.setState({enrollCode:e.target.value.replace(/\D/g,'').slice(0,6)});
   enable2fa = async () => {
     this.setState({twofaBusy:true, twofaErr:''});
-    try{ const r=await this.raw('/admin-2fa/enable',{method:'POST',body:JSON.stringify({token:this.state.tokenInput.trim(), secret:this.state.twofaSecret, code:this.state.enrollCode})});
+    try{ const r=await this.raw('/admin-2fa/enable',{method:'POST',
+        headers: this.state.token ? { authorization:'Bearer '+this.state.token } : {},
+        body:JSON.stringify({token:this.state.tokenInput.trim(), secret:this.state.twofaSecret, code:this.state.enrollCode})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
-      this.setState({twofaOpen:false, twofaBusy:false, enrolled:true, twofaSecret:'', enrollCode:''});
+      const wasCompulsory = this.state.mustEnrol;
+      this.setState({twofaOpen:false, twofaBusy:false, enrolled:true, mustEnrol:false, twofaSecret:'', enrollCode:''});
+      // Enrolling wakes the very session it was done from — the server stops
+      // refusing it the moment the secret lands, so there is no second sign-in.
+      if(wasCompulsory){
+        if(this.state.chooseRole==='owner' || this.state.chooseRole==='developer'){ this.setState({ choosePortal:true }); }
+        else { this.setState({ loggedIn:true }); this.loadAll(); }
+        return;
+      }
       alert('Two-factor authentication is now ON. Next login will require your authenticator code.');
     }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
   };
@@ -3252,7 +3374,12 @@ class Component extends DCLogic {
     return {
       needsLogin:!s.loggedIn, loggedIn:s.loggedIn, demoMode:s.demoMode,
       tokenInput:s.tokenInput, setToken:this.setToken, onKey:this.onKey,
-      googleSignIn:this.googleSignIn,
+      googleSignIn:this.googleSignIn, appleSignIn:this.appleSignIn,
+      pwdOpen:s.pwdOpen, pwdShut:!s.pwdOpen, openPwd:this.openPwd,
+      mustEnrol:s.mustEnrol, canSkip2fa:!s.mustEnrol, maybeClose2fa:this.maybeClose2fa,
+      twofaTitle: s.mustEnrol ? 'SET UP TWO-FACTOR' : 'ENABLE TWO-FACTOR',
+      choosePortal:s.choosePortal, goAdmin:this.goAdmin, goDriver:this.goDriver,
+      chooseWho: s.who ? (', ' + String(s.who).split('@')[0]).toUpperCase() : '',
       codeInput:s.codeInput, setCode:this.setCode, needCode:s.needCode,
       overrideOpen:s.overrideOpen, reset2fa:s.reset2fa, toggleOverride:this.toggleOverride, toggleReset2fa:this.toggleReset2fa,
       start2fa:this.start2fa, twofaOpen:s.twofaOpen, close2fa:this.close2fa, stop:this.stop,
@@ -3433,10 +3560,11 @@ class Component extends DCLogic {
       // login screen
       emailInput:s.emailInput, passwordInput:s.passwordInput,
       setEmail:this.setEmail, setPassword:this.setPassword,
-      staffMode:s.staffConfigured, setupMode:!s.staffConfigured, hasGoogle:!!s.googleEnabled,
-      loginSubtitle: s.staffConfigured ? 'Authorised staff only. Sign in with your work email and password.' : 'First-time setup — sign in with your admin token to create the first staff login.',
+      staffMode:s.staffConfigured, setupMode:!s.staffConfigured,
+      hasGoogle:!!s.googleEnabled, hasApple:!!s.appleEnabled,
+      loginSubtitle: s.staffConfigured ? 'Authorised staff only. Sign in with the account the owner added for you.' : 'First-time setup — sign in with your admin token to create the first staff login.',
       loginDividerLabel: s.staffConfigured ? 'OR SIGN IN WITH EMAIL' : 'FIRST-TIME SETUP',
-      loginFootnote: s.staffConfigured ? 'Once two-factor is enabled, sign-in also needs your authenticator code.' : 'This is your Worker\'s ADMIN_TOKEN. It stops working as a login once the first staff account exists.',
+      loginFootnote: s.staffConfigured ? 'Every staff account needs an authenticator app. You will be asked to set one up the first time you sign in.' : 'This is your Worker\'s ADMIN_TOKEN. It stops working as a login once the first staff account exists.',
       // tyre pricing
       pMarkB:s.pMarkB, pMarkM:s.pMarkM, pMarkP:s.pMarkP, pFitting:s.pFitting, pRound:s.pRound,
       pCallout:s.pCallout, pHourly:s.pHourly, setCallout:this.setCallout, setHourly:this.setHourly,

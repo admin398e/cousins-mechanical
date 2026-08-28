@@ -34,26 +34,47 @@
   
   <sc-if value="{{ needLogin }}" hint-placeholder-val="{{ true }}">
     <div style="background:#1c1714;border:1px solid #2a2320;border-radius:16px;padding:22px;animation:fadeIn .2s ease">
+      <!-- The front door is Google or Apple. The registered-driver form is one
+           tap away, because a driver who is not on the staff list has no other
+           way in — and a driver at the roadside with a dead provider needs one
+           that does not depend on anybody else's servers. -->
+      <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
+      <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Use the account the owner set up for you.</div>
+      <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+          Sign in with Google
+        </button>
+      </sc-if>
+      <sc-if value="{{ hasApple }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ appleSignIn }}" style="width:100%;background:#000;color:#fff;font-weight:700;border:1px solid #3a322d;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:10px">
+          <svg width="17" height="17" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+          Sign in with Apple
+        </button>
+      </sc-if>
+
+      <sc-if value="{{ pwdShut }}" hint-placeholder-val="{{ true }}">
+        <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-top:14px">{{ loginErr }}</div></sc-if>
+        <button onClick="{{ openPwd }}" style="width:100%;background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;font-size:13px;margin-top:16px;text-decoration:underline">Driver sign-in &amp; registration</button>
+      </sc-if>
+
+      <sc-if value="{{ pwdOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:10px;margin:18px 0 14px;color:#6f6862;font-size:12px;font-weight:600">
+        <div style="flex:1;height:1px;background:#2a2320"></div>DRIVER ACCOUNT<div style="flex:1;height:1px;background:#2a2320"></div>
+      </div>
       <div style="display:flex;gap:10px;margin-bottom:16px;background:#14100e;padding:6px;border-radius:10px;border:1px solid #2a2320">
         <button onClick="{{ gotoLogin }}" style="{{ loginSegStyle }}">Sign In</button>
         <button onClick="{{ gotoRegister }}" style="{{ regSegStyle }}">Register</button>
       </div>
 
-      <!-- OUTSIDE both sc-if blocks on purpose. Inside one of them, switching
-           tab unmounts the widget and the other form has no token to send —
-           which is exactly why Register refused everyone while Sign In worked. -->
+      <!-- OUTSIDE the three mode blocks on purpose. Inside one of them,
+           switching tab unmounts the widget and the other form has no token to
+           send — which is exactly why Register refused everyone while Sign In
+           worked. -->
       <div id="cf-turnstile-box" style="margin-bottom:14px"></div>
       
       <sc-if value="{{ isLoginMode }}" hint-placeholder-val="{{ true }}">
-        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:22px;color:#fff;margin-bottom:6px">SIGN IN</div>
         <div style="color:#9a918a;font-size:13.5px;line-height:1.5;margin-bottom:16px">Sign in with the email address you registered with.</div>
-        <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px">
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
-          Sign in with Google
-        </button>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;color:#6f6862;font-size:12px;font-weight:600">
-          <div style="flex:1;height:1px;background:#2a2320"></div>OR<div style="flex:1;height:1px;background:#2a2320"></div>
-        </div>
         <input value="{{ usernameInput }}" onInput="{{ setUsername }}" type="email" autocomplete="email" placeholder="Email address" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <input value="{{ passwordInput }}" onInput="{{ setPassword }}" type="password" placeholder="Password" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
@@ -80,6 +101,7 @@
         <input value="{{ regName }}" onInput="{{ setRegName }}" placeholder="Your full name" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:16px;margin-bottom:10px"/>
         <sc-if value="{{ loginErr }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.2);border:1px solid #6b3520;color:#f0a884;border-radius:9px;padding:10px 13px;font-size:13px;margin-bottom:12px">{{ loginErr }}</div></sc-if>
         <button onClick="{{ register }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:16px">{{ registerLabel }}</button>
+      </sc-if>
       </sc-if>
     </div>
   </sc-if>
@@ -152,6 +174,10 @@ class Component extends DCLogic {
     // authView drives which half of the login card shows. It was referenced by
     // the template but never set here, so isLoginMode and isRegMode were both
     // false and the card rendered with no fields in it at all.
+    // Google/Apple are the front door; the registered-driver form is behind
+    // one tap. hasGoogle starts true so the button is not missing for the
+    // instant before /auth/providers answers.
+    pwdOpen:false, hasGoogle:true, hasApple:false,
     authView:'login',
     usernameInput:'', passwordInput:'', regName:'',
     verifyCodeInput:'', verifyEmail:'', verifyMsg:'', busy:false,
@@ -161,11 +187,35 @@ class Component extends DCLogic {
   };
 
   componentDidMount(){
-    // The auth card is on screen at load, so mount the widget straight away.
-    setTimeout(()=>this.mountTurnstile('driver'), 60);
+    fetch('/api/auth/providers').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) this.setState({ hasGoogle:!!d.google, hasApple:!!d.apple, pwdOpen: this.state.pwdOpen || !(d.google||d.apple) }); })
+      .catch(()=>{});
+    // Handed over from the dashboard's "Van — driver view" button: the owner
+    // has already signed in on this origin, in this tab, moments ago. Driver
+    // endpoints accept a staff session, so nothing new has to be minted.
+    try{
+      const handoff = sessionStorage.getItem('cms_driver_handoff');
+      if(handoff){
+        sessionStorage.removeItem('cms_driver_handoff');
+        try{ localStorage.setItem('cms_driver_token', handoff); }catch(e){}
+        this.setState({ token:handoff }, ()=>this.loadJobs());
+        return;
+      }
+    }catch(e){}
     try{ const t=localStorage.getItem('cms_driver_token'); const a=localStorage.getItem('cms_driver_api')||''; if(t){ this.setState({token:t,apiBase:a,apiInput:a}, ()=>this.loadJobs()); } }catch(e){}
     this.claimGoogleLogin();
   }
+  openPwd = () => this.setState({ pwdOpen:true }, () => setTimeout(()=>this.mountTurnstile('driver'), 60));
+
+  appleSignIn = async () => {
+    try{
+      this.setState({ busy:true, loginErr:'' });
+      const r = await fetch(this.base()+'/api/admin-login-apple/start', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ return:'/driver' })});
+      const d = await r.json().catch(()=>({}));
+      if(d.url){ window.location.href = d.url; return; }
+      this.setState({ busy:false, loginErr: d.error || 'Apple sign-in is not available.' });
+    }catch(e){ this.setState({ busy:false, loginErr:'Apple sign-in failed: '+e.message }); }
+  };
   componentWillUnmount(){ this.stopShare(); }
 
   /*
@@ -223,6 +273,13 @@ class Component extends DCLogic {
         fetch(this.base()+'/api/admin-login-google/claim', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({grant:m[1]})})
           .then(r=>r.json()).then(d=>{
             if(!d.token) throw new Error(d.error||'Sign-in expired');
+            // A staff account with no authenticator holds a session the server
+            // refuses for everything. Say so plainly rather than showing an
+            // empty job list and letting the driver think there is no work.
+            if(d.mustEnrol){
+              this.setState({ busy:false, loginErr:'Your account still needs an authenticator app. Open the admin portal at /admin, sign in there once to set it up, then come back.' });
+              return;
+            }
             try{ localStorage.setItem('cms_driver_token', d.token); }catch(e){}
             this.setState({ token:d.token, busy:false, loginErr:'' }, ()=>this.loadJobs());
           }).catch(e=>this.setState({ busy:false, loginErr:e.message }));
@@ -231,9 +288,13 @@ class Component extends DCLogic {
       const gerr = new URLSearchParams(window.location.search).get('gauth');
       if(gerr){
         window.history.replaceState(null,'',window.location.pathname);
-        this.setState({ loginErr: gerr==='not-staff'
-          ? 'That Google account is not set up here yet. The owner adds it under Staff Logins.'
-          : 'Google sign-in did not complete — try again.' });
+        const why = {
+          'not-staff': 'That account is not set up here yet. The owner adds it under Staff Logins.',
+          'apple-relay': 'Apple hid your real email address, so it cannot be matched to your account. Sign in with Google, or turn off "Hide My Email" for this site.',
+          'cancelled': 'Sign-in was cancelled.',
+          'expired': 'That sign-in took too long — try again.',
+        };
+        this.setState({ loginErr: why[gerr] || 'Sign-in did not complete — try again.' });
       }
     }catch(e){}
   }
@@ -451,6 +512,8 @@ class Component extends DCLogic {
       // blank — a driver signed up, got the code by email, and had nowhere to
       // type it. Same fault as the one the comment on authView describes; it
       // was fixed for login and register and missed for verify.
+      hasGoogle:s.hasGoogle, hasApple:s.hasApple, appleSignIn:this.appleSignIn,
+      pwdOpen:s.pwdOpen, pwdShut:!s.pwdOpen, openPwd:this.openPwd,
       isLoginMode: s.authView==='login', isRegMode: s.authView==='register',
       isVerifyMode: s.authView==='verify',
       usernameInput:s.usernameInput, passwordInput:s.passwordInput, regName:s.regName, apiInput:s.apiInput, loginErr:s.loginErr,

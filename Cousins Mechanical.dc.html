@@ -788,6 +788,32 @@
         </sc-if>
         <sc-if value="{{ notReset }}" hint-placeholder-val="{{ true }}">
         <div style="padding:24px 22px 26px;animation:fadeIn .25s ease">
+          <!-- One tap, no password to invent or forget. The email-and-password
+               forms below still exist and still work — they are simply not the
+               front door any more. -->
+          <sc-if value="{{ pwdShut }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px;animation:fadeIn .2s ease">
+              <div style="font-weight:700;color:#1c1817;font-size:16px">Sign in or create your account</div>
+              <div style="color:#8a817b;font-size:13.5px;margin-top:-4px;line-height:1.5">One tap. Nothing to remember. Track, amend or cancel your bookings and see your offers.</div>
+              <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
+                  <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
+                  Continue with Google
+                </button>
+              </sc-if>
+              <sc-if value="{{ hasApple }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ appleSignIn }}" style="width:100%;background:#000;color:#fff;font-weight:700;border:1px solid #000;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:9px">
+                  <svg width="17" height="17" viewBox="0 0 384 512" aria-hidden="true"><path fill="currentColor" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>
+                  Continue with Apple
+                </button>
+              </sc-if>
+              <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
+              <button onClick="{{ openPwd }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:6px 0">Use an email and password instead</button>
+              <div style="color:#8a817b;font-size:12px;line-height:1.5">By continuing you agree to us storing your details to manage your bookings, as described in the <a href="#privacy" style="color:#c25e0c;font-weight:700">privacy notice</a>. We will not market to you unless you ask us to.</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ pwdOpen }}" hint-placeholder-val="{{ false }}">
           <div style="display:flex;background:#f0ebe5;border-radius:11px;padding:4px;margin-bottom:20px">
             <button onClick="{{ gotoLogin }}" style="{{ loginSegStyle }}">Log in</button>
             <button onClick="{{ gotoSignup }}" style="{{ signupSegStyle }}">Create account</button>
@@ -837,6 +863,7 @@
               <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
               <button onClick="{{ doSignup }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px">{{ signupBtnLabel }}</button>
               <div style="text-align:center;color:#8a817b;font-size:12.5px">Already have an account? <button onClick="{{ gotoLogin }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:12.5px">Log in</button></div>
+              <button onClick="{{ closePwd }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:2px 0">Back to one-tap sign-in</button>
             </div>
           </sc-if>
 
@@ -849,15 +876,13 @@
               <sc-if value="{{ hasAuthErr }}" hint-placeholder-val="{{ false }}"><div style="background:#fdeee7;border:1px solid #f3c6ae;color:#a5401a;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ authErr }}</div></sc-if>
               <sc-if value="{{ hasForgotMsg }}" hint-placeholder-val="{{ false }}"><div style="background:#eef7ef;border:1px solid #b9dcc0;color:#2f7a45;border-radius:9px;padding:10px 13px;font-size:13.5px;font-weight:600">{{ forgotMsg }}</div></sc-if>
               <button onClick="{{ doLogin }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15.5px;margin-bottom:12px">{{ loginBtnLabel }}</button>
-              <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
-                <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
-                Sign in with Google
-              </button>
               <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
                 <button onClick="{{ gotoSignup }}" style="background:none;border:0;color:#c25e0c;font-weight:700;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:0">Create an account</button>
                 <button onClick="{{ forgotPassword }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:0">Forgot password?</button>
               </div>
+              <button onClick="{{ closePwd }}" style="background:none;border:0;color:#8a817b;font-weight:600;cursor:pointer;text-decoration:underline;font-size:12.5px;padding:6px 0">Back to one-tap sign-in</button>
             </div>
+          </sc-if>
           </sc-if>
         </div>
         </sc-if>
@@ -1065,6 +1090,11 @@ class Component extends DCLogic {
     messages: [], msgInput:'', msgBusy:false,
     profile: { name:'', phone:'', email:'', marketing:true }, profileSaved:false,
     verifyEmail:'', verifyCode:'', verifyMsg:'', exportErr:'',
+    // Google/Apple is the front door for customers too; the password forms
+    // stay one tap away rather than being deleted, so nobody with an existing
+    // password is stranded. hasGoogle starts true so the button is not missing
+    // for the instant before /auth/providers answers.
+    custPwdOpen:false, hasGoogle:true, hasApple:false,
     auth: null, authView:'login', authName:'', authEmail:'', authPhone:'', authPass:'', authPass2:'', authErr:'', authBusy:false,
     authConsent:false, authSms:true, authMarketing:false,
     resetToken:'', resetPass:'', resetMsg:'', forgotMsg:'',
@@ -1650,6 +1680,21 @@ class Component extends DCLogic {
    * Now: the server builds a consent URL for identity only, Google does the
    * sign-in on its own pages, and the session is minted server-side.
    */
+  openPwd = () => this.setState({ custPwdOpen:true, authErr:'' }, () => setTimeout(()=>this.mountTurnstile('customer'), 60));
+  closePwd = () => this.setState({ custPwdOpen:false, authView:'login', authErr:'' });
+
+  appleSignIn = async () => {
+    try {
+      this.setState({ authBusy: true, authErr: "" });
+      const r = await this.apiFetch('/auth/apple/start', { method: 'POST', body: '{}' });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) { window.location.href = d.url; return; }
+      this.setState({ authBusy: false, authErr: d.error || 'Apple sign-in is not available right now.' });
+    } catch (err) {
+      this.setState({ authBusy: false, authErr: "Apple sign-in failed: " + err.message });
+    }
+  };
+
   googleSignIn = async () => {
     try {
       this.setState({ authBusy: true, authErr: "" });
@@ -1671,9 +1716,13 @@ class Component extends DCLogic {
       if(!m){
         const gerr = new URLSearchParams(window.location.search).get('gauth');
         if(gerr){
-          this.setState({ portalOpen:true, authErr: gerr === 'rejected'
-            ? 'Google could not confirm that sign-in. Please try again.'
-            : 'Google sign-in did not complete. Please try again.' });
+          const why = {
+            'rejected': 'That sign-in could not be confirmed. Please try again.',
+            'cancelled': 'Sign-in was cancelled.',
+            'expired': 'That sign-in took too long. Please try again.',
+            'not-configured': 'That sign-in method is not available on this site.',
+          };
+          this.setState({ portalOpen:true, authErr: why[gerr] || 'Sign-in did not complete. Please try again.' });
           window.history.replaceState(null, '', window.location.pathname);
         }
         return;
@@ -1733,6 +1782,12 @@ class Component extends DCLogic {
   openPortal = () => {
     this.loadOrders(); this.loadProfile(); this.loadMessages();
     this.setState({portalOpen:true, portalTab:'bookings', authErr:''});
+    // Which buttons to offer. If neither provider is configured the password
+    // form has to be open, or the card is a door with no handle.
+    fetch('/api/auth/providers').then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d) this.setState({ hasGoogle:!!d.google, hasApple:!!d.apple, custPwdOpen: this.state.custPwdOpen || !(d.google||d.apple) },
+        ()=>setTimeout(()=>this.mountTurnstile('customer'), 60)); })
+      .catch(()=>{});
     // Mount after the card is on screen — the container does not exist before.
     setTimeout(()=>this.mountTurnstile('customer'), 80);
   };
@@ -2145,6 +2200,13 @@ class Component extends DCLogic {
       // The verify step is its own view, so neither the login nor the signup
       // panel should render while it is up.
       onLoginView:s.authView==='login', onSignupView:s.authView==='signup', onVerifyView:s.authView==='verify',
+      hasGoogle:s.hasGoogle, hasApple:s.hasApple, appleSignIn:this.appleSignIn,
+      openPwd:this.openPwd, closePwd:this.closePwd,
+      // Signing up and confirming an email both live inside the password half
+      // of the card, so those views force it open — otherwise a customer who
+      // has just been emailed a code has nowhere to type it.
+      pwdOpen: s.custPwdOpen || s.authView !== 'login',
+      pwdShut: !(s.custPwdOpen || s.authView !== 'login'),
       verifyCode:s.verifyCode||'', verifyMsg:s.verifyMsg||'', verifyEmail:s.verifyEmail||'',
       setVerifyCode:this.setVerifyCode, submitVerify:this.submitVerify,
       resendVerify:this.resendVerify, backToLogin:this.backToLogin,
