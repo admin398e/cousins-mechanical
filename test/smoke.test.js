@@ -2139,7 +2139,24 @@ try {
   /* -------------------------------------------------------------------
    * AVAILABILITY — two customers must not be able to book the same window
    * ----------------------------------------------------------------- */
-  const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  /*
+   * A date at least 30 days out that the business is actually OPEN on.
+   *
+   * This was a plain +30 days, and it worked until the calendar rolled into a
+   * week where +30 landed on a Sunday. Sunday is a closed day, so every window
+   * reads unavailable for a reason that has nothing to do with capacity: the
+   * fill-the-window test could not make its first booking and reported "first
+   * booking refused", which looks exactly like a double-booking bug. Nothing
+   * about the code had changed — only the day of the week.
+   *
+   * Any fixed offset has that fault one day in seven. Step past closed days.
+   */
+  const openDayFrom = (days) => {
+    let d = new Date(Date.now() + days * 86400000);
+    while (d.getUTCDay() === 0) d = new Date(d.getTime() + 86400000);  // 0 = Sunday
+    return d.toISOString().slice(0, 10);
+  };
+  const FUTURE = openDayFrom(30);
   // Every booking here comes from its own IP. The 20-per-IP limiter is correct
   // production behaviour and the suite has already spent the shared budget by
   // this point; two different customers really are two different addresses.
@@ -2169,6 +2186,13 @@ try {
     const tok = await adminTok();
     const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
     await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 2 }) });
+    // Prove the window is open BEFORE filling it. Without this the test can
+    // only say "first booking refused", which sends you hunting a booking bug
+    // when the real answer is that the day was never bookable.
+    const pre = (await (await api('/api/availability?date=' + FUTURE)).json())
+      .slots.find(s => s.key === MORNING);
+    assert.equal(pre.available, true,
+      `${FUTURE} was not bookable before the test started (reason: ${pre.reason})`);
 
     const book = (n) => bookAs({
       name: 'Slot ' + n, phone: '0790000' + (2000 + n), email: `slot${n}-${Date.now()}@example.com`,
@@ -2204,14 +2228,9 @@ try {
     const tok = await adminTok();
     const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
     const em = `release-${Date.now()}@example.com`;
-    // NOT a fixed number of days ahead. Sunday is a closed day, so one run in
-    // seven this landed on a Sunday and the window was unavailable for a
-    // reason that had nothing to do with capacity — the first assertion below
-    // then passed for the wrong reason and the second failed, which read as a
-    // booking bug that was not there. Step forward to the next open weekday.
-    let ahead = new Date(Date.now() + 31 * 86400000);
-    while (ahead.getUTCDay() === 0) ahead = new Date(ahead.getTime() + 86400000);
-    const day = ahead.toISOString().slice(0, 10);
+    // A day the business is open on, and a different one from FUTURE so this
+    // test's capacity fiddling cannot disturb the fill-the-window test above.
+    const day = openDayFrom(38);
     await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 1 }) });
 
     const before = await (await api('/api/availability?date=' + day)).json();
