@@ -131,9 +131,14 @@
       <sc-if value="{{ mustEnrol }}" hint-placeholder-val="{{ false }}">
         <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:11px 13px;font-size:12.5px;line-height:1.5;margin-bottom:14px">Every staff account needs an authenticator before it can be used. Until you finish this, your sign-in can do nothing else.</div>
       </sc-if>
-      <div style="color:#9a918a;font-size:13px;line-height:1.5;margin-bottom:16px">In Google Authenticator / Authy, tap add and either scan or paste this setup key, then enter the 6-digit code to confirm.</div>
+      <div style="color:#9a918a;font-size:13px;line-height:1.5;margin-bottom:16px">In Google Authenticator / Authy, tap add, scan this code, then enter the 6 digits it shows to confirm.</div>
+      <sc-if value="{{ hasTwofaQr }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;justify-content:center;margin-bottom:14px">
+          <div role="img" aria-label="Two-factor setup QR code" style="{{ twofaQrStyle }}"></div>
+        </div>
+      </sc-if>
       <div style="background:#14100e;border:1px dashed #3a322d;border-radius:10px;padding:12px;text-align:center;margin-bottom:14px">
-        <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:4px">SETUP KEY</div>
+        <div style="color:#6f6862;font-size:11px;letter-spacing:.1em;margin-bottom:4px">{{ setupKeyLabel }}</div>
         <div style="color:#f4a04a;font-family:'Barlow Condensed';font-weight:700;font-size:18px;word-break:break-all;letter-spacing:.05em">{{ twofaSecret }}</div>
       </div>
       <input value="{{ enrollCode }}" onInput="{{ setEnrollCode }}" inputmode="numeric" placeholder="6-digit code" style="width:100%;border:1.5px solid #3a322d;background:#14100e;color:#fff;border-radius:10px;padding:13px 14px;font-size:20px;letter-spacing:.3em;text-align:center;margin-bottom:12px"/>
@@ -1385,7 +1390,10 @@
             <sc-for list="{{ catRows }}" as="t" hint-placeholder-count="10">
               <div style="{{ t.cardStyle }}">
                 <div style="background:#fff;border-radius:9px;height:118px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:11px">
-                  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="{{ t.brand }}" style="max-width:92%;max-height:104px;object-fit:contain"/>
+                  <!-- Background image, not <img src>: see the note on the
+                       same change in the public site. A {{ binding }} in src is
+                       stripped before the runtime ever sees it. -->
+                  <div role="img" aria-label="{{ t.brand }}" style="{{ t.imageStyle }}"></div>
                 </div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px">
                   <span style="font-family:'Barlow Condensed';font-weight:800;font-size:12px;letter-spacing:.07em;color:#f4a04a;text-transform:uppercase">{{ t.brand }}</span>
@@ -1506,7 +1514,7 @@ class Component extends DCLogic {
     // the owner-operator is also the driver.
     choosePortal:false, chooseRole:'',
     overrideOpen:false, reset2fa:false,
-    twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', enrollCode:'',
+    twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', twofaQr:'', enrollCode:'',
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
     mailHealth:null, crmPortalId:'',
     // Offers & sales
@@ -2298,7 +2306,7 @@ class Component extends DCLogic {
         headers: this.state.token ? { authorization:'Bearer '+this.state.token } : {},
         body:JSON.stringify({token:this.state.tokenInput.trim()})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
-      this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaOpen:true, twofaBusy:false});
+      this.setState({twofaSecret:d.secret, twofaOtpauth:d.otpauth, twofaQr:d.qr||'', twofaOpen:true, twofaBusy:false});
     }catch(e){ this.setState({twofaBusy:false, twofaErr:e.message}); }
   };
   setEnrollCode = e => this.setState({enrollCode:e.target.value.replace(/\D/g,'').slice(0,6)});
@@ -2309,7 +2317,7 @@ class Component extends DCLogic {
         body:JSON.stringify({token:this.state.tokenInput.trim(), secret:this.state.twofaSecret, code:this.state.enrollCode})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||'Failed');
       const wasCompulsory = this.state.mustEnrol;
-      this.setState({twofaOpen:false, twofaBusy:false, enrolled:true, mustEnrol:false, twofaSecret:'', enrollCode:''});
+      this.setState({twofaOpen:false, twofaBusy:false, enrolled:true, mustEnrol:false, twofaSecret:'', twofaQr:'', enrollCode:''});
       // Enrolling wakes the very session it was done from — the server stops
       // refusing it the moment the secret lands, so there is no second sign-in.
       if(wasCompulsory){
@@ -3428,6 +3436,14 @@ class Component extends DCLogic {
         style:'font-weight:700;color:'+(h.kind==='refund'?'#f0a884':'#8ee6a0'),
       })),
       twofaSecret:s.twofaSecret, twofaErr:s.twofaErr, enrollCode:s.enrollCode, setEnrollCode:this.setEnrollCode, enable2fa:this.enable2fa,
+      // The QR travels in a style, not an <img src>: dc-placeholder.js strips a
+      // {{ binding }} out of src before the runtime compiles the template, so
+      // an <img> here would be a blank 1x1 GIF and nothing else.
+      hasTwofaQr:!!s.twofaQr,
+      twofaQrStyle: 'width:200px;height:200px;border-radius:10px;background:#fff'
+        + (s.twofaQr ? " url('" + s.twofaQr + "') center/contain no-repeat" : '')
+        + ';background-origin:content-box;padding:10px',
+      setupKeyLabel: s.twofaQr ? "OR PASTE THIS SETUP KEY" : "SETUP KEY",
       login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
       tabs, kpis, downloadBackup:this.downloadBackup, clearMailLog:this.clearMailLog,
       hasMailProblem: !!(s.mailHealth && (!s.mailHealth.ownerEmailValid || !s.mailHealth.mailFromValid || (s.mailHealth.failures||[]).length)),
@@ -3510,6 +3526,8 @@ class Component extends DCLogic {
             ? ('margin-top:5px;font-size:11.5px;font-weight:700;color:'+(t.floored?'#f4a04a':'#7fe09a'))
             : 'display:none',
           tierStyle: 'display:inline-block;font-family:\'Barlow Condensed\';font-weight:800;font-size:10.5px;letter-spacing:.06em;color:#fff;background:'+tierColour+';border-radius:5px;padding:2px 7px',
+          imageStyle: 'width:92%;height:104px'
+            + (t.image ? ";background:url('" + String(t.image).replace(/'/g, "%27") + "') center/contain no-repeat" : ''),
           cardStyle: 'background:#14100e;border:1px solid '+(t.inStock?'rgba(57,168,84,.45)':'#2a2320')+';border-radius:13px;padding:13px',
           priceInput: (s.catEdit||{})[t.id] !== undefined ? (s.catEdit||{})[t.id] : (overridden ? String(t.price) : ''),
           pricePlaceholder: 'override £',

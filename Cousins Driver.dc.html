@@ -512,7 +512,10 @@ class Component extends DCLogic {
       // blank — a driver signed up, got the code by email, and had nowhere to
       // type it. Same fault as the one the comment on authView describes; it
       // was fixed for login and register and missed for verify.
-      hasGoogle:s.hasGoogle, hasApple:s.hasApple, appleSignIn:this.appleSignIn,
+      // googleSignIn was defined as a class field and never returned here, so
+      // the button rendered with no onClick and clicking it did nothing at all.
+      hasGoogle:s.hasGoogle, hasApple:s.hasApple,
+      googleSignIn:this.googleSignIn, appleSignIn:this.appleSignIn,
       pwdOpen:s.pwdOpen, pwdShut:!s.pwdOpen, openPwd:this.openPwd,
       isLoginMode: s.authView==='login', isRegMode: s.authView==='register',
       isVerifyMode: s.authView==='verify',

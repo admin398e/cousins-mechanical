@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { capSizeInversions } from '../tyre-data.js';
+import { qrMatrix, qrSvgDataUri } from '../worker.js';
 
 const PORT = 3799;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -1665,6 +1666,66 @@ try {
     assert.ok(anon.status === 401 || anon.status === 429, `2FA enrolment is open to anyone (${anon.status})`);
   });
 
+  await check('the two-factor QR code is a real, scannable QR code', async () => {
+    /*
+     * This encoder is written here rather than pulled from a CDN, because the
+     * one screen that must never depend on somebody else's uptime is the one
+     * whose whole job is security. That means the correctness of it is ours.
+     *
+     * It was checked module-for-module against an independent implementation
+     * and decoded with a real QR reader across versions 1 to 20 — which is how
+     * a two-module error was found: (8,6) and (6,8), where the timing patterns
+     * cross the format stripe, were being blanked and never restored. Error
+     * correction absorbed them, so every code still scanned and looked
+     * perfect. The frozen hash below is that verified output; if the encoder
+     * drifts, this fails.
+     */
+    const FIXED = 'otpauth://totp/Cousins%20Mechanical%20help@cousinsmechanicalservices.co.uk'
+      + '?secret=AUZ3ITSCJAQ33TGVM35UZJQ3UHB7ENRG&issuer=Cousins%20Mechanical&algorithm=SHA1&digits=6&period=30';
+    const m = qrMatrix(FIXED);
+    assert.equal(m.length, 53, 'wrong QR version chosen for a typical otpauth URI');
+    const hash = crypto.createHash('sha256').update(m.map(r => r.join('')).join('\n')).digest('hex');
+    assert.equal(hash, 'bd86e5a984bf14e6f90aad31232144efa211da2ba469d656fa002e6698d4c99b',
+      'the QR encoder no longer produces the matrix that was verified against an independent decoder');
+
+    // The three finder patterns, without which no reader will even look.
+    const finderAt = (ox, oy) => {
+      for (let dy = 0; dy < 7; dy++) for (let dx = 0; dx < 7; dx++) {
+        const d = Math.max(Math.abs(dx - 3), Math.abs(dy - 3));
+        if (m[oy + dy][ox + dx] !== (d === 2 ? 0 : 1)) return false;
+      }
+      return true;
+    };
+    assert.ok(finderAt(0, 0), 'top-left finder pattern is malformed');
+    assert.ok(finderAt(m.length - 7, 0), 'top-right finder pattern is malformed');
+    assert.ok(finderAt(0, m.length - 7), 'bottom-left finder pattern is malformed');
+
+    // The timing patterns, including the two modules where they cross the
+    // format stripe — the exact ones that were wrong.
+    for (let i = 8; i < m.length - 8; i++) {
+      assert.equal(m[6][i], i % 2 === 0 ? 1 : 0, `horizontal timing wrong at x=${i}`);
+      assert.equal(m[i][6], i % 2 === 0 ? 1 : 0, `vertical timing wrong at y=${i}`);
+    }
+
+    // And the SVG carries exactly those modules, with a quiet zone.
+    const uri = qrSvgDataUri(FIXED, 220);
+    assert.ok(uri.startsWith('data:image/svg+xml,'), 'not an inline SVG data URI');
+    /*
+     * No semicolon anywhere in the URI, and this is the whole reason it is
+     * percent-encoded rather than base64. The design-canvas runtime builds a
+     * style object with css.split(";"), quoting be damned, so a ";base64,"
+     * inside a bound style truncates the URI to "data:image/svg+xml" and the
+     * QR silently fails to load — which is exactly what it did.
+     */
+    assert.ok(!uri.includes(';'), 'a semicolon in the data URI will be cut by the style parser');
+    const svg = decodeURIComponent(uri.slice('data:image/svg+xml,'.length));
+    const drawn = (svg.match(/M\d+,\d+h1v1h-1z/g) || []).length;
+    const dark = m.flat().filter(Boolean).length;
+    assert.equal(drawn, dark, 'the SVG does not draw the same modules as the matrix');
+    assert.ok(svg.includes(`viewBox="0 0 ${m.length + 8} ${m.length + 8}"`),
+      'the quiet zone is missing — many readers will not see the code at all');
+  });
+
   await check('a staff account with no authenticator can enrol and do nothing else', async () => {
     /*
      * The owner's words: "this is vital so noone can access without the auth".
@@ -1702,7 +1763,14 @@ try {
       body: '{}',
     });
     assert.equal(seed.status, 200, 'the only permitted action was also refused — a dead end');
-    const secret = (await seed.json()).secret;
+    const seeded = await seed.json();
+    const secret = seeded.secret;
+    // A 32-character key typed by hand off a phone screen is how enrolment
+    // gets abandoned. The card shows a QR; the endpoint has to supply it.
+    assert.ok(String(seeded.qr || '').startsWith('data:image/svg+xml,'),
+      'enrolment came back with no QR code to scan');
+    assert.ok(!seeded.qr.includes(';'), 'the QR URI would be truncated by the style parser');
+    assert.ok(seeded.otpauth.includes('secret=' + secret), 'the QR would not carry this account\'s secret');
     const on = await api('/api/admin-2fa/enable', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + d.token },

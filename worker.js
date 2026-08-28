@@ -490,6 +490,290 @@ function b32decode(s) {
   for (const c of s) { const i = A.indexOf(c); if (i < 0) continue; val = (val << 5) | i; bits += 5; if (bits >= 8) { out.push((val >> (bits - 8)) & 0xff); bits -= 8; } }
   return new Uint8Array(out);
 }
+/* ============================== QR CODES ==================================
+ *
+ * Why this is here rather than a library: the only thing that needs a QR code
+ * is the two-factor enrolment card, it needs it server-side and offline, and
+ * the alternative was loading a script from a CDN onto the one screen whose
+ * whole job is security — where a CDN outage would silently remove the QR and
+ * leave a setup key nobody can scan.
+ *
+ * Byte mode, error-correction level M, smallest version that fits. Output is a
+ * self-contained SVG data URI, which the Content-Security-Policy already
+ * allows as an image source. The algorithm is ISO/IEC 18004; the structure
+ * follows Nayuki's public reference implementation.
+ */
+const QR_EXP = new Uint8Array(512);
+const QR_LOG = new Uint8Array(256);
+(() => {
+  let x = 1;
+  for (let i = 0; i < 255; i++) { QR_EXP[i] = x; QR_LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) QR_EXP[i] = QR_EXP[i - 255];
+})();
+const qrMul = (a, b) => (a === 0 || b === 0) ? 0 : QR_EXP[QR_LOG[a] + QR_LOG[b]];
+
+// Level M, versions 1..40. Not derivable — these are the standard's own tables.
+const QR_ECC_PER_BLOCK = [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28];
+const QR_BLOCKS = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49];
+
+function qrRawDataModules(ver) {
+  let n = (16 * ver + 128) * ver + 64;
+  if (ver >= 2) {
+    const a = Math.floor(ver / 7) + 2;
+    n -= (25 * a - 10) * a - 55;
+    if (ver >= 7) n -= 36;
+  }
+  return n;
+}
+const qrDataCodewords = ver => Math.floor(qrRawDataModules(ver) / 8) - QR_ECC_PER_BLOCK[ver] * QR_BLOCKS[ver];
+
+function qrAlignPositions(ver) {
+  if (ver === 1) return [];
+  const num = Math.floor(ver / 7) + 2;
+  const step = ver === 32 ? 26 : Math.ceil((ver * 4 + 4) / (num * 2 - 2)) * 2;
+  const out = [6];
+  for (let pos = ver * 4 + 10; out.length < num; pos -= step) out.splice(1, 0, pos);
+  return out;
+}
+
+function qrRsDivisor(degree) {
+  let poly = [1];
+  for (let i = 0; i < degree; i++) {
+    const next = new Array(poly.length + 1).fill(0);
+    for (let j = 0; j < poly.length; j++) {
+      next[j] ^= poly[j];
+      next[j + 1] ^= qrMul(poly[j], QR_EXP[i]);
+    }
+    poly = next;
+  }
+  return poly.slice(1); // drop the leading 1
+}
+function qrRsRemainder(data, degree) {
+  const div = qrRsDivisor(degree);
+  const res = new Uint8Array(degree);
+  for (const b of data) {
+    const factor = b ^ res[0];
+    res.copyWithin(0, 1);
+    res[degree - 1] = 0;
+    for (let i = 0; i < degree; i++) res[i] ^= qrMul(div[i], factor);
+  }
+  return res;
+}
+
+/**
+ * The module matrix for `text`, as an array of rows of 0/1.
+ *
+ * `forceMask` exists so a test can pin the mask and compare the whole matrix
+ * against an independent implementation. Leave it out in real use: the mask is
+ * chosen by the standard's penalty rules, which is what makes a code scan well.
+ */
+function qrMatrix(text, forceMask) {
+  const bytes = new TextEncoder().encode(text);
+
+  let ver = 1;
+  while (ver <= 40) {
+    const cap = qrDataCodewords(ver) * 8;
+    const need = 4 + (ver <= 9 ? 8 : 16) + bytes.length * 8;
+    if (need <= cap) break;
+    ver++;
+  }
+  if (ver > 40) throw new Error("too much data for a QR code");
+
+  // ---- bit stream ---------------------------------------------------------
+  const bits = [];
+  const push = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+  push(4, 4);                                   // byte mode
+  push(bytes.length, ver <= 9 ? 8 : 16);        // character count
+  for (const b of bytes) push(b, 8);
+  const capacity = qrDataCodewords(ver) * 8;
+  push(0, Math.min(4, capacity - bits.length)); // terminator
+  while (bits.length % 8 !== 0) bits.push(0);
+  const codewords = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let b = 0;
+    for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+    codewords.push(b);
+  }
+  for (let pad = 0xec; codewords.length < qrDataCodewords(ver); pad ^= 0xec ^ 0x11) codewords.push(pad);
+
+  // ---- error correction, split into blocks and interleaved ----------------
+  const numBlocks = QR_BLOCKS[ver];
+  const eccLen = QR_ECC_PER_BLOCK[ver];
+  const rawCodewords = Math.floor(qrRawDataModules(ver) / 8);
+  const shortBlockLen = Math.floor(rawCodewords / numBlocks) - eccLen;
+  const numShort = numBlocks - (rawCodewords % numBlocks);
+
+  const blocks = [];
+  for (let i = 0, k = 0; i < numBlocks; i++) {
+    const len = shortBlockLen + (i < numShort ? 0 : 1);
+    const dat = codewords.slice(k, k + len);
+    k += len;
+    blocks.push({ dat, ecc: qrRsRemainder(dat, eccLen) });
+  }
+  const out = [];
+  for (let i = 0; i < shortBlockLen + 1; i++)
+    for (const b of blocks) if (i < b.dat.length) out.push(b.dat[i]);
+  for (let i = 0; i < eccLen; i++) for (const b of blocks) out.push(b.ecc[i]);
+
+  // ---- draw ---------------------------------------------------------------
+  const size = ver * 4 + 17;
+  const m = Array.from({ length: size }, () => new Array(size).fill(0));
+  const fixed = Array.from({ length: size }, () => new Array(size).fill(false));
+  const set = (x, y, v) => { if (x >= 0 && y >= 0 && x < size && y < size) { m[y][x] = v; fixed[y][x] = true; } };
+
+  const finder = (cx, cy) => {
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const d = Math.max(Math.abs(dx), Math.abs(dy));
+      set(cx + dx, cy + dy, (d !== 2 && d !== 4) ? 1 : 0);
+    }
+  };
+  finder(3, 3); finder(size - 4, 3); finder(3, size - 4);
+
+  for (let i = 8; i < size - 8; i++) { set(i, 6, (i % 2 === 0) ? 1 : 0); set(6, i, (i % 2 === 0) ? 1 : 0); }
+
+  const align = qrAlignPositions(ver);
+  for (let i = 0; i < align.length; i++) for (let j = 0; j < align.length; j++) {
+    if ((i === 0 && j === 0) || (i === 0 && j === align.length - 1) || (i === align.length - 1 && j === 0)) continue;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+      set(align[i] + dx, align[j] + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1 ? 1 : 0);
+  }
+
+  // Reserve the format areas, and the dark module, before laying data.
+  // Skip index 6: that is where the two timing patterns cross the format
+  // stripe, at (8,6) and (6,8). Those modules belong to the timing pattern and
+  // no format bit is ever written over them — blanking them here left exactly
+  // two wrong modules in every code ever produced, which error correction
+  // quietly absorbed, so it scanned anyway and looked completely fine.
+  for (let i = 0; i <= 8; i++) { if (i === 6) continue; set(i, 8, 0); set(8, i, 0); }
+  for (let i = 0; i < 8; i++) { set(size - 1 - i, 8, 0); set(8, size - 1 - i, 0); }
+  set(8, size - 8, 1);
+
+  if (ver >= 7) {
+    let rem = ver;
+    for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+    const bitsV = (ver << 12) | rem;
+    for (let i = 0; i < 18; i++) {
+      const bit = (bitsV >>> i) & 1;
+      const a = size - 11 + i % 3, b = Math.floor(i / 3);
+      set(a, b, bit); set(b, a, bit);
+    }
+  }
+
+  let idx = 0;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      for (let j = 0; j < 2; j++) {
+        const x = right - j;
+        const upward = ((right + 1) & 2) === 0;
+        const y = upward ? size - 1 - vert : vert;
+        if (fixed[y][x]) continue;
+        m[y][x] = idx < out.length * 8 ? (out[idx >>> 3] >>> (7 - (idx & 7))) & 1 : 0;
+        idx++;
+      }
+    }
+  }
+
+  // ---- mask, chosen by the standard's own penalty rules -------------------
+  const maskFn = [
+    (x, y) => (x + y) % 2 === 0,
+    (x, y) => y % 2 === 0,
+    (x, y) => x % 3 === 0,
+    (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0,
+    (x, y) => (x * y) % 2 + (x * y) % 3 === 0,
+    (x, y) => ((x * y) % 2 + (x * y) % 3) % 2 === 0,
+    (x, y) => ((x + y) % 2 + (x * y) % 3) % 2 === 0,
+  ];
+  const drawFormat = (grid, mask) => {
+    const data = (0 << 3) | mask; // 0b00 = level M
+    let rem = data;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const bitsF = ((data << 10) | rem) ^ 0x5412;
+    const at = (x, y, v) => { grid[y][x] = v; };
+    for (let i = 0; i <= 5; i++) at(8, i, (bitsF >>> i) & 1);
+    at(8, 7, (bitsF >>> 6) & 1);
+    at(8, 8, (bitsF >>> 7) & 1);
+    at(7, 8, (bitsF >>> 8) & 1);
+    for (let i = 9; i < 15; i++) at(14 - i, 8, (bitsF >>> i) & 1);
+    for (let i = 0; i < 8; i++) at(size - 1 - i, 8, (bitsF >>> i) & 1);
+    for (let i = 8; i < 15; i++) at(8, size - 15 + i, (bitsF >>> i) & 1);
+    at(8, size - 8, 1);
+  };
+
+  let best = null, bestScore = Infinity;
+  for (let mask = 0; mask < 8; mask++) {
+    if (forceMask !== undefined && mask !== forceMask) continue;
+    const g = m.map(r => r.slice());
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++)
+      if (!fixed[y][x] && maskFn[mask](x, y)) g[y][x] ^= 1;
+    drawFormat(g, mask);
+    const s = qrPenalty(g, size);
+    if (s < bestScore) { bestScore = s; best = g; }
+  }
+  return best;
+}
+
+function qrPenalty(g, size) {
+  let p = 0;
+  const runScore = line => {
+    let score = 0, run = 1;
+    for (let i = 1; i <= size; i++) {
+      if (i < size && line[i] === line[i - 1]) { run++; continue; }
+      if (run >= 5) score += 3 + (run - 5);
+      run = 1;
+    }
+    return score;
+  };
+  for (let y = 0; y < size; y++) p += runScore(g[y]);
+  for (let x = 0; x < size; x++) p += runScore(g.map(r => r[x]));
+  for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) {
+    const c = g[y][x];
+    if (c === g[y][x + 1] && c === g[y + 1][x] && c === g[y + 1][x + 1]) p += 3;
+  }
+  const finderish = [1, 0, 1, 1, 1, 0, 1];
+  const hasPattern = (line, at) => {
+    for (let i = 0; i < 7; i++) if (line[at + i] !== finderish[i]) return false;
+    const before = line.slice(Math.max(0, at - 4), at);
+    const after = line.slice(at + 7, at + 11);
+    const quiet = arr => arr.length === 0 || arr.every(v => v === 0);
+    return (before.length >= 4 && quiet(before)) || (after.length >= 4 && quiet(after))
+        || (at < 4 && quiet(before)) || (at + 11 > size && quiet(after));
+  };
+  for (let y = 0; y < size; y++) for (let x = 0; x + 7 <= size; x++) if (hasPattern(g[y], x)) p += 40;
+  for (let x = 0; x < size; x++) { const col = g.map(r => r[x]); for (let y = 0; y + 7 <= size; y++) if (hasPattern(col, y)) p += 40; }
+  let dark = 0;
+  for (const row of g) for (const v of row) dark += v;
+  const total = size * size;
+  p += Math.floor(Math.abs(dark * 20 - total * 10) / total) * 10;
+  return p;
+}
+
+/**
+ * `text` as an SVG data URI, for a CSS background-image.
+ *
+ * Percent-encoded rather than base64, and that is not a style preference: a
+ * base64 data URI carries the literal ";base64," in it, and the design-canvas
+ * runtime turns a style attribute into an object with `css.split(";")` — no
+ * regard for quoting. A base64 QR in a bound style is therefore cut off after
+ * "data:image/svg+xml", which the browser reports as nothing more than a
+ * failed image load. Percent-encoding removes every semicolon from the URI, so
+ * there is nothing left to split on. The path uses commas rather than spaces
+ * for the same reason: fewer characters that have to be escaped.
+ */
+function qrSvgDataUri(text, px) {
+  const m = qrMatrix(text);
+  const size = m.length;
+  const quiet = 4;
+  const dim = size + quiet * 2;
+  let path = "";
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++)
+    if (m[y][x]) path += `M${x + quiet},${y + quiet}h1v1h-1z`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${px || 200}" height="${px || 200}" viewBox="0 0 ${dim} ${dim}" shape-rendering="crispEdges"><rect width="${dim}" height="${dim}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+  const escaped = svg.replace(/[%#<>"'&;\s]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
+  return "data:image/svg+xml," + escaped;
+}
+
 function b32encode(bytes) {
   const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; let bits = 0, val = 0, out = "";
   for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += A[(val >> (bits - 5)) & 31]; bits -= 5; } }
@@ -2177,7 +2461,7 @@ async function sendEmail(env, to, subject, text, ics, opts) {
 // penceToMajor/majorToPence are exported so the money conversion can be tested
 // directly. It is the one piece of arithmetic here that moves real money by a
 // factor of a hundred when it is wrong.
-export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS, penceToMajor, majorToPence, smsSegments, gsmSafe };
+export { renderEmail, EMAIL_BLOCKS, esc, SECURITY_HEADERS, penceToMajor, majorToPence, smsSegments, gsmSafe, qrMatrix, qrSvgDataUri };
 
 // ---------- Unsubscribe links ----------
 // The link has to work without the recipient logging in, and it must not let
@@ -4881,7 +5165,13 @@ async function processTyreStockForOrder(env, order) {
     const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
     const label = encodeURIComponent(BUSINESS.shortName + " " + (key === "admin_totp" ? "Admin" : who));
     const otpauth = `otpauth://totp/${label}?secret=${secret}&issuer=Cousins%20Mechanical&algorithm=SHA1&digits=6&period=30`;
-    return json({ secret, otpauth, alreadyEnrolled: false, account: key === "admin_totp" ? "admin" : who });
+    // The QR is drawn here rather than in the browser: this is the one screen
+    // whose entire job is security, and a script fetched from a CDN to draw it
+    // would mean a CDN outage silently removes the QR and leaves a 32-character
+    // key to be typed by hand off a phone screen.
+    let qr = "";
+    try { qr = qrSvgDataUri(otpauth, 220); } catch (e) { console.error("[2fa] qr:", e); }
+    return json({ secret, otpauth, qr, alreadyEnrolled: false, account: key === "admin_totp" ? "admin" : who });
   }
   // Confirm the code works, then lock 2FA on. From now, admin login requires the app.
   if (p === "/admin-2fa/enable" && request.method === "POST") {

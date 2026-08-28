@@ -316,7 +316,12 @@
           <div style="display:grid;gap:10px">
             <sc-for list="{{ tyreOptions }}" as="t" hint-placeholder-count="3">
               <div style="{{ t.cardStyle }}">
-                <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="{{ t.brand }}" style="width:56px;height:56px;flex:none;object-fit:contain;background:#faf7f3;border-radius:9px"/>
+                <!-- A background image, not an <img src>. The placeholder
+                     neutraliser in dc-placeholder.js rewrites src/srcset/poster
+                     when they hold a {{ binding }}, and the runtime compiles
+                     from that rewritten HTML — so `src="{{ t.image }}"` was a
+                     blank 1x1 GIF on every tyre, forever. style is untouched. -->
+                <div role="img" aria-label="{{ t.brand }}" style="{{ t.imageStyle }}"></div>
                 <div style="flex:1;min-width:170px;line-height:1.3;text-align:left">
                   <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
                     <span style="{{ t.badgeStyle }}">{{ t.tierLabel }}</span>
@@ -1400,6 +1405,8 @@ class Component extends DCLogic {
         ? "display:inline-block;background:#c2410c;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.06em;border-radius:5px;padding:2px 7px"
         : 'display:none',
       tierLabel: t.tierLabel || '',
+      imageStyle: 'width:56px;height:56px;flex:none;border-radius:9px;background:#faf7f3'
+        + (t.image ? " url('" + String(t.image).replace(/'/g, "%27") + "') center/contain no-repeat" : ''),
       cardStyle: 'display:flex;flex-wrap:wrap;align-items:center;gap:14px;border:'+(t.inStock?'1.5px solid #39a854':'1.5px solid #eee3d8')+';border-radius:13px;padding:14px 16px;background:'+(t.inStock?'#f6fbf7':'#fff'),
       badgeStyle: "display:inline-block;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.08em;color:#fff;background:"+(accent[t.tier]||'#6f6862')+";border-radius:5px;padding:2px 8px",
       book: () => this.bookTyre(t, size),
@@ -2200,7 +2207,15 @@ class Component extends DCLogic {
       // The verify step is its own view, so neither the login nor the signup
       // panel should render while it is up.
       onLoginView:s.authView==='login', onSignupView:s.authView==='signup', onVerifyView:s.authView==='verify',
-      hasGoogle:s.hasGoogle, hasApple:s.hasApple, appleSignIn:this.appleSignIn,
+      // googleSignIn was defined as a class field and never returned here, so
+      // "Continue with Google" rendered with no onClick: a perfect-looking
+      // button that did nothing, on the only sign-in route customers have.
+      hasGoogle:s.hasGoogle, hasApple:s.hasApple,
+      googleSignIn:this.googleSignIn, appleSignIn:this.appleSignIn,
+      // Same fault, quieter: the marketing tick-box in the booking form had no
+      // onChange, so book.marketing could never leave false. Nobody was
+      // wrongly opted in, but nobody who wanted offers could ask for them.
+      toggleBookMarketing:this.toggleBookMarketing,
       openPwd:this.openPwd, closePwd:this.closePwd,
       // Signing up and confirming an email both live inside the password half
       // of the card, so those views force it open — otherwise a customer who
