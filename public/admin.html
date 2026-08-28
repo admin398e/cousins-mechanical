@@ -1388,9 +1388,36 @@
       <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><span style="color:#9a918a;font-size:13px">{{ calAccountLabel }}</span><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
-            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden">
-              <iframe src="about:blank" style="width:100%;height:620px;border:0;display:block;background:#fff"></iframe>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><span style="color:#9a918a;font-size:13px">{{ calAccountLabel }}</span><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
+            <!-- The diary, drawn from OUR OWN job records rather than embedded
+                 from Google. A Google embed iframe only renders for a browser
+                 already signed in to that exact Google account; for everybody
+                 else it is a tall white box, which is what it was. This always
+                 draws, works on a phone, and needs no Google session. -->
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:4px 0">
+              <sc-for each="{{ calDays }}">
+                <div style="padding:13px 18px;border-bottom:1px solid #241d19">
+                  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:17px;color:#fff;letter-spacing:.02em">{{ label }}</div>
+                    <div style="color:#6f6862;font-size:12.5px">{{ count }}</div>
+                  </div>
+                  <sc-for each="{{ jobs }}">
+                    <div style="display:flex;align-items:center;gap:12px;padding:7px 0">
+                      <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ time }}</div>
+                      <div style="flex:1;min-width:0">
+                        <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ title }}</div>
+                        <div style="color:#8a817b;font-size:12.5px">{{ sub }}</div>
+                      </div>
+                      <span style="{{ badgeStyle }}">{{ statusLabel }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+              <sc-if value="{{ calEmpty }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:34px 18px;text-align:center;color:#8a817b;font-size:14px">
+                  Nothing booked yet. New bookings appear here, and on the Google calendar, automatically.
+                </div>
+              </sc-if>
             </div>
           </sc-if>
           <sc-if value="{{ noCalendar }}" hint-placeholder-val="{{ true }}">
@@ -2602,7 +2629,7 @@ class Component extends DCLogic {
       
       this.setState({ 
         jobs:jd.jobs||[], customers:cd.customers||[], stock:invd.stock||sd.stock||[], calendarUrl: (cald && cald.embedUrl) || (window.googleAccessToken ? 'https://calendar.google.com/calendar/embed?src=primary&ctz=Europe/London' : ''),
-        calAccount:(cald && cald.account)||'',
+        calAccount:(cald && cald.account)||'', calConnected: !!(cald && cald.connected),
         threads:thd.threads||[], supplierOrders:invd.supplierOrders||pod.supplierOrders||[], drivers:drvd.drivers||[], users:usrd.users||[], locations:locd.locations||[],
         invSettings: invd.settings || this.state.invSettings,
         reorderLogs: invd.reorderLogs || this.state.reorderLogs
@@ -3532,7 +3559,45 @@ class Component extends DCLogic {
       invSearchQuery:s.invSearchQuery, setInvSearchQuery:this.setInvSearchQuery,
       invMsg:s.invMsg, hasInvMsg:!!s.invMsg,
       reorderLogRows, noReorderLogs:(s.reorderLogs||[]).length===0,
-      hasCalendar:!!s.calendarUrl, noCalendar:!s.calendarUrl, calendarUrl:s.calendarUrl,
+      // The diary, grouped by day, from the jobs already loaded. Cancelled
+      // jobs are left out — a cancelled job is not in the diary — and past
+      // days are dropped so the tab opens on what is coming, not on history.
+      calDays: (() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const byDay = new Map();
+        for (const j of (s.jobs || [])) {
+          if (j.status === 'cancelled') continue;
+          const key = j.date || '';
+          if (!key) continue;
+          const when = new Date(key + 'T12:00:00');
+          if (isNaN(when) || when < today) continue;
+          if (!byDay.has(key)) byDay.set(key, []);
+          byDay.get(key).push(j);
+        }
+        return [...byDay.entries()].sort((a,b) => a[0] < b[0] ? -1 : 1).slice(0, 60).map(([key, jobs]) => {
+          const d = new Date(key + 'T12:00:00');
+          const isToday = d.toDateString() === today.toDateString();
+          return {
+            label: (isToday ? 'Today · ' : '') + d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }),
+            count: jobs.length + (jobs.length === 1 ? ' job' : ' jobs'),
+            jobs: jobs
+              .slice()
+              .sort((a,b) => String(a.time||'').localeCompare(String(b.time||'')))
+              .map(j => ({
+                time: j.time || 'Time TBC',
+                title: (j.svcLabel || j.service || 'Mobile job') + (j.reg ? ' · ' + j.reg : ''),
+                sub: [j.name, j.postcode].filter(Boolean).join(' · ') || '—',
+                statusLabel: (statusMap[j.status] || ['—'])[0],
+                badgeStyle: badge(j.status),
+              })),
+          };
+        });
+      })(),
+      calEmpty: !(s.jobs || []).some(j => j.status !== 'cancelled' && j.date),
+      // Keyed off whether the calendar is actually CONNECTED, not off whether
+      // an embed URL could be built. Those came apart the moment the embed
+      // stopped being what we render.
+      hasCalendar:!!s.calConnected, noCalendar:!s.calConnected, calendarUrl:s.calendarUrl,
       connectCalendar:this.connectCalendar, calMsg: s.calMsg || '',
       calAccountLabel: s.calAccount ? ('Connected as ' + s.calAccount) : ''
     };

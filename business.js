@@ -58,10 +58,9 @@ export const BUSINESS = {
    * Neither could be verified against anything, and they read as invented
    * filler that nobody caught because no PO has ever been sent.
    *
-   * It now defaults to the registered office and the real numbers, because a
-   * delivery address that is definitely right is worth more than one that
-   * sounds more like a garage. If goods actually go somewhere else, put the
-   * real address here.
+   * CONFIRMED BY THE OWNER (28 Aug 2026): deliveries go to the registered
+   * office below. The invented address is gone and the question is closed —
+   * do not "restore" it from an old copy of the purchase-order template.
    */
   deliveryAddress: '7 Watton Park, Bridport, DT6 5NJ',
 

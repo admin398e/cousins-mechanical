@@ -1227,6 +1227,33 @@ try {
     }
   });
 
+  await check('a customer Google sign-in never asks for Gmail or the calendar', async () => {
+    /*
+     * The button this replaced asked a member of the public for
+     * https://mail.google.com/ and full calendar access, to look at a tyre
+     * booking. That is the scariest thing this codebase has ever asked anyone
+     * for, and nothing but a test stops it coming back.
+     */
+    const start = await postJson('/api/auth/google/start', {});
+    if (start.status === 200) {
+      const url = (await start.json()).url;
+      assert.ok(String(url).startsWith('https://accounts.google.com/o/oauth2/v2/auth?'), 'not a Google consent URL');
+      const scope = new URL(url).searchParams.get('scope') || '';
+      assert.ok(!/mail\.google\.com/.test(scope), 'a customer is being asked for their Gmail');
+      assert.ok(!/auth\/calendar/.test(scope), 'a customer is being asked for their calendar');
+      assert.ok(/openid/.test(scope) && /email/.test(scope), 'identity scopes missing: ' + scope);
+    } else {
+      assert.ok(start.status === 400 || start.status === 429, `unexpected status ${start.status}`);
+    }
+
+    // And the session cannot be conjured client-side, which is what the old
+    // code did: it wrote "demo-token" into localStorage and called it a login.
+    for (const grant of ['00000000-0000-4000-8000-000000000000', 'demo-token', '../user:a@b.c']) {
+      const r = await postJson('/api/auth/google/claim', { grant });
+      assert.ok(r.status === 401 || r.status === 429, `claim accepted "${grant}" (${r.status})`);
+    }
+  });
+
   await check('a forged SumUp callback bounces instead of storing anything', async () => {
     const r = await api('/api/oauth/sumup/callback?code=fake&state=never-issued', { redirect: 'manual' });
     assert.equal(r.status, 302, `forged SumUp callback did not redirect (status ${r.status})`);

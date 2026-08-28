@@ -1108,6 +1108,7 @@ class Component extends DCLogic {
     window.CMS_CONFIG = window.CMS_CONFIG || {};
     this.loadConfig();
     this.loadSession();
+    this.claimGoogleLogin();
     try{ const m=(location.hash||'').match(/reset=([\w-]+)/); if(m){ this.setState({resetToken:m[1], portalOpen:true}); } }catch(e){}
     this.loadOrders();
     // #track=CMS-XXXXX — the "Track & manage booking" button in the confirmation
@@ -1634,34 +1635,62 @@ class Component extends DCLogic {
       this.setState({ auth:{email,name:rec.name,phone:rec.phone}, profile:{name:rec.name,phone:rec.phone,email,marketing:this.state.authMarketing,smsUpdates:this.state.authSms}, authBusy:false, authPass:'', authPass2:'', authErr:'', portalTab:'bookings' });
     }, 500);
   };
+  /*
+   * "Sign in with Google" for a customer.
+   *
+   * What was here before ran a Firebase popup against a project that was never
+   * configured, so it failed for everyone — and on the way it asked the
+   * customer for https://mail.google.com/ and full calendar access. A member of
+   * the public was being asked to hand over their entire inbox to check when
+   * their tyre was being fitted, which is what triggered Google's "requesting
+   * access to sensitive info" warning. It also faked the result: it wrote
+   * "demo-token" into localStorage and set the logged-in state locally, so the
+   * customer looked signed in while holding no real session at all.
+   *
+   * Now: the server builds a consent URL for identity only, Google does the
+   * sign-in on its own pages, and the session is minted server-side.
+   */
   googleSignIn = async () => {
     try {
       this.setState({ authBusy: true, authErr: "" });
-      const cfgRes = await fetch("/api/firebase-config");
-      const firebaseConfig = await cfgRes.json();
-      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-      const app = window.firebaseApp || initializeApp(firebaseConfig);
-      window.firebaseApp = app;
-      const authMod = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
-      const auth = authMod.getAuth(app);
-      const provider = new authMod.GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/calendar");
-      provider.addScope("https://mail.google.com/");
-      const result = await authMod.signInWithPopup(auth, provider);
-      const credential = authMod.GoogleAuthProvider.credentialFromResult(result);
-      if (credential && credential.accessToken) {
-        window.googleAccessToken = credential.accessToken;
-        try { localStorage.setItem("cms_google_access_token", credential.accessToken); } catch(e) {}
-      }
-      const user = result.user;
-      const email = user.email;
-      const name = user.displayName || email.split("@")[0];
-      try { localStorage.setItem("cms_session", "demo-token"); localStorage.setItem("cms_profile", JSON.stringify({ name, email, phone: "" })); } catch(e){}
-      this.setState({ auth: { name, email, phone: "" }, authView: "login", authPass: "", authErr: "", portalOpen: false, authBusy: false });
-    } catch(err) {
-      this.setState({ authBusy: false, authErr: "Google Sign-In failed: " + err.message });
+      const r = await this.apiFetch('/auth/google/start', { method: 'POST', body: '{}' });
+      const d = await r.json().catch(() => ({}));
+      if (d.url) { window.location.href = d.url; return; }
+      this.setState({ authBusy: false, authErr: d.error || 'Google sign-in is not available right now.' });
+    } catch (err) {
+      this.setState({ authBusy: false, authErr: "Google sign-in failed: " + err.message });
     }
   };
+
+  // Back from Google: swap the one-shot grant in the URL fragment for a real
+  // session. The fragment never reaches a server log, and the grant dies on
+  // first use or after 60 seconds.
+  claimGoogleLogin(){
+    try{
+      const m = (window.location.hash || '').match(/glogin=([0-9a-f-]{36})/);
+      if(!m){
+        const gerr = new URLSearchParams(window.location.search).get('gauth');
+        if(gerr){
+          this.setState({ portalOpen:true, authErr: gerr === 'rejected'
+            ? 'Google could not confirm that sign-in. Please try again.'
+            : 'Google sign-in did not complete. Please try again.' });
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+        return;
+      }
+      window.history.replaceState(null, '', window.location.pathname);
+      this.apiFetch('/auth/google/claim', { method:'POST', body: JSON.stringify({ grant: m[1] }) })
+        .then(r => r.json())
+        .then(d => {
+          if(!d.token) throw new Error(d.error || 'Sign-in expired');
+          try{ localStorage.setItem('cms_token', d.token); }catch(e){}
+          this.setState({ auth: d.user, profile: { name:d.user.name, phone:d.user.phone, email:d.user.email, marketing:d.user.marketing !== false },
+            authBusy:false, portalOpen:true, portalTab:'bookings' });
+          this.pullBookings();
+        })
+        .catch(e => this.setState({ portalOpen:true, authBusy:false, authErr: e.message }));
+    }catch(e){}
+  }
 
   doLogin = () => {
     const {authEmail,authPass}=this.state;

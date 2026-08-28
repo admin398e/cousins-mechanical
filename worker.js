@@ -2926,6 +2926,48 @@ async function api(request, env, url, ctx) {
     return json({ ok: true });
   }
 
+  /*
+   * "Sign in with Google" for CUSTOMERS. Identity only — openid email profile.
+   * Never the calendar, and never Gmail, whatever the old Firebase button did.
+   */
+  if (p === "/auth/google/start" && request.method === "POST") {
+    const rlKey = "cglogin:" + clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes.", 429);
+    }
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      return bad("Google sign-in is not available.", 400);
+    }
+    const nonce = crypto.randomUUID();
+    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "customer", t: Date.now() }), { expirationTtl: 600 });
+    const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+    const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    u.searchParams.set("redirect_uri", site + "/api/oauth/google/callback");
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", "openid email profile");
+    u.searchParams.set("prompt", "select_account");
+    u.searchParams.set("state", nonce);
+    return json({ url: u.toString() });
+  }
+
+  if (p === "/auth/google/claim" && request.method === "POST") {
+    const rlKey = "cglogin:" + clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", rlKey) || await rateLimited(env, rlKey)) {
+      return bad("Too many attempts — try again in 15 minutes.", 429);
+    }
+    const b = await request.json().catch(() => ({}));
+    const grant = String(b.grant || "");
+    if (!/^[0-9a-f-]{36}$/.test(grant)) return bad("Sign-in expired — try again.", 401);
+    const raw = await env.CMS_KV.get("cglogin_grant:" + grant);
+    if (!raw) { await noteFailure(env, rlKey); return bad("Sign-in expired — try again.", 401); }
+    await env.CMS_KV.delete("cglogin_grant:" + grant);
+    const g = JSON.parse(raw);
+    const uRaw = await env.CMS_KV.get("user:" + g.email);
+    if (!uRaw) return bad("Sign-in expired — try again.", 401);
+    return json({ token: g.token, user: publicUser(JSON.parse(uRaw)) });
+  }
+
   if (p === "/auth/login" && request.method === "POST") {
     const loginBody = await request.json().catch(() => ({}));
     const { email, password } = loginBody;
@@ -4141,6 +4183,64 @@ async function processTyreStockForOrder(env, order) {
      * staff account. Google sign-in never creates an account: whoever is not
      * in Staff Logins stays outside, however real their Google account is.
      */
+    /*
+     * A CUSTOMER signing in to look at their own bookings.
+     *
+     * The button that used to do this ran a Firebase popup that was never
+     * configured, and asked the member of the public for
+     * https://mail.google.com/ and full calendar access — their whole inbox,
+     * to check when a tyre is being fitted. That is what produced Google's
+     * "requesting access to sensitive info" warning, and no sane customer
+     * would ever accept it. Identity only now, and verified server-side.
+     */
+    if (st.kind === "customer") {
+      const site2 = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+      const fail = (msg) => new Response(null, {
+        status: 302,
+        headers: { ...SECURITY_HEADERS, Location: site2 + "/?gauth=" + encodeURIComponent(msg) },
+      });
+      if (!tok.id_token) return fail("no-identity");
+      const vr = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(tok.id_token)).catch(() => null);
+      const info = vr && vr.ok ? await vr.json().catch(() => null) : null;
+      const email = ((info && info.email) || "").toLowerCase();
+      if (!info || info.aud !== env.GOOGLE_CLIENT_ID || String(info.email_verified) !== "true" || !email) {
+        return fail("rejected");
+      }
+      const raw = await env.CMS_KV.get("user:" + email);
+      let user = raw ? JSON.parse(raw) : null;
+      if (!user) {
+        // First time in. Google has proved the address, so the account starts
+        // verified — but marketing stays OFF, because signing in is consent to
+        // have an account, never consent to be marketed at.
+        user = {
+          name: String((info.name || info.given_name || email.split("@")[0])).trim(),
+          email, phone: "",
+          marketing: false,
+          smsUpdates: true,
+          emailVerified: true,
+          google: true,
+          consentAt: Date.now(), privacyVersion: PRIVACY_VERSION, createdAt: Date.now(),
+        };
+        await env.CMS_KV.put("user:" + email, JSON.stringify(user));
+        await audit(env, email, "account_created", "google sign-in, consent v" + PRIVACY_VERSION);
+      } else if (!isVerified(user)) {
+        // They signed up with a password and never confirmed the address.
+        // Google just confirmed it for them, which is stronger than the code.
+        user.emailVerified = true;
+        await env.CMS_KV.put("user:" + email, JSON.stringify(user));
+        await audit(env, email, "email_verified", "by google sign-in");
+      }
+      const t = token();
+      await env.CMS_KV.put("sess:" + t, email, { expirationTtl: 60 * 60 * 24 * 30 });
+      const grant = crypto.randomUUID();
+      await env.CMS_KV.put("cglogin_grant:" + grant, JSON.stringify({ token: t, email }), { expirationTtl: 60 });
+      await audit(env, email, "login_google", clientIp(request));
+      return new Response(null, {
+        status: 302,
+        headers: { ...SECURITY_HEADERS, Location: site2 + "/#glogin=" + grant },
+      });
+    }
+
     if (st.kind === "login") {
       const fail = (msg) => new Response(null, {
         status: 302,
