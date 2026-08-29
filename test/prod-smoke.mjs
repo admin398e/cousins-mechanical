@@ -229,6 +229,41 @@ await check('public pages are all served', async () => {
   }
 });
 
+await check('the site has one address: https, no www', async () => {
+  /*
+   * http://<domain>/ answered 200 over plain HTTP. HSTS could not save it —
+   * browsers ignore that header on an insecure response, so a visitor who
+   * typed the domain stayed on http until something else moved them. And
+   * www.<domain> served the same pages on a second hostname.
+   */
+  const http = await fetch('http://cousinsmechanicalservices.co.uk/', { redirect: 'manual' });
+  assert(http.status === 301, `http:// returned ${http.status}, not a permanent redirect`);
+  assert((http.headers.get('location') || '').startsWith('https://cousinsmechanicalservices.co.uk/'),
+    `http:// redirected to ${http.headers.get('location')}`);
+
+  const www = await fetch('https://www.cousinsmechanicalservices.co.uk/terms', { redirect: 'manual' });
+  assert(www.status === 301, `www returned ${www.status}, not a permanent redirect`);
+  assert(www.headers.get('location') === 'https://cousinsmechanicalservices.co.uk/terms',
+    `www redirected to ${www.headers.get('location')}`);
+
+  // The staff hostname is its own portal, not a duplicate — it must survive.
+  const admin = await fetch(ADMIN + '/', { redirect: 'manual' });
+  assert(admin.status === 200, `the admin hostname now returns ${admin.status} — the redirect is too greedy`);
+});
+
+await check('every URL the sitemap advertises is the URL that answers', async () => {
+  const xml = await (await get(BASE + '/sitemap.xml')).text();
+  const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
+  assert(locs.length >= 5, `sitemap lists only ${locs.length} URLs`);
+  for (const loc of locs) {
+    const r = await fetch(loc, { redirect: 'manual' });
+    assert(r.status === 200, `${loc} answers ${r.status}${r.headers.get('location') ? ' -> ' + r.headers.get('location') : ''} — a sitemap should list the destination, not the hop`);
+    const html = await r.text();
+    const canon = (html.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
+    if (canon) assert(canon === loc, `${loc} declares its canonical as ${canon}`);
+  }
+});
+
 await check('an unknown URL is a 404, not a 200', async () => {
   const r = await get(BASE + '/definitely-not-a-real-page-xyz');
   assert(r.status === 404, `returned ${r.status}`);

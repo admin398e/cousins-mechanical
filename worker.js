@@ -7346,6 +7346,48 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
 
     const url = new URL(request.url);
+
+    /*
+     * One canonical address for the site: https, no www.
+     *
+     * Both were live. http://cousinsmechanicalservices.co.uk answered 200 over
+     * plain HTTP rather than redirecting, so anyone who typed the domain (or
+     * followed an old link) got an unencrypted page — and the HSTS header the
+     * asset path sets is ignored by browsers over http, so it could not fix
+     * itself. www.<domain> served the same pages on a second hostname, which is
+     * two URLs for every page as far as a crawler is concerned.
+     *
+     * Done here rather than as a Cloudflare redirect rule because
+     * run_worker_first means this code sees the request first anyway, and a
+     * rule in a dashboard is invisible to `git log` and to the test suite.
+     *
+     * The admin hostname is deliberately left alone apart from the scheme:
+     * admin.<domain> is its own portal, not a duplicate of the public site.
+     * Local development is exempt — server.js speaks http on localhost.
+     */
+    {
+      const host = url.hostname;
+      const local = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "[::1]" || host.endsWith(".local");
+      const visitor = request.headers.get("cf-visitor") || "";
+      const insecure = url.protocol === "http:" || /"scheme"\s*:\s*"http"/.test(visitor);
+      const wwwed = host.startsWith("www.");
+      if (!local && (insecure || wwwed)) {
+        const to = new URL(url.toString());
+        to.protocol = "https:";
+        if (wwwed) to.hostname = host.slice(4);
+        // 301: this is permanent, and a 302 would leave the wrong URL in every
+        // crawler's index and every browser's address bar for good.
+        return new Response(null, {
+          status: 301,
+          headers: {
+            location: to.toString(),
+            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+            "cache-control": "public, max-age=3600",
+          },
+        });
+      }
+    }
+
     if (url.pathname.startsWith("/api/")) {
       try {
         return await api(request, env, url, ctx);

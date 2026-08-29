@@ -230,7 +230,13 @@ app.use((req, res, next) => {
 });
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-app.use(express.static(PUBLIC_DIR));
+/*
+ * `extensions: ['html']` mirrors Cloudflare's asset handling, which serves
+ * /terms from public/terms.html. Without it, dev 404s on exactly the URLs the
+ * sitemap and the canonical tags point at, while production serves them fine —
+ * the same class of dev/prod gap as the branded 404 below.
+ */
+app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
 /*
  * Dev serves the AUTHORED .dc.html so editing is live, but it must serve it

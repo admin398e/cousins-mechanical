@@ -3066,16 +3066,51 @@ try {
       const html = await r.text();
       assert.ok(html.includes('index.html#services'), `${page} is missing the shared menu bar`);
       assert.ok(html.includes('Staff login'), `${page} is missing the shared footer`);
-      for (const legal of ['terms.html', 'privacy.html', 'cookies.html', 'accessibility.html']) {
-        assert.ok(html.includes(legal), `${page} footer does not link ${legal}`);
+      for (const legal of ['terms', 'privacy', 'cookies', 'accessibility']) {
+        assert.ok(new RegExp(`href="/?${legal}"`).test(html), `${page} footer does not link /${legal}`);
       }
     }
   });
 
   await check('the home page footer links every legal page', async () => {
     const html = await (await api('/')).text();
-    for (const legal of ['terms.html', 'privacy.html', 'cookies.html', 'accessibility.html']) {
-      assert.ok(html.includes(legal), `home page does not link ${legal}`);
+    for (const legal of ['terms', 'privacy', 'cookies', 'accessibility']) {
+      assert.ok(new RegExp(`href="/?${legal}"`).test(html), `home page does not link /${legal}`);
+    }
+  });
+
+  await check('the sitemap, the canonical tags and the links all name the same URL', async () => {
+    /*
+     * Three places used to disagree. Cloudflare serves /terms and redirects
+     * /terms.html to it, but the sitemap listed the .html form, every footer
+     * linked the .html form, and /terms declared its own canonical as
+     * /terms.html — a page telling crawlers the real version is the URL that
+     * redirects back to it. Nothing was broken for a human; it just meant
+     * every legal page was described to Google by a URL that is a redirect.
+     */
+    const sitemap = await (await api('/sitemap.xml')).text();
+    const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
+    assert.ok(locs.length >= 5, 'sitemap lost its URLs');
+    for (const loc of locs) {
+      assert.ok(!/\.html($|\?)/.test(loc), `sitemap lists ${loc}, which production only serves as a redirect`);
+    }
+
+    for (const page of ['/terms', '/privacy', '/cookies', '/accessibility']) {
+      const r = await api(page);
+      assert.equal(r.status, 200, `${page} is not served — the sitemap points at it`);
+      const html = await r.text();
+      const canon = (html.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
+      assert.ok(canon, `${page} has no canonical tag`);
+      assert.ok(canon.endsWith(page), `${page} declares its canonical as ${canon}`);
+      assert.ok(locs.includes(canon), `${canon} is canonical but is not in the sitemap`);
+    }
+  });
+
+  await check('nothing on a public page links to a legal URL that redirects', async () => {
+    for (const page of ['/', '/terms', '/privacy', '/cookies', '/accessibility', '/404.html']) {
+      const html = await (await api(page)).text();
+      const bad = [...html.matchAll(/href="[^"]*\/?(terms|privacy|cookies|accessibility)\.html"/g)].map(m => m[0]);
+      assert.deepEqual(bad, [], `${page} still links the .html form: ${bad.join(', ')}`);
     }
   });
 

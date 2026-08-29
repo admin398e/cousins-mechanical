@@ -35,11 +35,25 @@ const LEGAL = [
   ['accessibility.html', 'Accessibility Statement', `How we make the ${BUSINESS.name} website usable for everyone.`],
 ];
 
+/*
+ * The address a page is actually reachable at.
+ *
+ * Cloudflare's asset handling redirects /terms.html to /terms, so every
+ * .html link and every .html <loc> in the sitemap was a 307 on the way to the
+ * real page. Worse, /terms declared its canonical as /terms.html — the page
+ * pointing at the URL that redirects back to it. Harmless to a browser, but a
+ * crawler is being told two contradictory things about which URL to index.
+ *
+ * One function, used by the canonical tag, the internal links and the sitemap,
+ * so those three can never drift apart again.
+ */
+const canonicalPath = slug => slug.replace(/\.html$/, '');
+
 function legalLayout(slug, title, desc, body) {
   const nav = (href, label) => `<a href="${href}" style="color:#d9d2cc;font-weight:600;font-size:14.5px;text-decoration:none">${label}</a>`;
   const foot = (href, label) => `<a href="${href}" style="color:#9a918a;font-size:14px;text-decoration:none">${label}</a>`;
-  const legalCol = LEGAL.map(([s, t]) => foot(s, t)).join('\n        ');
-  const legalBar = LEGAL.map(([s, t]) => `<a href="${s}" style="color:#6f6862;text-decoration:none">${t}</a>`).join('\n      ');
+  const legalCol = LEGAL.map(([s, t]) => foot(canonicalPath(s), t)).join('\n        ');
+  const legalBar = LEGAL.map(([s, t]) => `<a href="${canonicalPath(s)}" style="color:#6f6862;text-decoration:none">${t}</a>`).join('\n      ');
   return `<!doctype html>
 <html lang="en-GB">
 <head>
@@ -48,7 +62,7 @@ function legalLayout(slug, title, desc, body) {
 <title>${title} | ${BUSINESS.name}</title>
 <meta name="description" content="${desc}">
 <meta name="theme-color" content="#14100e">
-<link rel="canonical" href="${SITE}/${slug}">
+<link rel="canonical" href="${SITE}/${canonicalPath(slug)}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
@@ -258,10 +272,10 @@ const homeModified = lastmodOf('Cousins Mechanical.dc.html');
 // only made Search Console report more URLs submitted than could ever be indexed.
 const urls = [
   { loc: '/', changefreq: 'weekly', priority: '1.0' },
-  { loc: '/terms.html', changefreq: 'yearly', priority: '0.3', file: 'legal/terms.html' },
-  { loc: '/privacy.html', changefreq: 'yearly', priority: '0.4', file: 'legal/privacy.html' },
-  { loc: '/cookies.html', changefreq: 'yearly', priority: '0.2', file: 'legal/cookies.html' },
-  { loc: '/accessibility.html', changefreq: 'yearly', priority: '0.2', file: 'legal/accessibility.html' },
+  { loc: '/terms', changefreq: 'yearly', priority: '0.3', file: 'legal/terms.html' },
+  { loc: '/privacy', changefreq: 'yearly', priority: '0.4', file: 'legal/privacy.html' },
+  { loc: '/cookies', changefreq: 'yearly', priority: '0.2', file: 'legal/cookies.html' },
+  { loc: '/accessibility', changefreq: 'yearly', priority: '0.2', file: 'legal/accessibility.html' },
 ];
 
 const sitemap =
