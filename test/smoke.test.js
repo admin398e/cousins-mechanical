@@ -2077,7 +2077,10 @@ try {
     const ctx = { waitUntil() {} };
 
     const adminRoot = await worker.fetch(new Request('https://admin.cousinsmechanicalservices.co.uk/'), stubEnv, ctx);
-    assert.equal(await adminRoot.text(), 'SERVED:/admin.html', 'admin host root did not rewrite to admin.html');
+    // "/admin", not "/admin.html": Cloudflare's asset handling redirects the
+    // .html form, so asking for it by name cost the staff portal a 307 on
+    // every visit to its own front door.
+    assert.equal(await adminRoot.text(), 'SERVED:/admin', 'admin host root did not rewrite to /admin');
     assert.equal(adminRoot.headers.get('x-robots-tag'), 'noindex, nofollow', 'admin host is not marked noindex');
 
     const adminRobots = await worker.fetch(new Request('https://admin.cousinsmechanicalservices.co.uk/robots.txt'), stubEnv, ctx);

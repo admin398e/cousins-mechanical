@@ -246,9 +246,13 @@ await check('the site has one address: https, no www', async () => {
   assert(www.headers.get('location') === 'https://cousinsmechanicalservices.co.uk/terms',
     `www redirected to ${www.headers.get('location')}`);
 
-  // The staff hostname is its own portal, not a duplicate — it must survive.
+  // The staff hostname is its own portal, not a duplicate — it must survive,
+  // and its front door should be one request rather than a redirect and then
+  // a page.
   const admin = await fetch(ADMIN + '/', { redirect: 'manual' });
-  assert(admin.status === 200, `the admin hostname now returns ${admin.status} — the redirect is too greedy`);
+  assert(admin.status === 200,
+    `the admin front door answers ${admin.status} -> ${admin.headers.get('location')} instead of serving the dashboard`);
+  assert(/Admin Dashboard/i.test(await admin.text()), 'the admin front door is not the dashboard');
 });
 
 await check('every URL the sitemap advertises is the URL that answers', async () => {

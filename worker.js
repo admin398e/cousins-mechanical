@@ -7445,7 +7445,10 @@ export default {
         });
       }
       if (url.pathname === "/" || url.pathname === "") {
-        assetRequest = new Request(new URL("/admin.html", url).toString(), request);
+        // "/admin", not "/admin.html": the assets pipeline redirects the .html
+        // form to the extensionless one, so asking for the file by name made
+        // the staff portal's front door a 307 followed by a 200 on every visit.
+        assetRequest = new Request(new URL("/admin", url).toString(), request);
       }
     }
 
