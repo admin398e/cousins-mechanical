@@ -268,9 +268,55 @@ await check('every URL the sitemap advertises is the URL that answers', async ()
   }
 });
 
+await check('the live pages contain no URL that resolves to nowhere', async () => {
+  /*
+   * Search Console was reporting 404s for /{{ waConfirm }} — a template token
+   * still sitting in an href when the page shipped, which a crawler resolves
+   * and follows before the runtime has filled it in. robots.txt was patched to
+   * hide those URLs; this checks they are not being produced.
+   */
+  for (const path of ['/', '/terms', '/privacy', '/cookies', '/accessibility']) {
+    const html = (await (await get(BASE + path)).text())
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const bad = [...html.matchAll(/\b(href|src|srcset|poster)\s*=\s*"[^"]*\{\{[^"]*"/g)].map(m => m[0].slice(0, 80));
+    assert(bad.length === 0, `${path} ships ${bad.join(' | ')}`);
+    assert(!/href="index\.html/.test(html), `${path} still links index.html, which redirects`);
+  }
+});
+
+await check('Google has a favicon it will actually use', async () => {
+  // Without a square icon at a multiple of 48px, Google draws a generic globe
+  // beside the search result. /favicon.ico is fetched by browsers whatever the
+  // page says, so it has to be right as well as declared.
+  const html = await (await get(BASE + '/')).text();
+  const links = [...html.matchAll(/<link[^>]+rel="icon"[^>]*>/g)].map(m => m[0]);
+  assert(links.some(l => /sizes="(48x48|96x96|192x192)"/.test(l)),
+    'the home page declares no icon at a size Google uses');
+
+  const ico = await get(BASE + '/favicon.ico');
+  assert(ico.status === 200, `/favicon.ico returned ${ico.status}`);
+  const buf = Buffer.from(await ico.arrayBuffer());
+  const count = buf.readUInt16LE(4);
+  const sizes = [];
+  for (let i = 0; i < count; i++) { const o = 6 + i * 16; sizes.push(buf[o] || 256); }
+  assert(sizes.includes(48), `/favicon.ico holds ${sizes.join(', ')}px — Google asks for a multiple of 48`);
+
+  for (const p of ['/images/icon-48.png', '/images/icon-96.png', '/images/icon-192.png']) {
+    const r = await get(BASE + p);
+    assert(r.status === 200, `${p} is declared but returns ${r.status}`);
+  }
+});
+
 await check('an unknown URL is a 404, not a 200', async () => {
   const r = await get(BASE + '/definitely-not-a-real-page-xyz');
   assert(r.status === 404, `returned ${r.status}`);
+
+  // And the error page asked for by name. /404 answered 200 — a page whose
+  // whole content is "we could not find that", telling Google it found it.
+  // That is a soft 404, and Search Console counts it as a page.
+  const named = await fetch(BASE + '/404', { redirect: 'manual' });
+  assert(named.status === 404, `/404 answers ${named.status}, which makes it a page Google will index`);
 });
 
 await check('the API reports its bindings healthy', async () => {

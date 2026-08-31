@@ -27,9 +27,23 @@
 <meta name="twitter:title" content="Mobile Mechanic &amp; Tyre Fitting — Bridport &amp; West Dorset">
 <meta name="twitter:description" content="We come to you — home, work or roadside — across Bridport &amp; West Dorset, 24 hours a day. Book online or call 07925 340977.">
 <meta name="twitter:image" content="https://cousinsmechanicalservices.co.uk/images/tyre-van.jpg">
-<link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="images/icon-512.png">
-<link rel="apple-touch-icon" sizes="180x180" href="images/apple-touch-icon.png">
+<!--
+  Icons.
+  Google picks the favicon for a search result from the site's home page, and
+  asks for a square icon whose side is a multiple of 48px. What was here was
+  192 and 512 — 512 is not a multiple of 48 — and /favicon.ico, which browsers
+  fetch whether or not it is declared, held a single 32x32 image and was not
+  declared at all. It now carries 16, 32 and 48, and the small PNG sizes Google
+  reaches for first are listed explicitly.
+
+  Absolute paths on purpose: a relative href resolves against the page, so the
+  same tag would point somewhere different from a URL with a deeper path.
+-->
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" sizes="48x48" href="/images/icon-48.png">
+<link rel="icon" type="image/png" sizes="96x96" href="/images/icon-96.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/images/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
 <script src="vehicle-data.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -176,7 +190,7 @@
 <header style="position:sticky;top:0;z-index:60;background:rgba(20,16,14,.94);backdrop-filter:blur(8px);border-bottom:1px solid #2a2320">
   <div style="max-width:1200px;margin:0 auto;padding:11px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px">
     <a href="#top" style="display:flex;align-items:center;gap:12px;color:#fff">
-      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:38px;width:auto;display:block"/></span>
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="Cousins Mechanical Services — mobile mechanic and tyre fitting, Bridport" width="611" height="471" style="height:38px;width:auto;display:block"/></span>
     </a>
     <nav style="display:flex;align-items:center;gap:22px" class="cms-nav-links">
       <a href="#services" style="color:#d9d2cc;font-weight:600;font-size:14.5px">Services</a>
@@ -321,7 +335,7 @@
                      when they hold a {{ binding }}, and the runtime compiles
                      from that rewritten HTML — so `src="{{ t.image }}"` was a
                      blank 1x1 GIF on every tyre, forever. style is untouched. -->
-                <div role="img" aria-label="{{ t.brand }}" style="{{ t.imageStyle }}"></div>
+                <div role="img" aria-label="{{ t.imageAlt }}" style="{{ t.imageStyle }}"></div>
                 <div style="flex:1;min-width:170px;line-height:1.3;text-align:left">
                   <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
                     <span style="{{ t.badgeStyle }}">{{ t.tierLabel }}</span>
@@ -511,7 +525,7 @@
 <footer style="background:#0f0c0b;color:#cfc7c1;padding:60px 20px 28px">
   <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:36px" class="cms-grid3">
     <div>
-      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.3)"><img src="images/logo.png" alt="Cousins Mechanical Services" style="height:56px;width:auto;display:block"/></span>
+      <span style="display:inline-flex;align-items:center;background:#fff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 4px 16px rgba(0,0,0,.3)"><img src="images/logo.png" alt="Cousins Mechanical Services, mobile mechanic and 24hr recovery across West Dorset" width="611" height="471" style="height:56px;width:auto;display:block"/></span>
       <p style="color:#9a918a;font-size:14.5px;line-height:1.6;max-width:340px">Mobile mechanic, tyre fitting and 24hr breakdown &amp; recovery covering Bridport, Dorchester &amp; West Dorset. We come to your home, work or the roadside.</p>
       <div style="display:flex;gap:10px;margin-top:18px">
         <a href="https://wa.me/447925340977" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:9px;padding:10px 16px;font-size:14px">WhatsApp</a>
@@ -727,7 +741,7 @@
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px">
-              <a href="{{ waConfirm }}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:9px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:14px;font-size:15px;text-decoration:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>Confirm on WhatsApp</a>
+              <button onClick="{{ openWaConfirm }}" type="button" style="border:0;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:14px;font-size:15px;text-decoration:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>Confirm on WhatsApp</button>
               <button onClick="{{ downloadIcs }}" style="background:#1c1817;color:#fff;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15px">📅 Add to my calendar (.ics)</button>
               <button onClick="{{ goTrack }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15px">Track my job live →</button>
             </div>
@@ -1405,6 +1419,10 @@ class Component extends DCLogic {
         ? "display:inline-block;background:#c2410c;color:#fff;font-family:'Barlow Condensed';font-weight:800;font-size:11px;letter-spacing:.06em;border-radius:5px;padding:2px 7px"
         : 'display:none',
       tierLabel: t.tierLabel || '',
+      // The only text describing this picture, to a screen reader and to image
+      // search alike. "Continental" says nothing; the tyre, its pattern and
+      // the size it fits is the sentence somebody would actually say.
+      imageAlt: [t.brand, t.model, 'tyre', size ? ('in ' + size) : ''].filter(Boolean).join(' '),
       imageStyle: 'width:56px;height:56px;flex:none;border-radius:9px;background:#faf7f3'
         + (t.image ? " url('" + String(t.image).replace(/'/g, "%27") + "') center/contain no-repeat" : ''),
       cardStyle: 'display:flex;flex-wrap:wrap;align-items:center;gap:14px;border:'+(t.inStock?'1.5px solid #39a854':'1.5px solid #eee3d8')+';border-radius:13px;padding:14px 16px;background:'+(t.inStock?'#f6fbf7':'#fff'),
@@ -2112,6 +2130,10 @@ class Component extends DCLogic {
 
     const orderCards = s.orders.map(o=>{
       const st = statusMap[o.status] || ['CONFIRMED','#e8791a'];
+      // Built once and used twice: the link the customer taps, and the URL the
+      // handler opens. Two copies of this string is how they drift apart.
+      const waConfirmUrl = 'https://wa.me/447925340977?text=' + encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.');
+
       return { ...o, statusLabel:st[0],
         badgeStyle:'font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.06em;color:#fff;background:'+st[1]+';border-radius:6px;padding:4px 10px',
         sub: this.fmtDate(o.date)+' · '+(o.time||'time TBC'),
@@ -2197,7 +2219,19 @@ class Component extends DCLogic {
         s.svcPricing && s.svcPricing.hourlyRate ? ('£'+s.svcPricing.hourlyRate+' per hour labour') : '',
       ].filter(Boolean).join(' · '),
       bookSubmitLabel: s.bookBusy ? 'Booking…' : 'Confirm booking',
-      waConfirm: 'https://wa.me/447925340977?text='+encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.'),
+      /*
+       * Opened by hand rather than sat in an href.
+       *
+       * `href="{{ waConfirm }}"` looked harmless, but the page ships to the
+       * browser with the token still in it — the runtime fills it in after
+       * React mounts, and a crawler reads the HTML before that happens. So
+       * Google found a link to /{{ waConfirm }}, followed it, and filed a 404
+       * against the site. robots.txt was patched to hide it, which treated the
+       * symptom; this removes the link. The same reasoning as the images:
+       * anything a crawler resolves as a URL must be a real URL in the source.
+       */
+      openWaConfirm: () => window.open(waConfirmUrl, '_blank', 'noopener'),
+      waConfirm: waConfirmUrl,
       // portal / account
       portalOpen:s.portalOpen, openPortal:this.openPortal, closePortal:this.closePortal, portalToBook:this.portalToBook,
       acctBtnLabel: s.auth ? ((s.profile.name||s.auth.name||'Account').split(/\s+/)[0]) : 'Log in',

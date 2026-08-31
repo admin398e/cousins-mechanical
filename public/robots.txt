@@ -25,8 +25,9 @@ Disallow: /service-requests
 Disallow: /*{{
 Disallow: /*%7B%7B
 
-# The error page itself is not content
-Disallow: /404.html
+# The error page is NOT blocked here on purpose. /404 answers with a real 404
+# status now, and a 404 drops out of the index by itself; blocking it would
+# only stop Google seeing the status that tells it to.
 
 # Internal pricing worksheets
 Disallow: /pricingworkout.html

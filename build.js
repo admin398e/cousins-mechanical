@@ -66,8 +66,23 @@ function legalLayout(slug, title, desc, body) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="images/apple-touch-icon.png">
+<!--
+  Icons.
+  Google picks the favicon for a search result from the site's home page, and
+  asks for a square icon whose side is a multiple of 48px. What was here was
+  192 and 512 — 512 is not a multiple of 48 — and /favicon.ico, which browsers
+  fetch whether or not it is declared, held a single 32x32 image and was not
+  declared at all. It now carries 16, 32 and 48, and the small PNG sizes Google
+  reaches for first are listed explicitly.
+
+  Absolute paths on purpose: a relative href resolves against the page, so the
+  same tag would point somewhere different from a URL with a deeper path.
+-->
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" sizes="48x48" href="/images/icon-48.png">
+<link rel="icon" type="image/png" sizes="96x96" href="/images/icon-96.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/images/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
 <style>
   *{box-sizing:border-box}
   body{margin:0;background:#f4f2ef;font-family:'Barlow',system-ui,sans-serif;color:#1c1817;-webkit-font-smoothing:antialiased;line-height:1.6}
@@ -97,16 +112,16 @@ function legalLayout(slug, title, desc, body) {
 <body>
 <header style="position:sticky;top:0;z-index:60;background:rgba(20,16,14,.96);backdrop-filter:blur(8px);border-bottom:1px solid #2a2320">
   <div class="wrap" style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:11px;padding-bottom:11px">
-    <a href="index.html" style="display:flex;align-items:center;gap:12px">
+    <a href="/" style="display:flex;align-items:center;gap:12px">
       <span style="display:inline-flex;align-items:center;background:#fff;border-radius:11px;padding:7px 13px;box-shadow:0 3px 12px rgba(0,0,0,.35)"><img src="images/logo.png" alt="${BUSINESS.name}" style="height:36px;width:auto;display:block"/></span>
     </a>
     <nav style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:flex-end">
-      ${nav('index.html', 'Home')}
-      ${nav('index.html#services', 'Services')}
-      ${nav('index.html#reg', 'Tyres &amp; Parts')}
-      ${nav('index.html#work', 'Recent Work')}
-      ${nav('index.html#track', 'Track Job')}
-      <a href="index.html#reg" style="background:#e8791a;color:#14100e;font-weight:700;padding:9px 16px;border-radius:8px;font-size:14.5px;text-decoration:none">Book online</a>
+      ${nav('/', 'Home')}
+      ${nav('/#services', 'Services')}
+      ${nav('/#reg', 'Tyres &amp; Parts')}
+      ${nav('/#work', 'Recent Work')}
+      ${nav('/#track', 'Track Job')}
+      <a href="/#reg" style="background:#e8791a;color:#14100e;font-weight:700;padding:9px 16px;border-radius:8px;font-size:14.5px;text-decoration:none">Book online</a>
     </nav>
   </div>
 </header>
@@ -128,12 +143,12 @@ ${body}
     <div>
       <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:16px;letter-spacing:.08em;margin-bottom:14px">PAGES</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${foot('index.html', 'Home')}
-        ${foot('index.html#services', 'Services')}
-        ${foot('index.html#reg', 'Tyres &amp; Parts')}
-        ${foot('index.html#work', 'Recent Work')}
-        ${foot('index.html#track', 'Track Job')}
-        ${foot('index.html#reg', 'Book online')}
+        ${foot('/', 'Home')}
+        ${foot('/#services', 'Services')}
+        ${foot('/#reg', 'Tyres &amp; Parts')}
+        ${foot('/#work', 'Recent Work')}
+        ${foot('/#track', 'Track Job')}
+        ${foot('/#reg', 'Book online')}
       </div>
     </div>
     <div>

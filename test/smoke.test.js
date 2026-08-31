@@ -3173,7 +3173,11 @@ try {
       const r = await api(page);
       assert.equal(r.status, 200, `${page} not served`);
       const html = await r.text();
-      assert.ok(html.includes('index.html#services'), `${page} is missing the shared menu bar`);
+      // "/#services", not "index.html#services": /index.html is a redirect to
+      // /, so every menu link on every legal page was a needless hop — and
+      // three of them showed up in Search Console as "page with redirect".
+      assert.ok(html.includes('href="/#services"'), `${page} is missing the shared menu bar`);
+      assert.ok(!/href="index\.html/.test(html), `${page} still links index.html, which redirects`);
       assert.ok(html.includes('Staff login'), `${page} is missing the shared footer`);
       for (const legal of ['terms', 'privacy', 'cookies', 'accessibility']) {
         assert.ok(new RegExp(`href="/?${legal}"`).test(html), `${page} footer does not link /${legal}`);
@@ -3242,6 +3246,49 @@ try {
     }
   });
 
+  await check('no public page ships a link a crawler would resolve to a fake URL', async () => {
+    /*
+     * Search Console had 404s for /{{ waConfirm }}. The page ships with the
+     * token still in the href — the runtime fills it in after React mounts,
+     * and a crawler reads the HTML before that happens, so Google followed a
+     * link to a URL that cannot exist and counted it against the site.
+     *
+     * robots.txt was patched to hide those URLs, which treated the symptom.
+     * The rule is the same one the images taught: anything a crawler resolves
+     * as a URL — href, src, srcset, poster — must be a real URL in the source.
+     * Bindings belong in click handlers.
+     */
+    for (const page of ['/', '/terms', '/privacy', '/cookies', '/accessibility', '/404.html']) {
+      // Both comment styles: the whole app is authored inside a <script> block,
+      // so a JS comment explaining this very rule sits in the served HTML and
+      // would otherwise trip it. (It did, on the first run.)
+      const html = (await (await api(page)).text())
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      const bad = [...html.matchAll(/\b(href|src|srcset|poster)\s*=\s*"[^"]*\{\{[^"]*"/g)].map(m => m[0].slice(0, 80));
+      assert.deepEqual(bad, [], `${page} ships a URL a crawler will follow to nowhere: ${bad.join(' | ')}`);
+    }
+  });
+
+  await check('every image on a public page says what it is', async () => {
+    // Alt text is the only description image search gets, and the only thing a
+    // screen reader can read out. Two images on a page sharing one generic
+    // string is the same as having none.
+    for (const page of ['/', '/terms', '/privacy', '/cookies', '/accessibility', '/404.html']) {
+      const html = (await (await api(page)).text()).replace(/<!--[\s\S]*?-->/g, '');
+      for (const img of html.match(/<img[^>]*>/g) || []) {
+        const alt = (img.match(/\salt="([^"]*)"/) || [])[1];
+        assert.ok(alt !== undefined, `${page} has an <img> with no alt at all: ${img.slice(0, 90)}`);
+        // A deliberately empty alt is correct for decoration, but every image
+        // this site serves is content, so an empty one is an oversight.
+        assert.ok(alt.trim().length >= 10, `${page} has thin alt text (${JSON.stringify(alt)}) on ${img.slice(0, 70)}`);
+      }
+      for (const el of html.match(/<[^>]*role="img"[^>]*>/g) || []) {
+        assert.ok(/aria-label="[^"]{3,}"/.test(el), `${page} has a role="img" with no label: ${el.slice(0, 90)}`);
+      }
+    }
+  });
+
   await check('robots.txt blocks un-hydrated template tokens and API paths', async () => {
     const txt = await (await api('/robots.txt')).text();
     for (const rule of ['Disallow: /*{{', 'Disallow: /bookings', 'Disallow: /messages', 'Disallow: /track']) {
@@ -3282,11 +3329,45 @@ try {
       const res = await api(icon.src);
       assert.equal(res.status, 200, `${icon.src} is declared but missing`);
       const buf = Buffer.from(await res.arrayBuffer());
+
+      // An .ico legitimately holds several sizes in one file, and its header is
+      // nothing like a PNG's — reading PNG offsets out of one gives a number in
+      // the thousands. Its own directory is checked instead.
+      if (/\.ico$/.test(icon.src)) {
+        const count = buf.readUInt16LE(4);
+        const inFile = new Set();
+        for (let i = 0; i < count; i++) {
+          const o = 6 + i * 16;
+          inFile.add(`${buf[o] || 256}x${buf[o + 1] || 256}`);
+        }
+        for (const declared of icon.sizes.split(/\s+/)) {
+          assert.ok(inFile.has(declared),
+            `${icon.src} declares ${declared} but only holds ${[...inFile].join(', ')}`);
+        }
+        continue;
+      }
+
       // PNG header: width/height are big-endian uint32 at bytes 16 and 20.
       const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
       const [dw, dh] = icon.sizes.split('x').map(Number);
       assert.equal(w, dw, `${icon.src} is ${w}px wide but declares ${dw}`);
       assert.equal(h, dh, `${icon.src} is ${h}px tall but declares ${dh}`);
+    }
+
+    // Google picks a search-result favicon from the home page and asks for a
+    // square icon whose side is a multiple of 48. Without one it draws a
+    // generic globe next to the listing, which is what the site had.
+    const home = await (await api('/')).text();
+    const links = [...home.matchAll(/<link[^>]+rel="icon"[^>]*>/g)].map(x => x[0]);
+    assert.ok(links.length, 'the home page declares no icon at all');
+    assert.ok(links.some(l => /sizes="(48x48|96x96|192x192)"/.test(l)),
+      'no icon at a size Google will use (a multiple of 48px) is declared on the home page');
+    assert.ok(links.some(l => /href="\/favicon\.ico"/.test(l)),
+      '/favicon.ico is not declared — browsers fetch it regardless, so leave nothing to guess');
+    for (const l of links) {
+      const href = (l.match(/href="([^"]+)"/) || [])[1];
+      assert.ok(href && href.startsWith('/'),
+        `icon href ${href} is relative — it resolves differently from a deeper URL`);
     }
   });
 

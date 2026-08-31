@@ -7773,14 +7773,32 @@ export default {
       }
     }
 
+    /*
+     * The branded 404 page, asked for by its own name.
+     *
+     * Unknown URLs already get it with a 404 status, via
+     * not_found_handling = "404-page". But /404 itself answered 200 — a page
+     * whose entire content is "we could not find that" returning "here it is".
+     * That is a soft 404, and Google treats one as a page worth indexing until
+     * it decides otherwise. robots.txt had /404.html blocked, which only meant
+     * Google could not see the status to know better.
+     *
+     * Serving the real status is the fix that clears itself: a 404 drops out
+     * of the index on its own, with nothing to remember or maintain.
+     */
     if (env.ASSETS) {
+      const named404 = url.pathname === "/404" || url.pathname === "/404.html";
       const res = await env.ASSETS.fetch(assetRequest);
       // Security headers on the HTML pages too, not just the API.
       const headers = new Headers(res.headers);
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
       headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
       if (url.hostname.split(".")[0] === "admin") headers.set("X-Robots-Tag", "noindex, nofollow");
-      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+      return new Response(res.body, {
+        status: named404 && res.status === 200 ? 404 : res.status,
+        statusText: res.statusText,
+        headers,
+      });
     }
     return new Response("API worker running. Bind ASSETS to serve the site, or call /api/*.", { status: 200 });
   },
