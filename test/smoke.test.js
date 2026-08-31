@@ -923,6 +923,71 @@ try {
       'messages are not essential-by-default — a new caller could make a job update droppable');
   });
 
+  await check('nothing sends email straight at one provider behind the switch', async () => {
+    /*
+     * The weekly backup used to POST to Resend directly, so it would have kept
+     * using Resend after the owner moved everything else to Twilio — the one
+     * message carrying every customer's name and address going out by a route
+     * nobody had chosen. Every send now goes through sendEmail.
+     */
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const calls = [...src.matchAll(/fetch\(\s*"https:\/\/api\.resend\.com\/emails"/g)];
+    assert.equal(calls.length, 1,
+      `${calls.length} places post to Resend's send API; only sendViaResend should`);
+    const i = src.indexOf('async function sendViaResend');
+    assert.ok(i > 0 && src.indexOf('https://api.resend.com/emails', i) - i < 900,
+      'the one remaining Resend send call is not the one inside sendViaResend');
+
+    const twilio = [...src.matchAll(/comms\.twilio\.com\/v1\/Emails/g)];
+    assert.equal(twilio.length, 1, 'more than one place posts to Twilio Email');
+  });
+
+  await check('the live-status check never calls the site\'s own address', async () => {
+    /*
+     * The dashboard reported "Not responding — status 522" for weeks on a site
+     * that was serving every page. The check fetched SITE_URL from inside the
+     * Worker; a Worker cannot call the hostname it is itself serving, so the
+     * edge answered 522 — an alarm that was always on and could never clear.
+     *
+     * Two things are asserted: the answer is healthy, and the code contains no
+     * fetch of its own site. The second matters more — a green result here
+     * could just mean the loopback happened to work on this machine.
+     */
+    const tok = await adminTok();
+    const r = await api('/api/admin/service-status', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200, `service-status returned ${r.status}`);
+    const d = await r.json();
+    assert.ok(d.domain, 'no domain block in the status');
+    assert.equal(d.domain.ok, true, 'the site reports itself unhealthy: ' + (d.domain.reason || ''));
+    assert.equal(d.domain.reason, '', 'a problem was reported: ' + d.domain.reason);
+    assert.ok(d.domain.catalogue > 0, 'the status did not count the catalogue');
+
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const i = src.indexOf('/admin/service-status');
+    assert.ok(i > 0, 'the service-status route moved');
+    const block = src.slice(i, i + 3000);
+    assert.ok(!/fetch\(\s*site\s*\+/.test(block),
+      'the status check fetches its own site again — that is the 522 coming back');
+  });
+
+  await check('the calendar tab can read the diary, and says so plainly when it cannot', async () => {
+    // No Google connection in a test run. The endpoint must answer calmly with
+    // an empty diary rather than erroring, because the tab falls back to our
+    // own job records and a 500 here would blank the whole calendar.
+    const tok = await adminTok();
+    const r = await api('/api/admin/calendar/events', { headers: { authorization: 'Bearer ' + tok } });
+    assert.equal(r.status, 200, `calendar events returned ${r.status}`);
+    const d = await r.json();
+    assert.equal(d.connected, false, 'reported a Google connection that does not exist');
+    assert.deepEqual(d.events, [], 'invented events with nothing connected');
+
+    // And it must refuse a caller with no admin session at all.
+    const anon = await api('/api/admin/calendar/events');
+    assert.equal(anon.status, 403, `the diary is readable without a session (${anon.status})`);
+  });
+
   await check('the metered third-party proxies are not open to the world', async () => {
     // These bill the client per call. Nothing on the public site uses them, so
     // open access was pure liability: anyone could run the quota to zero.
@@ -1858,6 +1923,47 @@ try {
       body: '{}',
     });
     assert.equal(denied.status, 403, `the van view let in a session with no authenticator (${denied.status})`);
+  });
+
+  await check('email can be moved between services without a deploy', async () => {
+    /*
+     * Two services are wired: Resend, which has been carrying the mail, and
+     * Twilio Email, whose sending domain is verified on this account. The
+     * point of the switch is that it is reversible in one click — so what is
+     * asserted here is that the setting is real, that it refuses a service
+     * that cannot actually send, and that only an owner or developer can
+     * change it. Which service is chosen is a business decision, not a test.
+     */
+    const tok = await adminTok();
+    const auth = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+
+    const h = await api('/api/admin/mail-failures', { headers: auth });
+    assert.equal(h.status, 200, `mail health returned ${h.status}`);
+    const hd = await h.json();
+    assert.ok(hd.mail, 'the mail panel has no provider block to show');
+    assert.ok('resend' in hd.mail.available && 'twilio' in hd.mail.available,
+      'the dashboard cannot tell which services are available');
+
+    // Nothing is configured in a test run, so both must be refused with a
+    // reason rather than silently accepted and then failing on a real booking.
+    for (const provider of ['twilio', 'resend']) {
+      const r = await api('/api/admin/mail-provider', { method: 'POST', headers: auth, body: JSON.stringify({ provider }) });
+      assert.equal(r.status, 400, `${provider} was accepted with no credentials (${r.status})`);
+      const d = await r.json();
+      assert.ok(/cannot send/i.test(d.error || ''), `the refusal does not say why: ${d.error}`);
+    }
+
+    const junk = await api('/api/admin/mail-provider', { method: 'POST', headers: auth, body: JSON.stringify({ provider: 'carrier-pigeon' }) });
+    assert.equal(junk.status, 400, 'an unknown mail service was accepted');
+
+    // And it is configuration, so ordinary staff cannot change it.
+    const staff = await asStaff('staff');
+    const asStaffTry = await api('/api/admin/mail-provider', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + staff.token },
+      body: JSON.stringify({ provider: 'twilio' }),
+    });
+    assert.equal(asStaffTry.status, 403, `ordinary staff can move the company mail (${asStaffTry.status})`);
   });
 
   await check('only an owner or developer can approve, edit or remove a driver', async () => {

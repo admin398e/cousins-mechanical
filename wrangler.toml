@@ -135,9 +135,12 @@ crons = ["0 * * * *"]
 #     OVERRIDE_TOKEN      owner master key / 2FA reset (openssl rand -hex 32)
 #     SITE_URL            https://cousinsmechanicalservices.co.uk
 #
-#   Required to confirm a booking to a customer:
+#   Required to confirm a booking to a customer — EITHER email service:
 #     RESEND_API_KEY      resend.com — free 3,000 emails/month
-#     MAIL_FROM           address on a domain verified in Resend
+#     (or) TWILIO_SID + TWILIO_TOKEN, which Twilio Email signs in with too
+#     MAIL_FROM           address on a domain verified with whichever is used
+#     MAIL_PROVIDER       auto | resend | twilio — only the starting default;
+#                         the live choice is a dashboard setting (System -> EMAIL)
 #     GCAL_CLIENT_EMAIL   Google service-account email
 #     GCAL_PRIVATE_KEY    service-account private key (PEM, keep the \n)
 #     GCAL_CALENDAR_ID    calendar shared with that service account

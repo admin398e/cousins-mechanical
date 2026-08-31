@@ -346,6 +346,37 @@
             </div>
           </div>
 
+          <!-- EMAIL: which service carries the mail, and whether any of it bounced -->
+          <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+              <div style="font-family:'Barlow Condensed';font-weight:800;font-size:20px;color:#fff">EMAIL</div>
+              <span style="{{ mailProviderBadgeStyle }}">{{ mailProviderBadge }}</span>
+            </div>
+            <div style="color:#8a817b;font-size:12.5px;margin-bottom:14px;line-height:1.55">
+              Booking confirmations, job updates and the weekly backup all go out from {{ mailFromAddress }}. Switch service, then send yourself a test — if it does not arrive, switch back.
+            </div>
+            <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px">
+              <button onClick="{{ useTwilioMail }}" style="{{ useTwilioStyle }}">Send with Twilio</button>
+              <button onClick="{{ useResendMail }}" style="{{ useResendStyle }}">Send with Resend</button>
+              <button onClick="{{ sendMailTest }}" style="background:#1c1714;border:1px solid #3a322d;color:#d9d2cc;font-weight:700;border-radius:9px;padding:11px 16px;cursor:pointer;font-size:13.5px">{{ mailTestLabel }}</button>
+            </div>
+            <sc-if value="{{ mailNoteShown }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(57,168,84,.14);border:1px solid #2f6b3f;color:#8ee6a0;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:12px">{{ mailNote }}</div>
+            </sc-if>
+            <sc-if value="{{ hasMailProblem }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:12px">{{ mailProblemHeadline }}</div>
+              <sc-for each="{{ mailFailRows }}">
+                <div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:6px 0;border-bottom:1px solid #241e1a;flex-wrap:wrap">
+                  <span style="color:#fff;font-weight:600">{{ to }}</span>
+                  <span style="color:#9a918a;flex:1;min-width:120px">{{ subject }}</span>
+                  <span style="color:#f0a884">{{ reason }}</span>
+                  <span style="color:#6f6862">{{ when }}</span>
+                </div>
+              </sc-for>
+              <button onClick="{{ clearMailLog }}" style="margin-top:12px;background:transparent;border:1px solid #3a322d;color:#9a918a;font-weight:700;border-radius:9px;padding:9px 14px;cursor:pointer;font-size:13px">Clear the list</button>
+            </sc-if>
+          </div>
+
           <!-- SUMUP: how the money comes in -->
           <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:20px;margin-bottom:18px">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
@@ -1446,7 +1477,64 @@
       <sc-if value="{{ onCalendar }}" hint-placeholder-val="{{ false }}">
         <div style="animation:fadeIn .2s ease">
           <sc-if value="{{ hasCalendar }}" hint-placeholder-val="{{ false }}">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><span style="color:#9a918a;font-size:13px">{{ calAccountLabel }}</span><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><span style="color:#9a918a;font-size:13px">{{ calAccountLabel }}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{ calRefresh }}" style="background:#1c1714;border:1px solid #3a322d;color:#d9d2cc;font-weight:700;border-radius:9px;padding:10px 14px;cursor:pointer;font-size:13.5px">{{ calRefreshLabel }}</button><button onClick="{{ openCalendar }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font-size:13.5px">↗ Open in Google Calendar</button></div></div>
+
+            <sc-if value="{{ calHasError }}" hint-placeholder-val="{{ false }}"><div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:14px">{{ calErrorMsg }}</div></sc-if>
+
+            <!-- The month, drawn here rather than embedded from Google. A Google
+                 embed iframe renders only for a browser already signed in to
+                 that exact account; for anyone else it is a tall white box,
+                 which is what it was. This draws for everybody, works on a
+                 phone, and shows the SAME events Google holds because the
+                 server reads them back over the connection we already have. -->
+            <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:16px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+                <button onClick="{{ calPrevMonth }}" style="background:#221b17;border:1px solid #3a322d;color:#d9d2cc;font-weight:800;border-radius:9px;width:36px;height:36px;cursor:pointer;font-size:15px">←</button>
+                <div style="display:flex;align-items:baseline;gap:12px">
+                  <div style="font-family:'Barlow Condensed';font-weight:800;font-size:21px;color:#fff;letter-spacing:.02em">{{ calMonthLabel }}</div>
+                  <button onClick="{{ calThisMonth }}" style="background:transparent;border:0;color:#f4a04a;font-weight:700;font-size:13px;cursor:pointer;text-decoration:underline">Today</button>
+                </div>
+                <button onClick="{{ calNextMonth }}" style="background:#221b17;border:1px solid #3a322d;color:#d9d2cc;font-weight:800;border-radius:9px;width:36px;height:36px;cursor:pointer;font-size:15px">→</button>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px">
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">MON</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">TUE</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">WED</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">THU</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">FRI</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">SAT</div>
+                <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">SUN</div>
+              </div>
+              <sc-for each="{{ calWeeks }}">
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px">
+                  <sc-for each="{{ days }}">
+                    <button onClick="{{ pick }}" style="{{ cellStyle }}">
+                      <span style="{{ numStyle }}">{{ num }}</span>
+                      <span style="{{ countStyle }}">{{ count }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ calShowPick }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:16px 18px;margin-bottom:14px">
+                <div style="font-family:'Barlow Condensed';font-weight:800;font-size:18px;color:#fff;margin-bottom:10px">{{ calPickLabel }}</div>
+                <sc-for each="{{ calPickRows }}">
+                  <div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid #241d19">
+                    <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ time }}</div>
+                    <div style="flex:1;min-width:0">
+                      <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ title }}</div>
+                      <div style="color:#8a817b;font-size:12.5px">{{ sub }}</div>
+                    </div>
+                    <span style="{{ badgeStyle }}">{{ statusLabel }}</span>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ calPickNone }}" hint-placeholder-val="{{ false }}">
+                  <div style="color:#8a817b;font-size:13.5px">Nothing in the diary that day.</div>
+                </sc-if>
+              </div>
+            </sc-if>
             <!-- The diary, drawn from OUR OWN job records rather than embedded
                  from Google. A Google embed iframe only renders for a browser
                  already signed in to that exact Google account; for everybody
@@ -1473,7 +1561,7 @@
               </sc-for>
               <sc-if value="{{ calEmpty }}" hint-placeholder-val="{{ true }}">
                 <div style="padding:34px 18px;text-align:center;color:#8a817b;font-size:14px">
-                  Nothing booked yet. New bookings appear here, and on the Google calendar, automatically.
+                  Nothing in the diary from today onwards. New bookings appear here, and on the Google calendar, automatically.
                 </div>
               </sc-if>
             </div>
@@ -1522,7 +1610,8 @@ class Component extends DCLogic {
     overrideOpen:false, reset2fa:false,
     twofaOpen:false, twofaBusy:false, twofaErr:'', twofaSecret:'', twofaOtpauth:'', twofaQr:'', enrollCode:'', keyCopied:false,
     tab:'jobs', jobs:[], customers:[], stock:[], calendarUrl:'', gpsRef:'',
-    mailHealth:null, crmPortalId:'',
+    calEvents:[], calError:'', calLoading:false, calMonth:'', calPick:'',
+    mailHealth:null, crmPortalId:'', mailNote:'', mailTesting:false,
     // Offers & sales
     prId:'', prName:'', prKind:'percent', prValue:'10', prTiers:'', prBrands:'', prSizes:'',
     prStarts:'', prEnds:'', prErr:'',
@@ -2410,6 +2499,43 @@ class Component extends DCLogic {
     }catch(e){}
   }
 
+  /*
+   * Move the mail from one service to the other.
+   *
+   * Deliberately two clicks and a test, not a migration: switch, send yourself
+   * one message, and switch straight back if it does not land. Nothing is
+   * queued or re-sent, so the worst case is one test email that never arrives.
+   */
+  setMailProvider = async (provider) => {
+    if(this.state.demoMode) return;
+    this.setState({ mailNote:'' });
+    try{
+      const r = await this.af('/admin/mail-provider', { method:'POST', body:JSON.stringify({ provider }) });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) return this.setState({ mailNote: d.error || 'Could not change the email service.' });
+      this.setState({ mailNote: 'Email now goes out through ' + (d.provider === 'twilio' ? 'Twilio' : 'Resend') + '. Send yourself a test to be sure.' });
+      this.loadMailHealth();
+    }catch(e){ this.setState({ mailNote:'Could not change the email service.' }); }
+  };
+  useTwilioMail = () => this.setMailProvider('twilio');
+  useResendMail = () => this.setMailProvider('resend');
+
+  sendMailTest = async () => {
+    if(this.state.demoMode) return;
+    this.setState({ mailTesting:true, mailNote:'' });
+    try{
+      const r = await this.af('/admin/test-email', { method:'POST', body:'{}' });
+      const d = await r.json().catch(()=>({}));
+      this.setState({
+        mailTesting:false,
+        mailNote: d.ok
+          ? 'Test email sent to ' + (d.to || 'the owner address') + ' through ' + (d.via === 'twilio' ? 'Twilio' : 'Resend') + '. Check the inbox.'
+          : (d.reason || d.error || 'The test email did not go out.'),
+      });
+      this.loadMailHealth();
+    }catch(err){ this.setState({ mailTesting:false, mailNote:'Could not send the test email.' }); }
+  };
+
   clearMailLog = async () => {
     try{ await this.af('/admin/mail-failures',{method:'DELETE'}); }catch(e){}
     this.loadMailHealth();
@@ -2647,9 +2773,15 @@ class Component extends DCLogic {
       /* Is it live? The questions an owner actually asks. */
       svcDomainOk: !!(s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.ok),
       svcDomainHost: (s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.host) || '',
+      // "Not responding — status 522" sat here for weeks on a site that was
+      // serving every page: the check used to call the site's own URL, which a
+      // Cloudflare Worker cannot do. It is answered from inside the Worker now,
+      // so a red line here means something a visitor would actually notice.
       svcDomainLabel: (s.svcStatus && s.svcStatus.domain)
-        ? (s.svcStatus.domain.ok ? 'Live and answering over a secure connection'
-                                 : ('Not responding — ' + (s.svcStatus.domain.reason || ('status ' + s.svcStatus.domain.status))))
+        ? (s.svcStatus.domain.ok
+            ? ('Live and answering over a secure connection'
+               + (s.svcStatus.domain.catalogue ? ' · ' + s.svcStatus.domain.catalogue.toLocaleString('en-GB') + ' tyres priced' : ''))
+            : ('Needs attention — ' + (s.svcStatus.domain.reason || 'the check could not complete')))
         : 'Checking…',
       svcDomainStyle: 'width:9px;height:9px;border-radius:50%;flex:none;margin-top:6px;background:'
         + ((s.svcStatus && s.svcStatus.domain && s.svcStatus.domain.ok) ? '#4fe06a' : '#e8791a'),
@@ -3103,8 +3235,40 @@ class Component extends DCLogic {
       // re-request every time somebody clicks back onto the tab.
       if(tab === 'catalogue' && !(this.state.catRaw||[]).length) this.loadCatalogue();
       if(tab === 'settings') this.loadSystem();
+      if(tab === 'calendar') this.loadCalendarEvents();
     });
   }
+
+  /*
+   * Read the real diary back out of Google.
+   *
+   * The tab used to draw only our own job rows, so anything Simon put in the
+   * calendar himself — a day off, a private job, a slot he moved — simply was
+   * not here, and the dashboard quietly disagreed with the calendar he works
+   * from. Google's own embed is not an option: it renders only for a browser
+   * already signed in to that exact account.
+   */
+  loadCalendarEvents = async () => {
+    if(this.state.demoMode) return;
+    this.setState({ calLoading:true });
+    try{
+      const r = await this.af('/admin/calendar/events');
+      const d = await r.json().catch(()=>({}));
+      this.setState({ calEvents: d.events || [], calError: d.error || '', calLoading:false });
+    }catch(e){
+      this.setState({ calLoading:false, calError:'Could not reach the calendar.' });
+    }
+  };
+
+  // Month navigation. Empty calMonth means "the month we are in", so the tab
+  // always opens on today without having to seed state at construction time.
+  calShift = (n) => this.setState(s => {
+    const base = s.calMonth ? new Date(s.calMonth + '-01T12:00:00') : new Date();
+    base.setDate(1); base.setMonth(base.getMonth() + n);
+    return { calMonth: base.getFullYear() + '-' + String(base.getMonth()+1).padStart(2,'0'), calPick:'' };
+  });
+  calToday = () => this.setState({ calMonth:'', calPick:'' });
+  calPickDay = (key) => this.setState(s => ({ calPick: s.calPick === key ? '' : key }));
 
   changeStatus(job, status){
     const labels={confirmed:'Booking confirmed',enroute:'On the way',arrived:'Arrived',complete:'Job complete',cancelled:'Booking cancelled'};
@@ -3373,6 +3537,114 @@ class Component extends DCLogic {
       {value:lowStock,label:'Low-stock parts',color:lowStock?'#f0a884':'#6f6862'}
     ];
 
+    /* ------------------------------------------------------------------
+     * The diary.
+     *
+     * Two sources, deliberately merged: the events Google holds — which is
+     * what Simon actually looks at, and includes anything he typed in himself
+     * — and our own job rows. A booking made on the site exists in both, so
+     * the duplicate is dropped; otherwise every booking would appear twice,
+     * which is worse than showing one source alone.
+     *
+     * If Google is unreachable this still draws, from the jobs. A diary that
+     * disappears when a third party has a bad afternoon is not a diary.
+     * ------------------------------------------------------------------ */
+    const calKeyOf = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const calToday0 = new Date(); calToday0.setHours(0,0,0,0);
+    const calTodayKey = calKeyOf(calToday0);
+    const calDiaryBadge = (mine) => 'font-family:\'Barlow Condensed\';font-weight:800;font-size:11.5px;letter-spacing:.05em;border-radius:6px;padding:4px 9px;white-space:nowrap;'
+      + (mine ? 'color:#f4a04a;background:rgba(232,121,26,.16);border:1px solid #7a4415'
+              : 'color:#a9b6c8;background:rgba(120,140,170,.14);border:1px solid #3b4657');
+
+    const calGoogleRows = (s.calEvents || []).filter(e => e.day).map(e => ({
+      key: e.day,
+      time: e.allDay ? 'All day' : new Date(e.start).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }),
+      sortAt: e.allDay ? '' : new Date(e.start).toLocaleTimeString('en-GB', { hour12:false, hour:'2-digit', minute:'2-digit' }),
+      title: e.title,
+      sub: e.where || '',
+      statusLabel: e.ours ? 'BOOKING' : 'DIARY',
+      badgeStyle: calDiaryBadge(!!e.ours),
+    }));
+
+    // Anything already on Google is not listed a second time from our own
+    // records. Matched on day + title, which is what a duplicate looks like.
+    const calOnGoogle = new Set(calGoogleRows.map(e => e.key + '|' + e.title));
+    const calJobRows = (s.jobs || [])
+      .filter(j => j.status !== 'cancelled' && j.date)
+      .map(j => ({
+        key: j.date,
+        time: j.time || 'Time TBC',
+        sortAt: j.time || '',
+        title: (j.svcLabel || j.service || 'Mobile job') + (j.reg ? ' · ' + j.reg : ''),
+        sub: [j.name, j.postcode].filter(Boolean).join(' · ') || '—',
+        statusLabel: (statusMap[j.status] || ['—'])[0],
+        badgeStyle: badge(j.status),
+      }))
+      .filter(j => !calOnGoogle.has(j.key + '|' + j.title));
+
+    const calByDay = new Map();
+    for (const e of calGoogleRows.concat(calJobRows)) {
+      if (!calByDay.has(e.key)) calByDay.set(e.key, []);
+      calByDay.get(e.key).push(e);
+    }
+    for (const list of calByDay.values()) list.sort((a,b) => String(a.sortAt).localeCompare(String(b.sortAt)));
+
+    // The agenda: today forward, so the tab opens on what is coming.
+    const calDays = [...calByDay.entries()]
+      .filter(([key]) => key >= calTodayKey)
+      .sort((a,b) => a[0] < b[0] ? -1 : 1)
+      .slice(0, 60)
+      .map(([key, rows]) => {
+        const d = new Date(key + 'T12:00:00');
+        return {
+          label: (key === calTodayKey ? 'Today · ' : '') + d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }),
+          count: rows.length + (rows.length === 1 ? ' entry' : ' entries'),
+          jobs: rows,
+        };
+      });
+
+    // The month grid. Weeks start on Monday — a Sunday-first grid puts the
+    // weekend in the wrong place for anyone reading a UK working week.
+    const calMonthStart = s.calMonth
+      ? new Date(s.calMonth + '-01T12:00:00')
+      : new Date(calToday0.getFullYear(), calToday0.getMonth(), 1, 12);
+    const calMonthTag = calMonthStart.getFullYear() + '-' + String(calMonthStart.getMonth()+1).padStart(2,'0');
+    const calGridStart = new Date(calMonthStart);
+    calGridStart.setDate(1 - ((calMonthStart.getDay() + 6) % 7));
+    const calWeeks = [];
+    for (let w = 0; w < 6; w++) {
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(calGridStart);
+        d.setDate(calGridStart.getDate() + w * 7 + i);
+        const key = calKeyOf(d);
+        const rows = calByDay.get(key) || [];
+        const inMonth = key.slice(0,7) === calMonthTag;
+        const isToday = key === calTodayKey;
+        const picked = s.calPick === key;
+        days.push({
+          num: String(d.getDate()),
+          count: rows.length ? String(rows.length) : '',
+          inMonth,
+          pick: () => this.calPickDay(key),
+          cellStyle: 'min-height:56px;border-radius:10px;border:1px solid '
+            + (picked ? '#e8791a' : isToday ? '#7a4415' : '#241d19')
+            + ';background:' + (picked ? 'rgba(232,121,26,.14)' : rows.length ? '#221b17' : '#191411')
+            + ';padding:7px 8px;cursor:pointer;text-align:left;width:100%;display:block;font:inherit',
+          numStyle: 'font-family:\'Barlow Condensed\';font-weight:800;font-size:15px;color:'
+            + (inMonth ? (isToday ? '#f4a04a' : '#e9e4df') : '#4d4540'),
+          countStyle: rows.length
+            ? 'display:inline-block;margin-top:6px;font-size:11px;font-weight:800;color:#14100e;background:#e8791a;border-radius:20px;padding:1px 7px'
+            : 'display:none',
+        });
+      }
+      // Six rows always cover a month; the sixth is often entirely the next
+      // one, and drawing it just adds an empty stripe under the grid.
+      if (days.some(d => d.inMonth)) calWeeks.push({ days });
+    }
+    const calPickedDate = s.calPick ? new Date(s.calPick + 'T12:00:00') : null;
+    const calPickedRows = s.calPick ? (calByDay.get(s.calPick) || []) : [];
+
     return {
       needsLogin:!s.loggedIn, loggedIn:s.loggedIn, demoMode:s.demoMode,
       tokenInput:s.tokenInput, setToken:this.setToken, onKey:this.onKey,
@@ -3445,6 +3717,42 @@ class Component extends DCLogic {
       login:this.login, logout:this.logout, refresh:this.refresh, loginErr:s.loginErr, loginLabel:s.busy?'Signing in…':'Enter dashboard',
       tabs, kpis, downloadBackup:this.downloadBackup, clearMailLog:this.clearMailLog,
       hasMailProblem: !!(s.mailHealth && (!s.mailHealth.ownerEmailValid || !s.mailHealth.mailFromValid || (s.mailHealth.failures||[]).length)),
+      mailProviderBadge: (() => {
+        const m = (s.mailHealth && s.mailHealth.mail) || {};
+        if(m.provider === 'twilio') return 'SENDING VIA TWILIO';
+        if(m.provider === 'resend') return 'SENDING VIA RESEND';
+        return 'NO EMAIL SERVICE CONFIGURED';
+      })(),
+      mailProviderBadgeStyle: 'font-size:11px;font-weight:800;letter-spacing:.05em;border-radius:20px;padding:5px 11px;white-space:nowrap;'
+        + (((s.mailHealth && s.mailHealth.mail && s.mailHealth.mail.provider) || '')
+            ? 'background:rgba(57,168,84,.16);color:#8ee6a0;border:1px solid #2f6b3f'
+            : 'background:rgba(165,64,26,.18);color:#f0a884;border:1px solid #a5401a'),
+      mailFromAddress: (s.mailHealth && s.mailHealth.mail && s.mailHealth.mail.from) || 'the business address',
+      useTwilioMail: this.useTwilioMail,
+      useResendMail: this.useResendMail,
+      sendMailTest: this.sendMailTest,
+      mailTestLabel: s.mailTesting ? 'Sending…' : 'Send me a test',
+      mailNote: s.mailNote || '',
+      mailNoteShown: !!s.mailNote,
+      // The chosen service is filled in; the other is outlined. A service that
+      // is not configured is dimmed rather than hidden, so it is obvious that
+      // the option exists and what is missing.
+      useTwilioStyle: (() => {
+        const m = (s.mailHealth && s.mailHealth.mail) || {};
+        const on = m.provider === 'twilio';
+        const can = !!(m.available && m.available.twilio);
+        return 'font-weight:700;border-radius:9px;padding:11px 16px;font-size:13.5px;'
+          + (can ? 'cursor:pointer;' : 'cursor:not-allowed;opacity:.45;')
+          + (on ? 'background:#e8791a;color:#14100e;border:0' : 'background:#1c1714;border:1px solid #3a322d;color:#d9d2cc');
+      })(),
+      useResendStyle: (() => {
+        const m = (s.mailHealth && s.mailHealth.mail) || {};
+        const on = m.provider === 'resend';
+        const can = !!(m.available && m.available.resend);
+        return 'font-weight:700;border-radius:9px;padding:11px 16px;font-size:13.5px;'
+          + (can ? 'cursor:pointer;' : 'cursor:not-allowed;opacity:.45;')
+          + (on ? 'background:#e8791a;color:#14100e;border:0' : 'background:#1c1714;border:1px solid #3a322d;color:#d9d2cc');
+      })(),
       mailProblemHeadline: (() => {
         const m = s.mailHealth || {};
         if(!m.mailFromValid) return 'MAIL_FROM is not a valid email address, so nothing can be sent at all. Re-set it: npx wrangler secret put MAIL_FROM';
@@ -3706,7 +4014,8 @@ class Component extends DCLogic {
       // The diary, grouped by day, from the jobs already loaded. Cancelled
       // jobs are left out — a cancelled job is not in the diary — and past
       // days are dropped so the tab opens on what is coming, not on history.
-      calDays: (() => {
+      calDays: calDays,
+      __calDaysWas: (() => {
         const today = new Date(); today.setHours(0,0,0,0);
         const byDay = new Map();
         for (const j of (s.jobs || [])) {
@@ -3737,7 +4046,27 @@ class Component extends DCLogic {
           };
         });
       })(),
-      calEmpty: !(s.jobs || []).some(j => j.status !== 'cancelled' && j.date),
+      // Derived from calDays itself. It used to ask a different question —
+      // "is there any dated job at all" — so a diary whose every job was in
+      // the past rendered an empty box with no explanation in it: no days, and
+      // no "nothing booked" line either, because by its own test something was
+      // booked. One source of truth, one answer.
+      calEmpty: calDays.length === 0,
+      calWeeks,
+      calMonthLabel: calMonthStart.toLocaleDateString('en-GB', { month:'long', year:'numeric' }),
+      calPrevMonth: () => this.calShift(-1),
+      calNextMonth: () => this.calShift(1),
+      calThisMonth: this.calToday,
+      calRefresh: this.loadCalendarEvents,
+      calRefreshLabel: s.calLoading ? 'Reading…' : 'Refresh',
+      calErrorMsg: s.calError || '',
+      calHasError: !!s.calError,
+      calPickLabel: calPickedDate
+        ? calPickedDate.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' })
+        : '',
+      calPickRows: calPickedRows,
+      calPickNone: !!s.calPick && calPickedRows.length === 0,
+      calShowPick: !!s.calPick,
       // Keyed off whether the calendar is actually CONNECTED, not off whether
       // an embed URL could be built. Those came apart the moment the embed
       // stopped being what we render.

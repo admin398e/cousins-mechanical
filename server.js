@@ -128,6 +128,11 @@ const env = {
   SITE_URL: process.env.SITE_URL || `http://localhost:${PORT}`,
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   MAIL_FROM: process.env.MAIL_FROM || '',
+  // Which email service carries the mail. The live choice is a dashboard
+  // setting stored in KV; this is only the default before anyone has chosen.
+  MAIL_PROVIDER: process.env.MAIL_PROVIDER || '',
+  TWILIO_API_KEY: process.env.TWILIO_API_KEY || '',
+  TWILIO_API_SECRET: process.env.TWILIO_API_SECRET || '',
   TWILIO_SID: process.env.TWILIO_SID || '',
   TWILIO_TOKEN: process.env.TWILIO_TOKEN || '',
   TWILIO_FROM: process.env.TWILIO_FROM || '',

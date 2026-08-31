@@ -2411,8 +2411,134 @@ function sendEmailTracked(env, ctx, to, subject, text, ics, opts) {
   return task;
 }
 
+/* ---------------------------------------------------------------------------
+ * Which service actually carries the mail.
+ *
+ * Two are wired: Resend, which has been carrying it, and Twilio Email
+ * (comms.twilio.com), whose sending domain is verified on this account. They
+ * are interchangeable for what this site sends, so the choice is a setting
+ * rather than a deploy — the owner flips it in the dashboard after sending a
+ * test to himself, and flips it straight back if anything looks wrong. A
+ * migration you cannot undo in ten seconds is a migration nobody performs.
+ *
+ * KV wins over the environment on purpose: the secret is the starting default,
+ * the dashboard is the live control.
+ * ------------------------------------------------------------------------ */
+
+/** Basic-auth pair for Twilio's email API. An API key is preferred over the
+ *  account's auth token — it can be revoked on its own — but either works. */
+function twilioMailAuth(env) {
+  if (env.TWILIO_API_KEY && env.TWILIO_API_SECRET) return { user: env.TWILIO_API_KEY, pass: env.TWILIO_API_SECRET };
+  if (env.TWILIO_SID && env.TWILIO_TOKEN) return { user: env.TWILIO_SID, pass: env.TWILIO_TOKEN };
+  return null;
+}
+
+function twilioMailReady(env) { return !!(twilioMailAuth(env) && validEmail(env.MAIL_FROM)); }
+function resendMailReady(env) { return !!(env.RESEND_API_KEY && validEmail(env.MAIL_FROM)); }
+
+/** "twilio" | "resend" | "" (nothing is configured). */
+async function mailProvider(env) {
+  let stored = "";
+  try { stored = (await env.CMS_KV.get("mail_provider")) || ""; } catch (e) { /* KV hiccup falls through to the default */ }
+  const want = String(stored || env.MAIL_PROVIDER || "auto").toLowerCase();
+  if (want === "twilio" && twilioMailReady(env)) return "twilio";
+  if (want === "resend" && resendMailReady(env)) return "resend";
+  // "auto", or the named provider is not configured: whichever can actually
+  // send. Resend first because it is the one with delivery history here.
+  if (resendMailReady(env)) return "resend";
+  if (twilioMailReady(env)) return "twilio";
+  return "";
+}
+
+/**
+ * Twilio's Email API reads the body as a Liquid template, so a literal "{{" in
+ * a customer's note or a vehicle description would be swallowed as a variable
+ * that was never supplied — the text would simply vanish from the email. There
+ * is no escape sequence worth relying on, so the braces are separated. A
+ * customer who genuinely wrote "{{" sees "{ {", which is a far smaller wrong
+ * than a missing paragraph.
+ */
+const noLiquid = v => String(v == null ? "" : v).replace(/\{\{/g, "{ {").replace(/\}\}/g, "} }");
+
+async function sendViaTwilio(env, msg) {
+  const auth = twilioMailAuth(env);
+  const content = {
+    subject: noLiquid(msg.subject),
+    // html is required by the API; text alone is rejected.
+    html: noLiquid(msg.html || "<p>" + esc(msg.text || "").replace(/\n/g, "<br>") + "</p>"),
+    text: noLiquid(msg.text || ""),
+  };
+  if (msg.headers) content.headers = msg.headers;
+  if (msg.attachments && msg.attachments.length) {
+    content.attachments = msg.attachments.map(a => ({
+      filename: a.filename,
+      contentType: a.contentType || "application/octet-stream",
+      content: a.content,
+    }));
+  }
+  const r = await fetch("https://comms.twilio.com/v1/Emails", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: "Basic " + btoa(auth.user + ":" + auth.pass),
+    },
+    body: JSON.stringify({
+      from: { address: env.MAIL_FROM, name: BUSINESS.name },
+      to: [{ address: msg.to }],
+      content,
+    }),
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error" };
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    console.error("[email] Twilio rejected the send", r.status, detail.slice(0, 400));
+    const reason = r.status === 401
+      ? "Twilio refused the credentials — check TWILIO_SID/TWILIO_TOKEN, or the API key pair."
+      : r.status === 400
+        ? "Twilio rejected the message — usually the from address is not on a verified sending domain. " + detail.slice(0, 200)
+        : "Twilio returned " + r.status + ": " + detail.slice(0, 200);
+    return { ok: false, status: r.status, detail, reason };
+  }
+  // 202 with an operationId: queued, not delivered. Kept so a failure can be
+  // traced back to a specific send in the Twilio console.
+  const d = await r.json().catch(() => ({}));
+  return { ok: true, provider: "twilio", id: d.operationId || "" };
+}
+
+async function sendViaResend(env, msg) {
+  const body = {
+    from: BUSINESS.name + " <" + env.MAIL_FROM + ">",
+    to: [msg.to],
+    reply_to: env.MAIL_REPLY_TO || env.MAIL_FROM,
+    subject: msg.subject,
+    text: msg.text,
+  };
+  if (msg.html) body.html = msg.html;
+  if (msg.headers) body.headers = msg.headers;
+  if (msg.attachments && msg.attachments.length) {
+    body.attachments = msg.attachments.map(a => ({ filename: a.filename, content: a.content }));
+  }
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!r) return { ok: false, reason: "network error" };
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    console.error("[email] Resend rejected the send", r.status, detail.slice(0, 400));
+    const reason = r.status === 403
+      ? "Resend refused the send — usually the sending domain is not verified, or the API key has no send permission."
+      : "Resend returned " + r.status + ": " + detail.slice(0, 200);
+    return { ok: false, status: r.status, detail, reason };
+  }
+  return { ok: true, provider: "resend" };
+}
+
 async function sendEmail(env, to, subject, text, ics, opts) {
-  if (!env.RESEND_API_KEY || !env.MAIL_FROM || !to) return { skipped: true };
+  if (!env.MAIL_FROM || !to) return { skipped: true };
+  const provider = await mailProvider(env);
+  if (!provider) return { skipped: true };
   const o = opts || {};
 
   // Check the addresses BEFORE spending a call on them, so the reason reads
@@ -2438,43 +2564,31 @@ async function sendEmail(env, to, subject, text, ics, opts) {
     }
   } catch (e) { /* KV hiccup must never stop a real email going out */ }
 
-  const body = {
-    from: BUSINESS.name + " <" + env.MAIL_FROM + ">",
-    to: [to],
-    reply_to: env.MAIL_REPLY_TO || env.MAIL_FROM,
+  const msg = {
+    to,
     subject,
     // Always send the plain-text part, even alongside HTML. An HTML-only
     // message is a well-known spam signal, and the text part is what shows in
     // watch/notification previews.
     text,
+    html: o.html || "",
+    attachments: (o.attachments || []).slice(),
   };
-  if (o.html) body.html = o.html;
   // One-click unsubscribe. Gmail and Yahoo require this on bulk mail, and it is
   // what stops an annoyed recipient reaching for "report spam" instead — which
   // costs far more reputation than an unsubscribe does.
   if (o.unsubscribeUrl) {
-    body.headers = {
+    msg.headers = {
       "List-Unsubscribe": "<" + o.unsubscribeUrl + ">",
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     };
   }
-  if (ics) body.attachments = [{ filename: "booking.ics", content: b64utf8(ics) }];
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
-    body: JSON.stringify(body),
-  }).catch(() => null);
-  if (!r) return { ok: false, reason: "network error" };
-  if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    console.error("[email] Resend rejected the send", r.status, detail.slice(0, 400));
-    const reason = r.status === 403
-      ? "Resend refused the send — usually the sending domain is not verified, or the API key has no send permission."
-      : "Resend returned " + r.status + ": " + detail.slice(0, 200);
-    return { ok: false, status: r.status, detail, reason };
-  }
+  if (ics) msg.attachments.push({ filename: "booking.ics", contentType: "text/calendar", content: b64utf8(ics) });
+
+  const r = provider === "twilio" ? await sendViaTwilio(env, msg) : await sendViaResend(env, msg);
+  if (!r.ok) return r;
   await recordUsage(env, "email");
-  return { ok: true };
+  return r;
 }
 
 // Named exports for the test suite. The Workers runtime only looks at the
@@ -3137,7 +3251,7 @@ async function api(request, env, url, ctx) {
         // the missing-confirmations outage stayed invisible. A flag that cannot
         // go false is not a health check, so the address shapes are checked
         // here — the one failure mode that costs nothing to detect.
-        email: !!env.RESEND_API_KEY && validEmail(env.MAIL_FROM),
+        email: resendMailReady(env) || twilioMailReady(env),
         ownerAlerts: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
         // NOTE: every flag here means "a value is configured", NOT "it works".
         // UKVD_API_KEY is currently set but rejected upstream with
@@ -5707,14 +5821,70 @@ async function processTyreStockForOrder(env, order) {
     if (p === "/admin/service-status" && request.method === "GET") {
       const site = (env.SITE_URL || "").replace(/\/+$/, "");
 
+      /*
+       * Is the site up?
+       *
+       * This used to answer by fetching its own public URL — and the dashboard
+       * has been reporting "Not responding — status 522" ever since, on a site
+       * that was serving every page perfectly well. A Worker cannot call the
+       * hostname it is itself serving: the subrequest leaves the isolate,
+       * comes back to the same Cloudflare route, finds no origin behind it and
+       * times out. 522 is the edge saying "there is nothing to connect to",
+       * which is true, and completely uninformative about whether the site
+       * works. It was a false alarm that could never clear.
+       *
+       * The honest answer is available without leaving the isolate. This
+       * request reached this Worker, on this hostname, over this scheme — that
+       * IS the site answering, and no round trip can prove it better. What is
+       * worth checking on top is the things that can fail while the front door
+       * still opens: the catalogue, the static files, the data store, and
+       * whether SITE_URL still names the host we are actually served from
+       * (it is the base for every OAuth redirect and every emailed link, so a
+       * stale value breaks sign-in and tracking links while the site looks fine).
+       */
       const domain = await (async () => {
         if (!site) return { ok: false, reason: "SITE_URL is not set" };
-        const r = await fetch(site + "/api/health", { headers: { "user-agent": "cousins-selfcheck" } }).catch(() => null);
-        if (!r) return { ok: false, host: site, reason: "the domain did not respond" };
+        let siteHost = "";
+        try { siteHost = new URL(site).hostname; }
+        catch { return { ok: false, host: site, reason: "SITE_URL is not a valid web address" }; }
+
+        let tyres = 0;
+        try {
+          const d = await tyreData(env);
+          for (const list of Object.values(d.catalogue)) tyres += list.length;
+        } catch (e) { /* counted as zero, reported below */ }
+
+        const assetOk = env.ASSETS
+          ? await env.ASSETS.fetch(new Request(new URL("/robots.txt", url).toString()))
+              .then(r => r.ok).catch(() => false)
+          : false;
+
+        let kvOk = false;
+        try { await env.CMS_KV.get("health_probe"); kvOk = true; }
+        catch (e) { /* reported below */ }
+
+        const here = url.hostname;
+        // localhost and 127.0.0.1 are the same machine wearing two names, and
+        // a developer running the site locally is not a misconfiguration.
+        const loopback = h => h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0" || h === "[::1]" || h === "::1";
+        const onSite = here === siteHost
+          || here === "www." + siteHost
+          || here.endsWith("." + siteHost)
+          || (loopback(here) && loopback(siteHost));
+
+        const problems = [];
+        if (!tyres) problems.push("the tyre catalogue is not loading");
+        if (!assetOk) problems.push("the site's own files are not being served");
+        if (!kvOk) problems.push("the data store did not answer");
+        if (!onSite) problems.push("SITE_URL says " + siteHost + ", but this is being served from " + here);
+
         return {
-          ok: r.ok, host: site, status: r.status,
-          // Reaching it over https at all means the certificate validated.
-          https: site.startsWith("https://"),
+          ok: problems.length === 0,
+          host: site,
+          servedFrom: here,
+          https: url.protocol === "https:",
+          catalogue: tyres,
+          reason: problems.join(" · "),
         };
       })();
 
@@ -5848,7 +6018,46 @@ async function processTyreStockForOrder(env, order) {
         ownerEmailValid: validEmail(env.OWNER_EMAIL || env.MAIL_FROM),
         mailFromValid: validEmail(env.MAIL_FROM),
         calendarConfigured: await calendarReady(env),
+        // Which service is carrying the mail, and which ones could. Shown in
+        // the dashboard so "email is working" names a service rather than
+        // being a flag nobody can check.
+        mail: {
+          provider: await mailProvider(env),
+          from: env.MAIL_FROM || "",
+          available: {
+            resend: resendMailReady(env),
+            twilio: twilioMailReady(env),
+          },
+        },
       });
+    }
+
+    /*
+     * Switch the sending service.
+     *
+     * Owner or developer only, and deliberately reversible in one click: the
+     * safe way to move mail from one provider to another is to switch, send
+     * yourself a test from the button right next to it, and switch back if it
+     * does not arrive. Stored in KV rather than a secret so it takes effect
+     * immediately and does not need a deploy.
+     */
+    if (p === "/admin/mail-provider" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      const b = await request.json().catch(() => ({}));
+      const want = String(b.provider || "").toLowerCase();
+      if (!["auto", "resend", "twilio"].includes(want)) {
+        return bad("Choose auto, resend or twilio.", 400);
+      }
+      if (want === "twilio" && !twilioMailReady(env)) {
+        return bad("Twilio cannot send yet — it needs TWILIO_SID and TWILIO_TOKEN (or an API key pair) and a valid MAIL_FROM on a verified sending domain.", 400);
+      }
+      if (want === "resend" && !resendMailReady(env)) {
+        return bad("Resend cannot send yet — it needs RESEND_API_KEY and a valid MAIL_FROM.", 400);
+      }
+      await env.CMS_KV.put("mail_provider", want);
+      await audit(env, actor, "mail_provider_changed", want);
+      return json({ ok: true, provider: await mailProvider(env), setting: want });
     }
 
     if (p === "/admin/mail-failures" && request.method === "DELETE") {
@@ -6681,6 +6890,31 @@ async function processTyreStockForOrder(env, order) {
      * reporting exactly what worked and what did not. Use this to prove the
      * client's three channels are live without taking a real booking.
      */
+    /*
+     * One test email, to the owner, through whichever service is currently
+     * chosen. Separate from /admin/test-channels because that one also fires
+     * an SMS and writes a calendar event — a button for "did the email switch
+     * work" should not cost a text message every time it is pressed.
+     *
+     * Owner or developer: it sends real mail, and the reply names the service,
+     * which is how you tell a working switch from a silent one.
+     */
+    if (p === "/admin/test-email" && request.method === "POST") {
+      const deny = needs("developer");
+      if (deny) return deny;
+      const via = await mailProvider(env);
+      if (!via) return bad("No email service is configured, so there is nothing to test.", 400);
+      const to = env.OWNER_EMAIL || env.MAIL_FROM;
+      const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+      const name = via === "twilio" ? "Twilio Email" : "Resend";
+      const res = await sendEmail(env, to,
+        BUSINESS.shortName + " — test email (" + name + ")",
+        `This is a test from your booking system, sent ${stamp}.\n\n`
+        + `It went out through ${name}. If you can read this, booking confirmations will reach customers the same way.\n\n`
+        + `If it never arrives, switch back to the other service in the dashboard — nothing else changes.`);
+      return json({ ok: !!(res && res.ok), via, to, reason: (res && res.reason) || "", skipped: !!(res && res.skipped) });
+    }
+
     if (p === "/admin/test-channels" && request.method === "POST") {
       const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
       const results = {};
@@ -6727,11 +6961,13 @@ async function processTyreStockForOrder(env, order) {
       results.customerAudience = await checkAudience(env.RESEND_CUSTOMER_AUDIENCE_ID, "Customer",
         "RESEND_CUSTOMER_AUDIENCE_ID not set — customers are kept in the dashboard only, nothing is synced");
 
-      results.email = env.RESEND_API_KEY && env.MAIL_FROM
-        ? await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
+      const mailVia = await mailProvider(env);
+      const mailViaName = mailVia === "twilio" ? "Twilio Email" : "Resend";
+      results.email = mailVia
+        ? { ...(await sendEmail(env, env.OWNER_EMAIL || env.MAIL_FROM,
             BUSINESS.shortName + " — test email",
-            `This is a test from your booking system, sent ${stamp}.\n\nIf you can read this, Resend is working and confirmations will reach customers.\nReply to this message to check the inbound forwarding on ${env.MAIL_FROM} as well.`)
-        : { skipped: true, reason: "RESEND_API_KEY or MAIL_FROM not set" };
+            `This is a test from your booking system, sent ${stamp}.\n\nIt went out through ${mailViaName}. If you can read this, confirmations will reach customers.\nReply to this message to check the inbound forwarding on ${env.MAIL_FROM} as well.`)), via: mailVia }
+        : { skipped: true, reason: "No email service is configured — set RESEND_API_KEY, or Twilio credentials, plus MAIL_FROM." };
 
       results.phone = env.OWNER_PHONE
         ? await sendSMS(env, env.OWNER_PHONE, `${BUSINESS.shortName}: test message sent ${stamp}. Your booking alerts are working.`, { essential: false })
@@ -6873,6 +7109,77 @@ async function processTyreStockForOrder(env, order) {
         canConnect: !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
         embedUrl: embedId ? `https://calendar.google.com/calendar/embed?src=${encodeURIComponent(embedId)}&ctz=Europe/London` : "",
       });
+    }
+
+    /*
+     * The diary itself, read back out of Google.
+     *
+     * The Calendar tab used to draw only our own job records, which meant the
+     * dashboard and the calendar Simon actually keeps could say different
+     * things: anything he added in Google — a day off, a private job, a
+     * rescheduled slot — was invisible here. And a Google embed iframe is not
+     * an answer, because it renders only for a browser already signed in to
+     * that exact Google account and is a tall white box for everyone else.
+     *
+     * So the events are fetched with the connection the site already holds and
+     * rendered by us. Read-only, and it fails soft: if Google is unreachable
+     * the tab still shows the jobs we know about rather than an error page.
+     */
+    if (p === "/admin/calendar/events" && request.method === "GET") {
+      if (!(await calendarReady(env))) return json({ connected: false, events: [] });
+      const tok = await googleToken(env);
+      if (!tok) return json({ connected: true, events: [], error: "Google would not renew the connection. Press Connect again." });
+      const calId = await gcalCalendarId(env);
+      if (!calId) return json({ connected: true, events: [], error: "No calendar is selected yet." });
+
+      // A window either side of now: enough history to see what just happened,
+      // and far enough ahead to plan. Clamped so a hand-edited URL cannot ask
+      // Google for ten years of events on every dashboard load.
+      const days = Math.max(1, Math.min(180, Number(url.searchParams.get("days")) || 62));
+      const back = Math.max(0, Math.min(90, Number(url.searchParams.get("back")) || 31));
+      const from = new Date(Date.now() - back * 86400000).toISOString();
+      const to = new Date(Date.now() + days * 86400000).toISOString();
+
+      const q = new URLSearchParams({
+        timeMin: from, timeMax: to,
+        singleEvents: "true",       // expand recurring events into real slots
+        orderBy: "startTime",
+        maxResults: "250",
+        timeZone: "Europe/London",
+      });
+      const r = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?` + q,
+        { headers: { authorization: "Bearer " + tok } }).catch(() => null);
+      if (!r || !r.ok) {
+        const detail = r ? await r.text().catch(() => "") : "network error";
+        console.error("[gcal] events list failed", r && r.status, String(detail).slice(0, 300));
+        return json({ connected: true, events: [], error: "Could not read the calendar from Google." });
+      }
+      const d = await r.json().catch(() => ({}));
+      const events = (d.items || [])
+        .filter(e => e.status !== "cancelled")
+        .map(e => {
+          // An all-day event carries `date`; a timed one carries `dateTime`.
+          const allDay = !!(e.start && e.start.date);
+          const startsAt = (e.start && (e.start.dateTime || e.start.date)) || "";
+          const endsAt = (e.end && (e.end.dateTime || e.end.date)) || "";
+          return {
+            id: e.id,
+            title: e.summary || "(no title)",
+            where: e.location || "",
+            allDay,
+            start: startsAt,
+            end: endsAt,
+            // The date key the dashboard groups by, in local terms rather than
+            // UTC — a 00:30 job must not land on the previous day.
+            day: allDay ? String(startsAt).slice(0, 10) : londonDayKey(startsAt),
+            link: e.htmlLink || "",
+            // Our own bookings write this line into the description; it is how
+            // the tab can tell a site booking from something Simon typed in.
+            ours: /Service Request Ref:/.test(e.description || ""),
+          };
+        });
+      return json({ connected: true, calendarId: calId, events, from, to });
     }
 
     /*
@@ -7076,6 +7383,21 @@ function londonHour() {
   }).format(new Date()));
 }
 
+/**
+ * Which London day a timestamp falls on, as YYYY-MM-DD.
+ *
+ * Not `.slice(0, 10)` on the ISO string: that is the UTC day, so a job at
+ * 00:30 on a British Summer Time morning would be filed under the day before
+ * and appear in the diary under the wrong heading.
+ */
+function londonDayKey(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso || "").slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+}
+
 /** Today's date in Europe/London as YYYY-MM-DD, offset by `addDays`. */
 function londonDate(addDays = 0) {
   const d = new Date(Date.now() + addDays * 86400000);
@@ -7260,7 +7582,9 @@ async function retentionSweep(env) {
 async function healthSweep(env) {
   const problems = [];
   if (!validEmail(env.MAIL_FROM)) problems.push("MAIL_FROM is not a valid email address — nothing can be sent at all.");
-  else if (!env.RESEND_API_KEY) problems.push("RESEND_API_KEY is missing — no email is going out.");
+  else if (!resendMailReady(env) && !twilioMailReady(env)) {
+    problems.push("No email service is configured — neither Resend nor Twilio can send, so nothing is going out.");
+  }
   if (!validEmail(env.OWNER_EMAIL)) problems.push("OWNER_EMAIL is not a valid address — new-job alerts are falling back to MAIL_FROM.");
   if (!(env.TWILIO_SID && env.TWILIO_TOKEN && env.TWILIO_FROM)) problems.push("Twilio is not configured — customers get no texts.");
   if (!(await calendarReady(env))) problems.push("Google Calendar is not connected — bookings are not checked against your diary.");
@@ -7296,7 +7620,7 @@ async function healthSweep(env) {
  */
 async function backupSweep(env) {
   const to = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
-  if (!to || !env.RESEND_API_KEY) return { skipped: true };
+  if (!to || !(await mailProvider(env))) return { skipped: true };
   const EXCLUDE = ["sess:", "asess:", "dsess:", "rl:", "reset:", "verify:", "dverify:", "admin_totp"];
   const data = {};
   let cursor;
@@ -7318,22 +7642,19 @@ async function backupSweep(env) {
 
   const stamp = new Date().toISOString().slice(0, 10);
   const body = JSON.stringify({ exportedAt: new Date().toISOString(), keys: Object.keys(data).length, data }, null, 2);
-  const r = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: "Bearer " + env.RESEND_API_KEY },
-    body: JSON.stringify({
-      from: BUSINESS.name + " <" + env.MAIL_FROM + ">",
-      to: [to],
-      subject: "Weekly backup — " + stamp + " (" + Object.keys(data).length + " records)",
-      text: "Attached is this week's copy of the booking system's data.\n\n"
-        + "Passwords and 2FA seeds are deliberately excluded. Keep it somewhere private —\n"
-        + "it contains customers' names, addresses and phone numbers.\n\n"
-        + "Records: " + Object.keys(data).length,
-      attachments: [{ filename: "cousins-backup-" + stamp + ".json", content: b64utf8(body) }],
-    }),
-  }).catch(() => null);
-  const ok = !!(r && r.ok);
-  if (!ok) await noteMailFailure(env, to, "weekly backup", { reason: r ? "Resend returned " + r.status : "network error" });
+  // Through sendEmail rather than straight at one provider's API: the backup
+  // is email like any other, and it used to be the one message that ignored
+  // which service the owner had chosen.
+  const res = await sendEmail(env, to,
+    "Weekly backup — " + stamp + " (" + Object.keys(data).length + " records)",
+    "Attached is this week's copy of the booking system's data.\n\n"
+      + "Passwords and 2FA seeds are deliberately excluded. Keep it somewhere private —\n"
+      + "it contains customers' names, addresses and phone numbers.\n\n"
+      + "Records: " + Object.keys(data).length,
+    null,
+    { attachments: [{ filename: "cousins-backup-" + stamp + ".json", contentType: "application/json", content: b64utf8(body) }] });
+  const ok = !!(res && res.ok);
+  if (!ok) await noteMailFailure(env, to, "weekly backup", { reason: (res && res.reason) || "the send did not go out" });
   await env.CMS_KV.put("backup_last_run", JSON.stringify({ t: Date.now(), ok, keys: Object.keys(data).length }));
   return { ok };
 }
