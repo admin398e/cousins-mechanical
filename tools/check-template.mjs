@@ -221,25 +221,31 @@ for (const file of files) {
   const loopVars = new Set([...markup.matchAll(/<sc-for[^>]*\bas=["']([^"']+)["']/g)].map(m => m[1]));
 
   /*
-   * `<sc-for each="{{ rows }}">` is the other loop form: it puts the ITEM'S OWN
-   * fields into scope unnamed, so {{ label }} inside one is a property of the
-   * row, not a binding renderVals() owes anybody. Those keys cannot be known
-   * statically, so anything used only inside such a block is exempt — and only
-   * there, so a missing top-level binding elsewhere is still caught.
+   * There is exactly ONE loop form the runtime understands.
+   *
+   * walkFor() in support.js reads `list` and `as` and nothing else. It never
+   * looks at `each`. So `<sc-for each="{{ rows }}">` compiles an empty list
+   * expression, gets undefined, and renders nothing at all — no error, no
+   * warning, just a hole in the page where the rows should be.
+   *
+   * This checker used to EXEMPT those blocks, on the belief that `each` was a
+   * second loop form that put the row's fields into scope unnamed. It is not.
+   * That exemption is how six dead lists reached production, including the
+   * whole of the Calendar tab, which drew its headings and then nothing.
+   *
+   * So the rule is now the opposite of an exemption: any sc-for without a
+   * `list` attribute is a failure, and the row fields inside a real one are
+   * reached through the `as` alias like every other binding.
    */
-  const itemScoped = new Set();
-  for (const open of [...markup.matchAll(/<sc-for\b(?![^>]*\bas=)[^>]*\beach=[^>]*>/g)]) {
-    let i = open.index + open[0].length;
-    let depth = 1;
-    while (i < markup.length && depth > 0) {
-      const next = markup.slice(i).search(/<\/?sc-for\b/);
-      if (next < 0) { i = markup.length; break; }
-      i += next;
-      if (markup.startsWith('</sc-for', i)) depth--; else depth++;
-      i += 7;
-    }
-    for (const m of markup.slice(open.index, i).matchAll(/\{\{\s*([A-Za-z_$][\w$]*)/g)) itemScoped.add(m[1]);
+  for (const open of markup.matchAll(/<sc-for\b[^>]*>/g)) {
+    if (/\blist=/.test(open[0])) continue;
+    const line = markup.slice(0, open.index).split('\n').length;
+    console.error(`${label}:${line}: ${open[0].slice(0, 70)} has no list= attribute.`);
+    console.error('  The runtime only reads list= and as=. This loop renders nothing, silently.');
+    console.error('  Use: <sc-for list="{{ rows }}" as="r"> ... {{ r.field }} ... </sc-for>');
+    failed++;
   }
+  const itemScoped = new Set();
 
   const top = returnedObjectOf(logic, 'renderVals');
   if (!top) {

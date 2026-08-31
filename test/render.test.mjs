@@ -67,6 +67,81 @@ for (const path of PAGES) {
   else console.log(`  PASS  ${path} renders with no errors`);
   await page.close();
 }
+/*
+ * The Calendar tab, driven the way a person drives it.
+ *
+ * It shipped drawing its month heading, its day names, and then nothing —
+ * because <sc-for each="..."> is not a loop the runtime understands. walkFor()
+ * in support.js reads `list` and `as` and never looks at `each`, so those
+ * blocks compiled an empty list and rendered a hole. No error, no warning.
+ *
+ * Nothing that only reads HTML can catch that, so this signs in, clicks
+ * through to the tab, and asserts there are actually day cells with numbers in
+ * them and that clicking one opens that day. Google is stubbed: the point is
+ * whether the grid renders, not whether Google is up.
+ */
+async function checkCalendar() {
+  const token = process.env.SMOKE_ADMIN_TOKEN;
+  if (!token) { console.log('  SKIP  the calendar grid (set SMOKE_ADMIN_TOKEN to run it)'); return 0; }
+  const login = await fetch(BASE + '/api/admin-login', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }),
+  });
+  const d = await login.json().catch(() => ({}));
+  if (!d.token) { console.log('  FAIL  the calendar grid — could not sign in'); return 1; }
+
+  const page = await browser.newPage();
+  const problems = [];
+  page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
+  await page.route('**://unpkg.com/**', async route => {
+    const url = route.request().url();
+    const hit = Object.keys(LOCAL).find(k => url.includes(k));
+    if (!hit) return route.abort();
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: readFileSync(LOCAL[hit], 'utf8') });
+  });
+
+  const day = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  await page.route('**/api/admin/calendar', r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ connected: true, account: 'test@example.com', calendarId: 'primary', embedUrl: '' }) }));
+  await page.route('**/api/admin/calendar/events*', r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ connected: true, events: [
+      { id: '1', title: 'Tyre fit — test', where: 'Bridport', allDay: false, start: day(0) + 'T09:30:00Z', end: day(0) + 'T10:30:00Z', day: day(0), ours: true },
+      { id: '2', title: 'Day off', where: '', allDay: true, start: day(3), end: day(4), day: day(3), ours: false },
+    ] }) }));
+
+  await page.addInitScript(t => { try { sessionStorage.setItem('cms_admin_sess', t); } catch (e) {} }, d.token);
+  await page.goto(BASE + '/admin', { waitUntil: 'networkidle', timeout: 45000 });
+  await page.waitForTimeout(1200);
+  const opened = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('button')].find(b => /^Calendar/.test(b.innerText.trim()));
+    if (!el) return false; el.click(); return true;
+  });
+  if (!opened) problems.push('there is no Calendar tab to click');
+  await page.waitForTimeout(1800);
+
+  const seen = await page.evaluate(() => {
+    const t = document.body.innerText || '';
+    const cells = [...document.querySelectorAll('button')].filter(b => /^\d{1,2}(\s|$)/.test(b.innerText.trim()));
+    const withCount = cells.filter(b => b.innerText.trim().split(/\s+/).length === 2);
+    if (withCount[0]) withCount[0].click();
+    return { month: /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}/.test(t),
+             cells: cells.length, withCount: withCount.length, agenda: /Tyre fit — test/.test(t) };
+  });
+  await page.waitForTimeout(700);
+  const detail = await page.evaluate(() => /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday) \d{1,2} [A-Z][a-z]+/.test(document.body.innerText || ''));
+
+  if (!seen.month) problems.push('no month heading — the grid did not render');
+  if (seen.cells < 28) problems.push(`only ${seen.cells} day cells in the month grid`);
+  if (!seen.withCount) problems.push('no day shows a count, so the events never reached the grid');
+  if (!seen.agenda) problems.push('the diary below the grid is empty though there are events');
+  if (!detail) problems.push('clicking a day did not open that day');
+
+  await page.close();
+  if (problems.length) { console.log('  FAIL  the calendar grid'); problems.forEach(p => console.log('          ' + p)); return 1; }
+  console.log(`  PASS  the calendar grid (${seen.cells} days, ${seen.withCount} with entries)`);
+  return 0;
+}
+failed += await checkCalendar();
+
 await browser.close();
 console.log(failed ? `\n  ${failed} page(s) with runtime errors` : '\n  every page runs clean');
 process.exit(failed ? 1 : 0);

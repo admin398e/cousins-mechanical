@@ -365,12 +365,12 @@
             </sc-if>
             <sc-if value="{{ hasMailProblem }}" hint-placeholder-val="{{ false }}">
               <div style="background:rgba(165,64,26,.18);border:1px solid #a5401a;color:#f0a884;border-radius:9px;padding:11px 14px;font-size:13.5px;margin-bottom:12px">{{ mailProblemHeadline }}</div>
-              <sc-for each="{{ mailFailRows }}">
+              <sc-for list="{{ mailFailRows }}" as="f">
                 <div style="display:flex;justify-content:space-between;gap:12px;font-size:12.5px;padding:6px 0;border-bottom:1px solid #241e1a;flex-wrap:wrap">
-                  <span style="color:#fff;font-weight:600">{{ to }}</span>
-                  <span style="color:#9a918a;flex:1;min-width:120px">{{ subject }}</span>
-                  <span style="color:#f0a884">{{ reason }}</span>
-                  <span style="color:#6f6862">{{ when }}</span>
+                  <span style="color:#fff;font-weight:600">{{ f.to }}</span>
+                  <span style="color:#9a918a;flex:1;min-width:120px">{{ f.subject }}</span>
+                  <span style="color:#f0a884">{{ f.reason }}</span>
+                  <span style="color:#6f6862">{{ f.when }}</span>
                 </div>
               </sc-for>
               <button onClick="{{ clearMailLog }}" style="margin-top:12px;background:transparent;border:1px solid #3a322d;color:#9a918a;font-weight:700;border-radius:9px;padding:9px 14px;cursor:pointer;font-size:13px">Clear the list</button>
@@ -1505,12 +1505,12 @@
                 <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">SAT</div>
                 <div style="text-align:center;font-size:11.5px;font-weight:800;color:#6f6862;letter-spacing:.06em">SUN</div>
               </div>
-              <sc-for each="{{ calWeeks }}">
+              <sc-for list="{{ calWeeks }}" as="w">
                 <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px">
-                  <sc-for each="{{ days }}">
-                    <button onClick="{{ pick }}" style="{{ cellStyle }}">
-                      <span style="{{ numStyle }}">{{ num }}</span>
-                      <span style="{{ countStyle }}">{{ count }}</span>
+                  <sc-for list="{{ w.days }}" as="d">
+                    <button onClick="{{ d.pick }}" style="{{ d.cellStyle }}">
+                      <span style="{{ d.numStyle }}">{{ d.num }}</span>
+                      <span style="{{ d.countStyle }}">{{ d.count }}</span>
                     </button>
                   </sc-for>
                 </div>
@@ -1520,14 +1520,14 @@
             <sc-if value="{{ calShowPick }}" hint-placeholder-val="{{ false }}">
               <div style="background:#1c1714;border:1px solid #3a322d;border-radius:14px;padding:16px 18px;margin-bottom:14px">
                 <div style="font-family:'Barlow Condensed';font-weight:800;font-size:18px;color:#fff;margin-bottom:10px">{{ calPickLabel }}</div>
-                <sc-for each="{{ calPickRows }}">
+                <sc-for list="{{ calPickRows }}" as="r">
                   <div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid #241d19">
-                    <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ time }}</div>
+                    <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ r.time }}</div>
                     <div style="flex:1;min-width:0">
-                      <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ title }}</div>
-                      <div style="color:#8a817b;font-size:12.5px">{{ sub }}</div>
+                      <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ r.title }}</div>
+                      <div style="color:#8a817b;font-size:12.5px">{{ r.sub }}</div>
                     </div>
-                    <span style="{{ badgeStyle }}">{{ statusLabel }}</span>
+                    <span style="{{ r.badgeStyle }}">{{ r.statusLabel }}</span>
                   </div>
                 </sc-for>
                 <sc-if value="{{ calPickNone }}" hint-placeholder-val="{{ false }}">
@@ -1541,20 +1541,20 @@
                  else it is a tall white box, which is what it was. This always
                  draws, works on a phone, and needs no Google session. -->
             <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;padding:4px 0">
-              <sc-for each="{{ calDays }}">
+              <sc-for list="{{ calDays }}" as="cd">
                 <div style="padding:13px 18px;border-bottom:1px solid #241d19">
                   <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
-                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:17px;color:#fff;letter-spacing:.02em">{{ label }}</div>
-                    <div style="color:#6f6862;font-size:12.5px">{{ count }}</div>
+                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:17px;color:#fff;letter-spacing:.02em">{{ cd.label }}</div>
+                    <div style="color:#6f6862;font-size:12.5px">{{ cd.count }}</div>
                   </div>
-                  <sc-for each="{{ jobs }}">
+                  <sc-for list="{{ cd.jobs }}" as="j">
                     <div style="display:flex;align-items:center;gap:12px;padding:7px 0">
-                      <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ time }}</div>
+                      <div style="font-size:12.5px;color:#f4a04a;min-width:78px;font-weight:700">{{ j.time }}</div>
                       <div style="flex:1;min-width:0">
-                        <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ title }}</div>
-                        <div style="color:#8a817b;font-size:12.5px">{{ sub }}</div>
+                        <div style="color:#e9e4df;font-size:14px;font-weight:600">{{ j.title }}</div>
+                        <div style="color:#8a817b;font-size:12.5px">{{ j.sub }}</div>
                       </div>
-                      <span style="{{ badgeStyle }}">{{ statusLabel }}</span>
+                      <span style="{{ j.badgeStyle }}">{{ j.statusLabel }}</span>
                     </div>
                   </sc-for>
                 </div>

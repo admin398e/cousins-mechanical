@@ -18,7 +18,8 @@
     "verify": "npm run check && npm run build && npm test",
     "predeploy": "npm run verify",
     "deploy": "wrangler deploy",
-    "smoke:prod": "node test/prod-smoke.mjs"
+    "smoke:prod": "node test/prod-smoke.mjs",
+    "smoke:render": "node test/render.test.mjs"
   },
   "dependencies": {
     "express": "^5.2.1"
