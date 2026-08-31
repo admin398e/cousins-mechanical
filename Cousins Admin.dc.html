@@ -1544,7 +1544,7 @@
               <sc-for list="{{ calDays }}" as="cd">
                 <div style="padding:13px 18px;border-bottom:1px solid #241d19">
                   <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
-                    <div style="font-family:'Barlow Condensed';font-weight:800;font-size:17px;color:#fff;letter-spacing:.02em">{{ cd.label }}</div>
+                    <div style="{{ cd.labelStyle }}">{{ cd.label }}</div>
                     <div style="color:#6f6862;font-size:12.5px">{{ cd.count }}</div>
                   </div>
                   <sc-for list="{{ cd.jobs }}" as="j">
@@ -3579,6 +3579,9 @@ class Component extends DCLogic {
         sub: [j.name, j.postcode].filter(Boolean).join(' · ') || '—',
         statusLabel: (statusMap[j.status] || ['—'])[0],
         badgeStyle: badge(j.status),
+        // An open job is one nobody has marked complete. It stays in the diary
+        // whatever its date says.
+        stillOpen: j.status !== 'complete' && j.status !== 'cancelled',
       }))
       .filter(j => !calOnGoogle.has(j.key + '|' + j.title));
 
@@ -3590,16 +3593,29 @@ class Component extends DCLogic {
     for (const list of calByDay.values()) list.sort((a,b) => String(a.sortAt).localeCompare(String(b.sortAt)));
 
     // The agenda: today forward, so the tab opens on what is coming.
+    /*
+     * Today forward — plus anything still open behind us.
+     *
+     * A job nobody has marked complete does not stop mattering because its
+     * date has passed; it matters more. Cutting the list at today meant an
+     * overdue booking vanished from the diary entirely, which reads as "the
+     * booking is gone" rather than "the booking is late".
+     */
     const calDays = [...calByDay.entries()]
-      .filter(([key]) => key >= calTodayKey)
+      .filter(([key, rows]) => key >= calTodayKey || rows.some(r => r.stillOpen))
       .sort((a,b) => a[0] < b[0] ? -1 : 1)
       .slice(0, 60)
       .map(([key, rows]) => {
         const d = new Date(key + 'T12:00:00');
+        const overdue = key < calTodayKey;
         return {
-          label: (key === calTodayKey ? 'Today · ' : '') + d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }),
+          label: (key === calTodayKey ? 'Today · ' : overdue ? 'Still open · ' : '')
+            + d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }),
+          labelStyle: "font-family:'Barlow Condensed';font-weight:800;font-size:17px;letter-spacing:.02em;color:"
+            + (overdue ? '#f0a884' : '#fff'),
           count: rows.length + (rows.length === 1 ? ' entry' : ' entries'),
-          jobs: rows,
+          // On a past day, only the ones actually still open.
+          jobs: overdue ? rows.filter(r => r.stillOpen) : rows,
         };
       });
 

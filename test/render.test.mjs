@@ -126,6 +126,11 @@ async function checkCalendar() {
   await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
 
   const day = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  // An open job dated in the past. The diary used to cut at today, so this is
+  // exactly the booking that existed and could not be seen anywhere.
+  await page.route('**/api/admin/jobs', r => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ jobs: [{ ref: 'CMS-OVERDUE', status: 'confirmed', date: day(-6), time: '11:00',
+      svcLabel: 'Overdue test job', reg: 'AB12 CDE', name: 'Test Customer', postcode: 'DT6' }] }) }));
   await page.route('**/api/admin/calendar', r => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ connected: true, account: 'test@example.com', calendarId: 'primary', embedUrl: '' }) }));
   await page.route('**/api/admin/calendar/events*', r => r.fulfill({ status: 200, contentType: 'application/json',
@@ -144,6 +149,11 @@ async function checkCalendar() {
   if (!opened) problems.push('there is no Calendar tab to click');
   await page.waitForTimeout(1800);
 
+  // Read the page BEFORE clicking anything. Clicking a day opens a detail
+  // panel that also lists the job, so checking afterwards let a regression
+  // pass on the strength of the panel alone.
+  const beforeClick = await page.evaluate(() => document.body.innerText || '');
+
   const seen = await page.evaluate(() => {
     const t = document.body.innerText || '';
     const cells = [...document.querySelectorAll('button')].filter(b => /^\d{1,2}(\s|$)/.test(b.innerText.trim()));
@@ -160,6 +170,9 @@ async function checkCalendar() {
   if (!seen.withCount) problems.push('no day shows a count, so the events never reached the grid');
   if (!seen.agenda) problems.push('the diary below the grid is empty though there are events');
   if (!detail) problems.push('clicking a day did not open that day');
+
+  if (!/Overdue test job/.test(beforeClick)) problems.push('an open job dated in the past is not in the diary — a booking that exists and cannot be seen');
+  if (!/Still open/.test(beforeClick)) problems.push('the overdue job is listed but not marked as still open');
 
   await page.close();
   if (problems.length) { console.log('  FAIL  the calendar grid'); problems.forEach(p => console.log('          ' + p)); return 1; }
