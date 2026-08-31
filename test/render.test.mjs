@@ -11,7 +11,26 @@ import { readFileSync } from 'node:fs';
 const BASE = process.argv[2] || 'http://127.0.0.1:3799';
 const PAGES = process.argv[3] ? process.argv[3].split(',') : ['/', '/admin', '/driver', '/terms'];
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox'] });
+/*
+ * Whatever Chromium this machine has. The sandbox ships one at a fixed path;
+ * a Mac has Google Chrome. Pinning the sandbox path meant this could only ever
+ * run in one place, and the one place it most needs to run is against the
+ * live site — which the sandbox cannot reach.
+ */
+const browser = await (async () => {
+  const tries = [
+    { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] },
+    { executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox'] },
+    { channel: 'chrome' },
+    {},
+  ].filter(o => o.executablePath !== undefined || !('executablePath' in o));
+  let last;
+  for (const opts of tries) {
+    if ('executablePath' in opts && !opts.executablePath) continue;
+    try { return await chromium.launch(opts); } catch (e) { last = e; }
+  }
+  throw last;
+})();
 let failed = 0;
 
 /*
@@ -20,6 +39,23 @@ let failed = 0;
  * ships — no test-only build, no divergence between what is checked and what
  * customers get — while making the check work without the open internet.
  */
+/*
+ * Serve React and Babel from node_modules when they are there, and otherwise
+ * let the request go to unpkg. The sandbox has the packages but no internet;
+ * a laptop running this against the live site has the internet but not the
+ * packages. Insisting on one or the other meant the check only ran in one
+ * place — and the place it matters most is against production.
+ */
+function serveLocallyOrLetItThrough(route) {
+  const url = route.request().url();
+  const hit = Object.keys(LOCAL).find(k => url.includes(k));
+  if (hit) {
+    try { return route.fulfill({ status: 200, contentType: 'text/javascript', body: readFileSync(LOCAL[hit], 'utf8') }); }
+    catch (e) { /* not installed here — fall through to the real CDN */ }
+  }
+  return route.continue();
+}
+
 const LOCAL = {
   'react@18.3.1/umd/react.production.min.js': 'node_modules/react/umd/react.production.min.js',
   'react-dom@18.3.1/umd/react-dom.production.min.js': 'node_modules/react-dom/umd/react-dom.production.min.js',
@@ -28,12 +64,7 @@ const LOCAL = {
 
 for (const path of PAGES) {
   const page = await browser.newPage();
-  await page.route('**://unpkg.com/**', async route => {
-    const url = route.request().url();
-    const hit = Object.keys(LOCAL).find(k => url.includes(k));
-    if (!hit) return route.abort();
-    route.fulfill({ status: 200, contentType: 'text/javascript', body: readFileSync(LOCAL[hit], 'utf8') });
-  });
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text().slice(0, 300)); });
   page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 300)));
@@ -92,12 +123,7 @@ async function checkCalendar() {
   const page = await browser.newPage();
   const problems = [];
   page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
-  await page.route('**://unpkg.com/**', async route => {
-    const url = route.request().url();
-    const hit = Object.keys(LOCAL).find(k => url.includes(k));
-    if (!hit) return route.abort();
-    route.fulfill({ status: 200, contentType: 'text/javascript', body: readFileSync(LOCAL[hit], 'utf8') });
-  });
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
 
   const day = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
   await page.route('**/api/admin/calendar', r => r.fulfill({ status: 200, contentType: 'application/json',
