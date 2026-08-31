@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { capSizeInversions } from '../tyre-data.js';
+import { BUSINESS } from '../business.js';
 import { qrMatrix, qrSvgDataUri } from '../worker.js';
 
 const PORT = 3799;
@@ -3244,6 +3245,47 @@ try {
       assert.equal(left.length, 0, `${page} still has placeholders: ${left.join(', ')}`);
       assert.ok(!/DRAFT/.test(html), `${page} still carries a DRAFT warning`);
     }
+  });
+
+  await check('the business details Google reads are complete and parse', async () => {
+    /*
+     * Structured data is how a local business gets a map pack listing and a
+     * knowledge panel rather than ten blue links. One malformed block and
+     * Google discards the lot silently — there is no error anywhere — so the
+     * blocks are parsed here, and the fields a local listing is actually built
+     * from are checked against business.js rather than trusted.
+     */
+    const html = await (await api('/')).text();
+    const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m => m[1]);
+    assert.ok(blocks.length >= 3, `only ${blocks.length} structured-data blocks on the home page`);
+    const parsed = blocks.map((b, i) => {
+      try { return JSON.parse(b); }
+      catch (e) { throw new Error(`structured-data block ${i + 1} is not valid JSON: ${e.message}`); }
+    });
+
+    const biz = parsed.find(b => b['@type'] === 'AutoRepair');
+    assert.ok(biz, 'no local-business block — this is what the map pack is built from');
+    for (const field of ['name', 'telephone', 'address', 'geo', 'areaServed', 'openingHoursSpecification', 'url', 'image', 'logo', 'email']) {
+      assert.ok(biz[field], `the business block has no ${field}`);
+    }
+    assert.equal(biz.telephone, BUSINESS.phoneHref, 'the schema phone number disagrees with business.js');
+    assert.equal(biz.email, BUSINESS.email, 'the schema email disagrees with business.js');
+    assert.ok(String(biz.logo).startsWith('https://'),
+      'the logo must be an absolute URL — Google fetches it from the open web');
+
+    // Both numbers the site prints. A local listing is matched on name,
+    // address and phone, so a number shown to customers but missing from the
+    // markup is a number Google cannot match against the Business Profile.
+    const phones = (biz.contactPoint || []).map(c => c.telephone);
+    assert.ok(phones.includes(BUSINESS.phoneHref) && phones.includes(BUSINESS.landlineHref),
+      `the schema lists ${phones.join(', ')} but the site prints two numbers`);
+
+    // Every area named in the schema should be somewhere a reader can see, or
+    // it is a claim made only to a crawler.
+    const visible = html.replace(/<script[\s\S]*?<\/script>/g, '');
+    const towns = biz.areaServed.filter(a => a['@type'] === 'City').map(a => a.name);
+    const unseen = towns.filter(t => !visible.includes(t));
+    assert.deepEqual(unseen, [], `these towns are claimed to Google but appear nowhere on the page: ${unseen.join(', ')}`);
   });
 
   await check('no public page ships a link a crawler would resolve to a fake URL', async () => {

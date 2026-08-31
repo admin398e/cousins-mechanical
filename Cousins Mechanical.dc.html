@@ -78,6 +78,13 @@
   @media(max-width:560px){.cms-quick{grid-template-columns:1fr!important}.cms-grid2{grid-template-columns:1fr!important}.cms-grid3{grid-template-columns:1fr!important}}
   input:focus,select:focus,textarea:focus{outline:none;border-color:#e8791a!important;box-shadow:0 0 0 3px rgba(232,121,26,.18)}
 </style>
+<!--
+  What Google reads to understand the business: who it is, where it works, what
+  it does and when. "sameAs" is still empty — that array is how a website is
+  tied to a Google Business Profile and to social pages, so the Business
+  Profile share link belongs in it. Nothing has been guessed: an invented URL
+  in sameAs is worse than an empty one.
+-->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -124,6 +131,12 @@
       { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "Brakes, clutches & diagnostics", "description": "Brake and clutch replacement plus fault-code diagnostics on your driveway.", "areaServed": "West Dorset" } }
     ]
   },
+  "logo": "https://cousinsmechanicalservices.co.uk/images/logo.png",
+  "email": "help@cousinsmechanicalservices.co.uk",
+  "contactPoint": [
+    { "@type": "ContactPoint", "telephone": "+447925340977", "contactType": "customer service", "areaServed": "GB", "availableLanguage": "English" },
+    { "@type": "ContactPoint", "telephone": "+441308538046", "contactType": "customer service", "areaServed": "GB", "availableLanguage": "English" }
+  ],
   "sameAs": []
 }
 </script>
