@@ -2143,10 +2143,6 @@ class Component extends DCLogic {
 
     const orderCards = s.orders.map(o=>{
       const st = statusMap[o.status] || ['CONFIRMED','#e8791a'];
-      // Built once and used twice: the link the customer taps, and the URL the
-      // handler opens. Two copies of this string is how they drift apart.
-      const waConfirmUrl = 'https://wa.me/447925340977?text=' + encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.');
-
       return { ...o, statusLabel:st[0],
         badgeStyle:'font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.06em;color:#fff;background:'+st[1]+';border-radius:6px;padding:4px 10px',
         sub: this.fmtDate(o.date)+' · '+(o.time||'time TBC'),
@@ -2166,6 +2162,10 @@ class Component extends DCLogic {
     const confirmSummary2 = this.fmtDate(s.book.date)+' · '+(s.book.time||'time TBC')+' · '+this.fmtPostcode(s.book.postcode);
 
     const sizeReady = !!(s.szWidth && s.szProfile && s.szRim);
+
+    // Built once and used twice: the link the customer taps, and the URL
+    // the handler opens. Two copies of this string is how they drift apart.
+    const waConfirmUrl = 'https://wa.me/447925340977?text=' + encodeURIComponent('Hi Cousins, confirming my booking '+(s.lastRef||'')+' — '+(s.book.svcLabel||'mobile job')+' for '+(s.book.reg||'')+' on '+this.fmtDate(s.book.date)+' '+(s.book.time||'')+' at '+(s.book.postcode||'my location')+'.');
 
     return {
       quickItems:[ ['images/qs-tyre-round.png','Tyre Fitting','Any size, on your drive'],['images/qs-breakdown-round.png','Breakdown','24hr roadside help'],['images/qs-servicing-round.png','Servicing','Oil, filters, checks'],['images/qs-recovery-round.png','Recovery','We tow it in'] ].map(q=>({title:q[1],sub:q[2],iconEl:R('img',{src:q[0],alt:q[1],style:{width:'100%',height:'100%',objectFit:'cover',display:'block'}})})),
