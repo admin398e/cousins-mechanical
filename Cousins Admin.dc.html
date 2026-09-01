@@ -257,7 +257,14 @@
                 <sc-for list="{{ jobRows }}" as="j" hint-placeholder-count="4">
                   <tr>
                     <td class="adm-td" style="font-weight:700;color:#f4a04a">{{ j.ref }}</td>
-                    <td class="adm-td">{{ j.svcLabel }}</td>
+                    <td class="adm-td">{{ j.svcLabel }}
+                      <!-- What the customer actually wrote. It reached the
+                           confirmation email, the calendar entry and the .ics,
+                           and never this table — which is the one screen the
+                           job is worked from. On a "Something else" booking it
+                           is the only thing saying what the job is. -->
+                      <div style="{{ j.noteStyle }}">{{ j.note }}</div>
+                    </td>
                     <td class="adm-td" style="font-family:'Barlow Condensed';font-weight:700;letter-spacing:.04em">{{ j.reg }}</td>
                     <td class="adm-td"><div style="font-weight:600;color:#fff">{{ j.name }}</div><div style="color:#8a817b;font-size:12px">{{ j.phone }}</div><div style="color:#6f6862;font-size:11px">{{ j.postcode }}</div></td>
                     <td class="adm-td">{{ j.when }}</td>
@@ -3391,6 +3398,10 @@ class Component extends DCLogic {
 
     const activeJobs=s.jobs.filter(j=>j.status!=='cancelled'&&j.status!=='complete');
     const jobRows=s.jobs.map(j=>({ ...j, when:this.fmtWhen(j), statusLabel:(statusMap[j.status]||['—'])[0], badgeStyle:badge(j.status),
+      note: (j.notes || '').trim(),
+      noteStyle: (j.notes || '').trim()
+        ? 'color:#f0a884;font-size:12px;line-height:1.45;margin-top:4px;max-width:260px;white-space:normal'
+        : 'display:none',
       onStatus:(e)=>this.changeStatus(j, e.target.value),
       toggleGps:()=>this.toggleGps(j),
       gpsLabel: s.gpsRef===j.ref?'● Sharing':'Share',

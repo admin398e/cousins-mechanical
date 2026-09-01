@@ -658,6 +658,17 @@
                 </button>
               </sc-for>
             </div>
+
+            <!-- Only for "Something else": the box that says what the job is.
+                 It writes to the same notes field as step 3, so whatever is
+                 typed here is already in the box further on. -->
+            <sc-if value="{{ needOtherNote }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px">
+                <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">What do you need doing?</label>
+                <textarea value="{{ book.notes }}" onInput="{{ setBookNotes }}" rows="3" placeholder="e.g. exhaust blowing, handbrake won't hold, needs a tow to the garage…" style="{{ otherNoteStyle }}"></textarea>
+                <div style="{{ otherNoteHintStyle }}">{{ otherNoteHint }}</div>
+              </div>
+            </sc-if>
           </div>
         </sc-if>
 
@@ -1117,6 +1128,7 @@ class Component extends DCLogic {
     slots: [], slotsLoading: false, slotCalendar: false,
     cookieBanner: false,
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
+    otherNoteErr:'',
     locHint: 'We use this to route the van straight to you.',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
     messages: [], msgInput:'', msgBusy:false,
@@ -1458,7 +1470,27 @@ class Component extends DCLogic {
   openBook = () => (this.loadServicePricing(), this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}})));
   closeBook = () => this.setState({bookOpen:false});
   stop = (e) => e.stopPropagation();
-  pickService(id, label, icon){ this.setState(s=>({ book:{...s.book, service:id, svcLabel:label}, bookStep:2 })); }
+  /*
+   * "Something else" is the one choice that tells us nothing.
+   *
+   * Every other option names the job. This one arrives at the van as
+   * "Something else" with a registration and a postcode, and Simon has to ring
+   * the customer to find out what he is driving to. There IS a notes box, but
+   * it is two screens further on, optional, and headed "Anything we should
+   * know?" — which nobody reads as "this is the only thing telling him what
+   * the job is".
+   *
+   * So picking it stays on this step and asks, rather than moving on and
+   * hoping. Same `notes` field, so it still reaches the job, the confirmation
+   * email, the calendar entry and the .ics with no new plumbing.
+   */
+  pickService(id, label, icon){
+    this.setState(s=>({
+      book:{ ...s.book, service:id, svcLabel:label },
+      bookStep: id === 'other' ? 1 : 2,
+      otherNoteErr: '',
+    }));
+  }
   setBookReg = e => this.setState(s=>({book:{...s.book,reg:e.target.value.toUpperCase()}}));
   // Clear lat/lng when the postcode is typed by hand. applyOrderLocation
   // prefers coordinates over the postcode, so pressing "use my location" and
@@ -1496,7 +1528,7 @@ class Component extends DCLogic {
   // fact that they booked. That tick is the only thing that puts them on the
   // mailing list.
   toggleBookMarketing = e => { const v=!!e.target.checked; this.setState(s=>({book:{...s.book,marketing:v}})); };
-  setBookNotes = e => this.setState(s=>({book:{...s.book,notes:e.target.value}}));
+  setBookNotes = e => { const v = e.target.value; this.setState(s=>({ book:{...s.book, notes:v}, otherNoteErr: v.trim().length >= 10 ? '' : s.otherNoteErr })); };
   toggleCalendar = e => this.setState(s=>({book:{...s.book,calendar:e.target.checked}}));
 
   useMyLocation = () => {
@@ -1529,7 +1561,16 @@ class Component extends DCLogic {
   bookBack = () => this.setState(s=>({bookStep:Math.max(1,s.bookStep-1)}));
   bookNext = () => {
     const { bookStep, book } = this.state;
-    if(bookStep===1){ if(!book.service){ return; } this.setState({bookStep:2}); return; }
+    if(bookStep===1){
+      if(!book.service){ return; }
+      // Enough to know what to bring. A blank box, or "car", is not a job.
+      if(book.service === 'other' && String(book.notes||'').trim().length < 10){
+        this.setState({ otherNoteErr: 'Please tell us what you need — a sentence is plenty. It is the only thing telling us what the job is.' });
+        return;
+      }
+      this.setState({ bookStep:2, otherNoteErr:'' });
+      return;
+    }
     if(bookStep===2){ if(!book.reg||!book.date||!book.time){ alert('Please add your reg, date and time.'); return; } this.setState({bookStep:3}); return; }
     if(bookStep===3){
       if(!book.name||!book.phone){ alert('Please add your name and mobile number.'); return; }
@@ -2184,6 +2225,15 @@ class Component extends DCLogic {
       // booking
       bookOpen:s.bookOpen, closeBook:this.closeBook, openBook:this.openBook, stop:this.stop,
       bookInProgress: !s.bookDone, bookDone:s.bookDone, bookTitle,
+      // The extra box on step 1, and what it says under it. The hint doubles as
+      // the error, because a message that appears in a different place from the
+      // thing it is about is a message people miss.
+      needOtherNote: s.bookStep===1 && !s.bookDone && s.book.service==='other',
+      otherNoteStyle: 'width:100%;border:1.5px solid ' + (s.otherNoteErr ? '#c2410c' : '#ddd4cb')
+        + ';border-radius:10px;padding:12px 14px;font-size:16px;font-family:inherit;resize:vertical',
+      otherNoteHint: s.otherNoteErr
+        || 'A sentence is plenty — it tells us what to bring, and it is what Simon reads before setting off.',
+      otherNoteHintStyle: 'font-size:12.5px;margin-top:6px;line-height:1.45;color:' + (s.otherNoteErr ? '#c2410c' : '#8a817b'),
       step1:s.bookStep===1&&!s.bookDone, step2:s.bookStep===2&&!s.bookDone, step3:s.bookStep===3&&!s.bookDone,
       stepBars:bars, serviceChoices, book:s.book, locHint:s.locHint,
       setBookReg:this.setBookReg, setBookPostcode:this.setBookPostcode, setBookDate:this.setBookDate, setBookTime:this.setBookTime,

@@ -433,6 +433,21 @@ try {
 
     const list = await (await api('/api/bookings', { headers: { authorization: 'Bearer ' + customerToken } })).json();
     assert.ok((list.bookings || []).length > 0, 'booking did not persist');
+
+    /*
+     * And what the customer wrote about the job survives with it.
+     *
+     * "Something else" is the one service choice that names nothing — the
+     * booking arrives as "Something else" with a registration and a postcode,
+     * and the note is the only thing saying what the work is. It reached the
+     * confirmation email, the calendar entry and the .ics, but not the Jobs
+     * table, which is the screen the work is done from. The note is now shown
+     * there, so it has to survive the round trip to be worth showing.
+     */
+    const mine = (list.bookings || []).find(b => b.reg === 'AB12CDE');
+    assert.ok(mine, 'the booking just made is not in the customer\'s own list');
+    assert.equal(mine.notes, 'smoke test booking',
+      'what the customer wrote about the job did not survive onto the record');
   });
 
   await check('bookings require a signed-in customer', async () => {

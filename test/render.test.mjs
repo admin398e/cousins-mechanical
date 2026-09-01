@@ -179,7 +179,83 @@ async function checkCalendar() {
   console.log(`  PASS  the calendar grid (${seen.cells} days, ${seen.withCount} with entries)`);
   return 0;
 }
-failed += await checkCalendar();
+/*
+ * Booking "Something else".
+ *
+ * Every other choice names the job. This one used to move straight on, and
+ * arrived at the van as "Something else" with a registration and a postcode —
+ * Simon ringing the customer to find out what he was driving to. The notes box
+ * existed, but two screens later, optional, headed "Anything we should know?".
+ *
+ * So it now asks on the spot, and will not move on without an answer. Driven
+ * here the way a customer drives it, because none of this is visible to a test
+ * that only reads HTML.
+ */
+async function checkOtherBooking() {
+  const page = await browser.newPage();
+  const problems = [];
+  page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await page.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 45000 });
+  await page.waitForTimeout(1200);
+
+  const click = async re => {
+    await page.evaluate(r => {
+      const b = [...document.querySelectorAll('button')].find(x => new RegExp(r).test(x.innerText));
+      if (b) b.click();
+    }, re);
+    await page.waitForTimeout(650);
+  };
+  const text = () => page.evaluate(() => document.body.innerText || '');
+
+  await click('Book a job online');
+  if (!/What do you need/.test(await text())) problems.push('the booking form did not open');
+
+  // A named service still goes straight on — the change must not slow the
+  // common path down.
+  await click('Tyre fitting');
+  if (!/Vehicle registration/.test(await text())) problems.push('picking a named service no longer moves to the next step');
+  await click('^Back$');
+
+  await click('Something else');
+  let t = await text();
+  if (!/What do you need/.test(t)) problems.push('"Something else" skipped past the question instead of asking it');
+  if (!/What do you need doing\?/.test(t)) problems.push('no box appeared asking what the job is');
+
+  // Empty, then nonsense: neither is a job.
+  await click('Continue');
+  t = await text();
+  if (/Vehicle registration/.test(t)) problems.push('it moved on with no description of the job at all');
+  if (!/only thing telling us what the job is/.test(t)) problems.push('it refused without saying why');
+
+  // A missing box must be a reported failure, not a thrown timeout: the first
+  // run of this check aborted the whole file and skipped the calendar after it.
+  try {
+    await page.fill('textarea', 'Exhaust is blowing and the handbrake will not hold on a hill.', { timeout: 4000 });
+    await page.waitForTimeout(400);
+    if (/only thing telling us/.test(await text())) problems.push('the warning stayed up after the box was filled in');
+    await click('Continue');
+    if (!/Vehicle registration/.test(await text())) problems.push('it would not continue with the job described');
+  } catch (e) {
+    problems.push('could not type a description: ' + String(e.message).split('\n')[0]);
+  }
+
+  await page.close();
+  if (problems.length) { console.log('  FAIL  booking "Something else"'); problems.forEach(p => console.log('          ' + p)); return 1; }
+  console.log('  PASS  booking "Something else" asks what the job is, and insists');
+  return 0;
+}
+failed += await checkOtherBooking().catch(e => {
+  console.log('  FAIL  booking "Something else"');
+  console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
+  return 1;
+});
+
+failed += await checkCalendar().catch(e => {
+  console.log('  FAIL  the calendar grid');
+  console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
+  return 1;
+});
 
 await browser.close();
 console.log(failed ? `\n  ${failed} page(s) with runtime errors` : '\n  every page runs clean');
