@@ -99,6 +99,9 @@ function skipToken(src, i, prevSignificant) {
 function objectLiteral(src, open) {
   const keys = new Set();
   const spreads = [];
+  // `foo: this.bar` — the value is a bare method reference, which is the shape
+  // that loses its `this` (see the handler check below).
+  const methodRefs = new Set();
   let i = open + 1;
   let depth = 1;
   // Text of the current top-level segment, so a key can be read off the front.
@@ -109,7 +112,12 @@ function objectLiteral(src, open) {
     if (!s) return;
     if (s.startsWith('...')) { spreads.push(s.slice(3).trim()); return; }
     const kv = s.match(/^([A-Za-z_$][\w$]*)\s*:/);
-    if (kv) { keys.add(kv[1]); return; }
+    if (kv) {
+      keys.add(kv[1]);
+      const bare = s.match(/^[A-Za-z_$][\w$]*\s*:\s*this\.([A-Za-z_$][\w$]*)\s*$/);
+      if (bare) methodRefs.add(bare[1]);
+      return;
+    }
     const short = s.match(/^([A-Za-z_$][\w$]*)$/);
     if (short) keys.add(short[1]);
     // A quoted key: 'name': value
@@ -136,7 +144,7 @@ function objectLiteral(src, open) {
     }
     if (c === '}' || c === ']' || c === ')') {
       depth--;
-      if (depth === 0) { flush(); return { keys, spreads, end: i }; }
+      if (depth === 0) { flush(); return { keys, spreads, methodRefs, end: i }; }
       if (depth === 1) seg += c;
       i++; continue;
     }
@@ -144,7 +152,7 @@ function objectLiteral(src, open) {
     if (depth === 1) seg += c;
     i++;
   }
-  return { keys, spreads, end: src.length };
+  return { keys, spreads, methodRefs, end: src.length };
 }
 
 /**
@@ -285,6 +293,35 @@ for (const file of files) {
     console.error('  before the runtime sees them, so they render as a blank image, always.');
     console.error('  Use a bound style with background-image instead.');
     for (const m of fetched) console.error(`  ${m[1]}="{{${m[3]}}}"`);
+    failed++;
+  }
+
+  /*
+   * A handler handed over as `onClick: this.doThing` must carry its own `this`.
+   *
+   * Written as a class METHOD — `doThing(){...}` or `async doThing(){...}` —
+   * the reference arrives at the button detached from the instance, and the
+   * first `this.setState` inside it throws "Cannot read properties of undefined
+   * (reading 'state')". The button looks right, does nothing visible, and the
+   * only trace is one line in a console nobody has open. Written as a class
+   * FIELD — `doThing = () => {...}` — it is bound for life.
+   *
+   * Every working handler in these files is already a field. This makes the
+   * next one that is not a build failure rather than a bug report.
+   */
+  const detached = [];
+  for (const name of top.methodRefs || []) {
+    // A field wins wherever both could match: `name = ...` is unambiguous.
+    if (new RegExp('(?:^|[;{}\\n])\\s*' + name + '\\s*=', 'm').test(logic)) continue;
+    if (new RegExp('(?:^|[;{}\\n])\\s*(?:async\\s+)?' + name + '\\s*\\([^)]*\\)\\s*\\{', 'm').test(logic)) {
+      detached.push(name);
+    }
+  }
+  if (detached.length) {
+    console.error(`${label}: ${detached.length} handler(s) passed to the view as a plain class method.`);
+    console.error('  These reach the button with no `this`, so the first setState inside them throws');
+    console.error('  and the click does nothing. Declare them as arrow fields instead:');
+    for (const n of detached) console.error(`  ${n}(){ ... }   ->   ${n} = () => { ... }`);
     failed++;
   }
 

@@ -150,7 +150,9 @@ function corsFor(request, env) {
   const allowed = [...ALLOWED_ORIGINS, ...extra];
   const headers = {
     "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "content-type,authorization",
+    // x-track-token: the guest tracker's key to one booking. Omitted here it
+    // never survives the preflight, and the tracker silently stays locked.
+    "Access-Control-Allow-Headers": "content-type,authorization,x-track-token",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
@@ -1072,6 +1074,183 @@ async function sessionUser(request, env) {
   const raw = await env.CMS_KV.get("user:" + email);
   return raw ? JSON.parse(raw) : null;
 }
+/* =========================================================================
+ * TRACKING ACCESS — who is allowed to watch a job move
+ *
+ * Nearly every booking is a guest booking: no account, no password, and the
+ * only proof of ownership the customer holds is a five-character reference and
+ * the phone in their pocket. The tracker was written for the other case. It
+ * required a session, so `#track=CMS-XXXXX` from a confirmation email opened a
+ * panel that said "No active job" — the customer had done nothing wrong and
+ * there was no way forward from that screen.
+ *
+ * Two doors, both of which prove the same thing:
+ *
+ *   1. Signed in with the address the booking was made under. Nothing to type.
+ *   2. The reference plus a six-digit code texted to the number ON THE BOOKING.
+ *      Not a number the caller supplies — that would let anyone redirect the
+ *      code to themselves. Knowing the reference is not enough on its own.
+ *
+ * The second door mints a token scoped to ONE reference. It is not a login: it
+ * cannot list other bookings, cannot amend or cancel, and it expires.
+ * ========================================================================= */
+
+const TRACK_CODE_TTL = 10 * 60;        // a code is good for ten minutes
+const TRACK_TOKEN_TTL = 12 * 3600;     // an unlocked tracker lasts the day
+const TRACK_MAX_TRIES = 5;             // then the code is burned, not just wrong
+
+async function sha256Hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Masked so it identifies without disclosing. "joshua@gmail.com" reads back as
+ * "jo•••@gmail.com": enough for the person who owns it to recognise it and pick
+ * the right account, not enough to be worth harvesting.
+ */
+function maskEmail(email) {
+  const s = String(email || "");
+  const at = s.indexOf("@");
+  if (at < 1) return "";
+  const user = s.slice(0, at), domain = s.slice(at + 1);
+  const head = user.slice(0, Math.min(2, user.length));
+  return head + "•••@" + domain;
+}
+function maskPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length < 4) return "";
+  return "•••••• " + digits.slice(-4);
+}
+
+/** Find a booking by reference across every customer's list. */
+async function bookingByRef(env, wanted) {
+  const list = await env.CMS_KV.list({ prefix: "bookings:" });
+  for (const k of list.keys) {
+    const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
+    const found = arr.find(o => o.ref === wanted);
+    if (found) return { job: found, owner: k.name.slice("bookings:".length) };
+  }
+  return null;
+}
+
+/**
+ * The job as the customer may see it. Everything the tracker needs to draw
+ * itself, and nothing about what the work cost us, who supplied the tyres, or
+ * what the office wrote on the job internally.
+ */
+function customerJobView(o) {
+  return {
+    ref: o.ref, svcLabel: o.svcLabel, service: o.service, reg: o.reg,
+    postcode: o.postcode, date: o.date, time: o.time, status: o.status,
+    name: o.name, notes: o.notes, createdAt: o.createdAt,
+    lat: o.lat ?? null, lng: o.lng ?? null,
+    updates: customerUpdates(o.updates),
+  };
+}
+
+/**
+ * Is this request allowed to see this booking?
+ *
+ * A session whose email owns the booking, or a track token minted for this
+ * exact reference. A token for CMS-AAAAA is worthless against CMS-BBBBB.
+ */
+async function trackAuth(request, env, wanted) {
+  const u = await sessionUser(request, env);
+  if (u) {
+    const arr = JSON.parse((await env.CMS_KV.get("bookings:" + u.email)) || "[]");
+    const job = arr.find(o => o.ref === wanted);
+    if (job) return { ok: true, via: "session", job, owner: u.email };
+  }
+  const tok = (request.headers.get("x-track-token") || "").trim();
+  if (tok) {
+    const forRef = await env.CMS_KV.get("tracktok:" + tok);
+    if (forRef === wanted) {
+      const hit = await bookingByRef(env, wanted);
+      if (hit) return { ok: true, via: "code", job: hit.job, owner: hit.owner };
+    }
+  }
+  return { ok: false, signedInAs: u ? u.email : "" };
+}
+
+/**
+ * Twilio Verify if the account has a Verify service, our own code over the
+ * existing SMS path if not.
+ *
+ * Verify is the better answer — Twilio carries the delivery retries, the fraud
+ * scoring and the per-country sender rules — but it needs a service SID that
+ * only exists once somebody creates one in the console. Making the feature wait
+ * on that would mean shipping a tracker that still says "No active job", so the
+ * fallback is the real path today and Verify takes over the moment the SID
+ * appears in the environment. Same customer experience either way.
+ */
+async function verifyStart(env, phone, ref) {
+  if (env.TWILIO_VERIFY_SID && env.TWILIO_SID && env.TWILIO_TOKEN) {
+    const r = await fetch(
+      `https://verify.twilio.com/v2/Services/${env.TWILIO_VERIFY_SID}/Verifications`,
+      { method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded",
+          authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) },
+        body: new URLSearchParams({ To: "+" + toE164(phone), Channel: "sms" }) }
+    ).catch(() => null);
+    if (r && r.ok) return { ok: true, via: "verify" };
+    const detail = r ? await r.text().catch(() => "") : "network error";
+    console.error("[verify] start failed", String(detail).slice(0, 300));
+    // Fall through to our own code rather than stranding the customer.
+  }
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  await env.CMS_KV.put("trackcode:" + ref, JSON.stringify({
+    hash: await sha256Hex(ref + ":" + code), tries: 0,
+  }), { expirationTtl: TRACK_CODE_TTL });
+  const sent = await sendSMS(env, phone,
+    `${code} is your ${BUSINESS.name} code for booking ${ref}. It expires in 10 minutes. We will never ring you to ask for it.`,
+    { essential: true });
+  if (sent && sent.ok) return { ok: true, via: "sms" };
+  // Test only, same gate as the email verification code: the suite has no
+  // handset, and a feature nobody can test end to end is a feature nobody
+  // knows is broken. ALLOW_TEST_VERIFY_CODE is set by server.js and cannot
+  // exist on the deployed Worker.
+  if (env.ALLOW_TEST_VERIFY_CODE === "yes") return { ok: true, via: "test", ...testCode(env, code) };
+  await env.CMS_KV.delete("trackcode:" + ref);
+  return { ok: false, reason: (sent && (sent.reason || sent.skipped)) ? "we could not send a text to the number on this booking" : "no messaging channel is configured" };
+}
+
+async function verifyCheck(env, phone, ref, code) {
+  if (env.TWILIO_VERIFY_SID && env.TWILIO_SID && env.TWILIO_TOKEN) {
+    // Only consult Verify when Verify is the one that sent it. A fallback code
+    // lives in KV and Verify has never heard of it.
+    const local = await env.CMS_KV.get("trackcode:" + ref);
+    if (!local) {
+      const r = await fetch(
+        `https://verify.twilio.com/v2/Services/${env.TWILIO_VERIFY_SID}/VerificationCheck`,
+        { method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded",
+            authorization: "Basic " + btoa(env.TWILIO_SID + ":" + env.TWILIO_TOKEN) },
+          body: new URLSearchParams({ To: "+" + toE164(phone), Code: code }) }
+      ).catch(() => null);
+      if (!r || !r.ok) return { ok: false, reason: "That code was not right." };
+      const d = await r.json().catch(() => ({}));
+      return d.status === "approved" ? { ok: true } : { ok: false, reason: "That code was not right." };
+    }
+  }
+  const raw = await env.CMS_KV.get("trackcode:" + ref);
+  if (!raw) return { ok: false, reason: "That code has expired — ask for a new one." };
+  const rec = JSON.parse(raw);
+  // Burn the code after a handful of wrong guesses. Six digits is 1-in-a-
+  // million per try, which is only true while the number of tries is small.
+  if ((rec.tries || 0) >= TRACK_MAX_TRIES) {
+    await env.CMS_KV.delete("trackcode:" + ref);
+    return { ok: false, reason: "Too many wrong codes — ask for a new one." };
+  }
+  if (rec.hash !== await sha256Hex(ref + ":" + String(code))) {
+    rec.tries = (rec.tries || 0) + 1;
+    await env.CMS_KV.put("trackcode:" + ref, JSON.stringify(rec), { expirationTtl: TRACK_CODE_TTL });
+    return { ok: false, reason: "That code was not right." };
+  }
+  await env.CMS_KV.delete("trackcode:" + ref);
+  return { ok: true };
+}
+
 const publicUser = u => ({
   name: u.name, email: u.email, phone: u.phone,
   marketing: !!u.marketing, smsUpdates: u.smsUpdates !== false,
@@ -4737,15 +4916,96 @@ async function processTyreStockForOrder(env, order) {
     }
     return json({ jobs: out });
   }
+  /*
+   * "Which door do I use for this reference?"
+   *
+   * Deliberately says as little as it can while still being useful: whether the
+   * reference exists, a masked address, a masked number. That is enough for the
+   * person holding the confirmation text to know which account to sign in with,
+   * and useless to anybody else. Rate limited like a login, because guessing
+   * references is the only attack it exposes.
+   */
+  const tCh = p.match(/^\/track\/([\w-]+)\/challenge$/);
+  if (tCh && request.method === "GET") {
+    if (await edgeLimited(env, "RL_AUTH", "trackch:" + clientIp(request))) {
+      return bad("Too many attempts — wait a minute and try again.", 429);
+    }
+    const wanted = tCh[1];
+    const auth = await trackAuth(request, env, wanted);
+    if (auth.ok) return json({ found: true, unlocked: true, job: customerJobView(auth.job) });
+    const hit = await bookingByRef(env, wanted);
+    if (!hit) return json({ found: false, unlocked: false });
+    return json({
+      found: true, unlocked: false,
+      signedInAs: auth.signedInAs || "",
+      // The whole point of the exercise: tell them WHICH address, so "sign in
+      // to see your booking" stops being a guessing game.
+      emailHint: maskEmail(hit.owner === "guest" ? hit.job.email : hit.owner),
+      phoneHint: maskPhone(hit.job.phone),
+      canSms: !!maskPhone(hit.job.phone),
+    });
+  }
+
+  // Text a code to the number ON THE BOOKING. The caller never gets to say
+  // where it goes.
+  const tStart = p.match(/^\/track\/([\w-]+)\/code$/);
+  if (tStart && request.method === "POST") {
+    const ip = clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", "trackcode:" + ip)
+        || await rateLimited(env, "trackcode:" + ip, 10)) {
+      return bad("Too many code requests — wait a minute and try again.", 429);
+    }
+    await noteFailure(env, "trackcode:" + ip);
+    const wanted = tStart[1];
+    const hit = await bookingByRef(env, wanted);
+    if (!hit) return bad("We could not find a booking with that reference.", 404);
+    if (!hit.job.phone) return bad("There is no mobile number on that booking — please sign in with the email it was made under, or call us.", 400);
+    const sent = await verifyStart(env, hit.job.phone, wanted);
+    if (!sent.ok) return bad("Sorry — " + sent.reason + ". Please call us on " + BUSINESS.phone + ".", 502);
+    await audit(env, hit.owner, "track_code_sent", wanted);
+    return json({ sent: true, phoneHint: maskPhone(hit.job.phone), ...(sent.devCode ? { devCode: sent.devCode } : {}) });
+  }
+
+  // Check the code and hand back a token good for this one reference.
+  const tVer = p.match(/^\/track\/([\w-]+)\/verify$/);
+  if (tVer && request.method === "POST") {
+    const ip = clientIp(request);
+    if (await edgeLimited(env, "RL_AUTH", "trackver:" + ip)
+        || await rateLimited(env, "trackver:" + ip, 20)) {
+      return bad("Too many attempts — wait a minute and try again.", 429);
+    }
+    await noteFailure(env, "trackver:" + ip);
+    const wanted = tVer[1];
+    const body = await request.json().catch(() => ({}));
+    const code = String(body.code || "").replace(/\D/g, "").slice(0, 10);
+    if (!code) return bad("Enter the six-digit code we texted you.", 400);
+    const hit = await bookingByRef(env, wanted);
+    if (!hit) return bad("We could not find a booking with that reference.", 404);
+    const res = await verifyCheck(env, hit.job.phone, wanted, code);
+    if (!res.ok) return bad(res.reason, 400);
+    const token = crypto.randomUUID().replace(/-/g, "");
+    await env.CMS_KV.put("tracktok:" + token, wanted, { expirationTtl: TRACK_TOKEN_TTL });
+    await audit(env, hit.owner, "track_unlocked", wanted);
+    return json({ token, expiresIn: TRACK_TOKEN_TTL, job: customerJobView(hit.job) });
+  }
+
   const tm = p.match(/^\/track\/([\w-]+)$/);
   if (tm && request.method === "GET") {
-    const u = await sessionUser(request, env);
-    if (!u) return bad("Not signed in", 401);
-    const arr = JSON.parse((await env.CMS_KV.get("bookings:" + u.email)) || "[]");
-    const job = arr.find(o => o.ref === tm[1]);
-    if (!job) return bad("Not found", 404); // customers can only track their own jobs
+    /*
+     * Was: session only, 401 for everybody else. Every guest booking — which is
+     * to say nearly every booking — hit that 401 on a loop and the tracker sat
+     * on "No active job" with no way out. Now a session that owns the booking
+     * or a code-verified token for this exact reference both open it, and the
+     * 403 body tells the browser which door to offer.
+     */
+    const auth = await trackAuth(request, env, tm[1]);
+    if (!auth.ok) {
+      const known = await bookingByRef(env, tm[1]);
+      if (!known) return bad("Not found", 404);
+      return json({ error: "Locked", locked: true, ref: tm[1] }, 403);
+    }
     const loc = JSON.parse((await env.CMS_KV.get("loc:" + tm[1])) || "null");
-    return json({ status: job.status, updates: customerUpdates(job.updates), location: loc });
+    return json({ status: auth.job.status, updates: customerUpdates(auth.job.updates), location: loc, job: customerJobView(auth.job) });
   }
 
   // --- ADMIN LOGIN + 2FA ---

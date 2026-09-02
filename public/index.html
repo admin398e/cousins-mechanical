@@ -439,6 +439,46 @@
       <p style="font-size:18px;color:#c3b9b1;line-height:1.5;margin:0">When you are booked in you get a live map, a moving ETA and SMS-style status updates — so if you are stranded you know exactly how far away help is.</p>
     </div>
 
+    <!-- Locked: a real booking, but this browser has not proved it owns it -->
+    <sc-if value="{{ needUnlock }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid #2a2320;border-radius:18px;background:rgba(255,255,255,.03);padding:44px 24px;text-align:center">
+        <div style="width:64px;height:64px;margin:0 auto 18px;border-radius:16px;background:rgba(232,121,26,.14);display:flex;align-items:center;justify-content:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#f4a04a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin-bottom:6px">CHECK IT'S YOU</div>
+        <div style="color:#f4a04a;font-weight:700;font-size:14px;letter-spacing:.06em;margin-bottom:14px">{{ unlockRefLabel }}</div>
+
+        <sc-if value="{{ unlockAsk }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <p style="color:#c3b9b1;font-size:16px;line-height:1.5;max-width:520px;margin:0 auto 8px">{{ unlockWhose }}</p>
+            <sc-if value="{{ unlockWrongAccount }}" hint-placeholder-val="{{ false }}">
+              <p style="color:#f0b27a;font-size:14px;line-height:1.5;max-width:520px;margin:0 auto 8px">{{ unlockWrongAccountText }}</p>
+            </sc-if>
+            <p style="color:#8a817b;font-size:14px;line-height:1.5;max-width:520px;margin:0 auto 22px">No account? We can text a code to the mobile number on the booking instead.</p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+              <button onClick="{{ openPortal }}" style="background:#1c1817;color:#fff;font-weight:700;font-size:16px;border:1px solid #2a2320;border-radius:10px;padding:14px 24px;cursor:pointer">Sign in</button>
+              <sc-if value="{{ unlockCanSms }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ sendTrackCode }}" disabled="{{ unlockBusy }}" style="background:#e8791a;color:#14100e;font-weight:700;font-size:16px;border:0;border-radius:10px;padding:14px 24px;cursor:pointer">{{ unlockSendLabel }}</button>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ unlockCoding }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <p style="color:#c3b9b1;font-size:16px;line-height:1.5;max-width:520px;margin:0 auto 18px">{{ unlockSentLine }}</p>
+            <input value="{{ unlockCode }}" onInput="{{ setUnlockCode }}" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="6" style="width:190px;text-align:center;letter-spacing:.34em;font-size:24px;font-weight:700;background:#14100e;color:#fff;border:1px solid #2a2320;border-radius:10px;padding:13px 10px;margin-bottom:16px" />
+            <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+              <button onClick="{{ unlockBack }}" style="background:#1c1817;color:#fff;font-weight:700;font-size:16px;border:1px solid #2a2320;border-radius:10px;padding:14px 24px;cursor:pointer">Back</button>
+              <button onClick="{{ submitTrackCode }}" disabled="{{ unlockBusy }}" style="background:#e8791a;color:#14100e;font-weight:700;font-size:16px;border:0;border-radius:10px;padding:14px 24px;cursor:pointer">{{ unlockVerifyLabel }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ hasUnlockErr }}" hint-placeholder-val="{{ false }}">
+          <p style="color:#ff9b8a;font-size:14.5px;line-height:1.5;max-width:520px;margin:18px auto 0">{{ unlockErr }}</p>
+        </sc-if>
+      </div>
+    </sc-if>
+
     <!-- Locked: no booked job yet -->
     <sc-if value="{{ noTrack }}" hint-placeholder-val="{{ true }}">
       <div style="border:1px solid #2a2320;border-radius:18px;background:rgba(255,255,255,.03);padding:52px 24px;text-align:center">
@@ -1143,6 +1183,9 @@ class Component extends DCLogic {
     authConsent:false, authSms:true, authMarketing:false,
     resetToken:'', resetPass:'', resetMsg:'', forgotMsg:'',
     trackRef: '', eta: 0, distance: 0, feed: [], lightbox: '', now: Date.now(), estimate:true,
+    // Guest tracking: the reference being unlocked, which step we are on, and
+    // the masked email/number the server is willing to reveal about it.
+    unlockRef:'', unlockStage:'', unlockErr:'', unlockCode:'', unlockBusy:false, unlockHint:null, unlockSentTo:'',
     liveTrack:false, custPos:null, mechPos:null, geoErr:'', driverMode:false, driverRef:'', driverOn:false, driverErr:'', driverAcc:0,
     isSample: true, cfgOpen: false, cfgEndpoint: '', cfgKey: '', cfgProvider: 'vdim',
     confirmVehicle: null, confirmReg: '', notMyCarOpen: false
@@ -1411,8 +1454,85 @@ class Component extends DCLogic {
     const h = Object.assign({}, opts.headers||{});
     if(opts.body && !h['content-type']) h['content-type']='application/json';
     const t=this.authToken(); if(t) h['authorization']='Bearer '+t;
+    /*
+     * Guest tracking key. Scoped to one booking reference, so it is only worth
+     * attaching to a /track call for that reference — sending it anywhere else
+     * would be handing a token to an endpoint that has no business holding one.
+     */
+    const tm = String(path||'').match(/^\/track\/([\w-]+)/);
+    if(tm){ const k=this.trackToken(tm[1]); if(k) h['x-track-token']=k; }
     const r = await fetch(this.apiBase()+'/api'+path, { ...opts, headers:h });
     return r;
+  }
+
+  // ---------- GUEST TRACKING ACCESS ----------
+  // Tokens live per reference, so a family sharing a phone can hold two.
+  trackTokens(){ try{ return JSON.parse(localStorage.getItem('cms_track_tokens')||'{}')||{}; }catch(e){ return {}; } }
+  trackToken(ref){ const m=this.trackTokens()[ref]; return (m && m.exp>Date.now()) ? m.token : ''; }
+  saveTrackToken(ref, token, ttlSec){
+    try{ const m=this.trackTokens(); m[ref]={token, exp:Date.now()+(ttlSec||43200)*1000};
+      localStorage.setItem('cms_track_tokens', JSON.stringify(m)); }catch(e){}
+  }
+
+  /*
+   * Called whenever the tracker is pointed at a reference the browser has no
+   * local copy of — a confirmation link opened on a different phone, a guest
+   * who never made an account, someone signed in to the wrong address. Asks the
+   * server which door applies and puts that on screen instead of the dead-end
+   * "No active job" panel this used to show.
+   */
+  async openUnlock(ref){
+    // trackRef is cleared too: a local stub of this job would otherwise keep
+    // hasTrack true and draw an empty map behind the panel asking for proof.
+    this.setState({ trackRef:'', unlockRef:ref, unlockStage:'ask', unlockErr:'', unlockCode:'', unlockBusy:true, unlockHint:null });
+    try{
+      const r = await this.apiFetch('/track/'+encodeURIComponent(ref)+'/challenge');
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok || !d.found){
+        this.setState({ unlockBusy:false, unlockStage:'ask', unlockHint:null,
+          unlockErr:'We could not find a booking with reference '+ref+'. Check the reference on your confirmation text.' });
+        return;
+      }
+      if(d.unlocked){ this.adoptJob(d.job); return; }
+      this.setState({ unlockBusy:false, unlockHint:d });
+    }catch(e){ this.setState({ unlockBusy:false, unlockErr:'We could not reach the server. Try again in a moment.' }); }
+  }
+
+  sendTrackCode = async () => {
+    const ref=this.state.unlockRef; if(!ref) return;
+    this.setState({unlockBusy:true, unlockErr:''});
+    try{
+      const r = await this.apiFetch('/track/'+encodeURIComponent(ref)+'/code', {method:'POST', body:'{}'});
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ this.setState({unlockBusy:false, unlockErr:d.error||'We could not send the code.'}); return; }
+      this.setState({unlockBusy:false, unlockStage:'code', unlockSentTo:d.phoneHint||''});
+    }catch(e){ this.setState({unlockBusy:false, unlockErr:'We could not reach the server. Try again in a moment.'}); }
+  }
+
+  submitTrackCode = async () => {
+    const ref=this.state.unlockRef, code=String(this.state.unlockCode||'').trim();
+    if(code.length<6){ this.setState({unlockErr:'Enter the six-digit code we texted you.'}); return; }
+    this.setState({unlockBusy:true, unlockErr:''});
+    try{
+      const r = await this.apiFetch('/track/'+encodeURIComponent(ref)+'/verify', {method:'POST', body:JSON.stringify({code})});
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ this.setState({unlockBusy:false, unlockErr:d.error||'That code was not right.'}); return; }
+      this.saveTrackToken(ref, d.token, d.expiresIn);
+      this.adoptJob(d.job);
+    }catch(e){ this.setState({unlockBusy:false, unlockErr:'We could not reach the server. Try again in a moment.'}); }
+  }
+
+  /*
+   * Put a server-owned booking into the local list so the tracker, the map and
+   * the status feed all have something to render. Replaces any local stub of
+   * the same reference — the server's copy is the true one.
+   */
+  adoptJob(job){
+    if(!job || !job.ref) return;
+    const rest = (this.state.orders||[]).filter(o=>o.ref!==job.ref);
+    this.saveOrders([job, ...rest]);
+    this.setState({ unlockRef:'', unlockStage:'', unlockErr:'', unlockCode:'', unlockBusy:false, unlockHint:null });
+    this.startTracking(job.ref, true);
   }
 
   loadOrders(){ try{ const o=JSON.parse(localStorage.getItem('cms_orders')||'[]'); this.setState({orders:o}); // 'arrived' means the mechanic is there — the job is over for tracking
@@ -1697,6 +1817,9 @@ class Component extends DCLogic {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = (this.state.lastRef||'booking')+'.ics'; a.click();
   };
+  setUnlockCode = e => this.setState({unlockCode:String(e.target.value||'').replace(/\D/g,'').slice(0,6), unlockErr:''});
+  unlockBack = () => this.setState({unlockStage:'ask', unlockErr:'', unlockCode:''});
+  closeUnlock = () => this.setState({unlockRef:'', unlockStage:'', unlockErr:'', unlockCode:'', unlockHint:null});
   goTrack = () => { this.setState({bookOpen:false}); setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); },80); };
 
   // ---------- AUTH (client-side prototype) ----------
@@ -1716,7 +1839,16 @@ class Component extends DCLogic {
       if(em){ const u=this.loadUsers()[em.toLowerCase()]; if(u){ this.state.auth={email:u.email,name:u.name,phone:u.phone}; this.state.profile={name:u.name,phone:u.phone,email:u.email,marketing:u.marketing!==false}; } }
     }catch(e){}
   }
-  async pullBookings(){ try{ const r=await this.apiFetch('/bookings'); if(r.ok){ const d=await r.json(); if(d.bookings) this.setState({orders:d.bookings}); } }catch(e){} }
+  async pullBookings(){ try{ const r=await this.apiFetch('/bookings'); if(r.ok){ const d=await r.json(); if(d.bookings){
+    this.setState({orders:d.bookings});
+    /*
+     * If they signed in BECAUSE the tracker asked them to, and the booking is
+     * in the list that just arrived, open it. Otherwise signing in would leave
+     * them staring at the same "check it's you" panel they just satisfied.
+     */
+    const want=this.state.unlockRef;
+    if(want){ const hit=d.bookings.find(o=>o.ref===want); if(hit) this.adoptJob(hit); }
+  } } }catch(e){} }
   setAuthView = v => this.setState({authView:v, authErr:''});
   setAuthName = e => this.setState({authName:e.target.value});
   setAuthEmail = e => this.setState({authEmail:e.target.value});
@@ -2091,8 +2223,23 @@ class Component extends DCLogic {
     this._estMin = est;
     this.setState({ eta:est, distance:miles.toFixed(1), estimate:true, estimateOffPatch:false });
   }
-  startTracking(ref){
-    this.setState({trackRef:ref});
+  startTracking(ref, known){
+    /*
+     * A reference this browser has never seen is the normal case, not the odd
+     * one: the confirmation link gets opened on the phone that received the
+     * text, and guests have no account for the job to be pulled from. Ask for
+     * proof rather than rendering an empty tracker.
+     *
+     * `known` is passed by the caller that has just put the job into state:
+     * setState has not landed yet at that point, so re-reading state here would
+     * decide the job is missing and re-open the panel it was closing — a loop.
+     */
+    if(!known && this.hasServer() && !(this.state.orders||[]).some(o=>o.ref===ref)){
+      this.setState({trackRef:''});
+      this.openUnlock(ref);
+      return;
+    }
+    this.setState({trackRef:ref, unlockRef:'', unlockStage:''});
     if(this._trackTimer) clearInterval(this._trackTimer);
     this._prog = 0;
     this.applyOrderLocation();
@@ -2106,11 +2253,18 @@ class Component extends DCLogic {
     const poll = async () => {
       try{
         const r = await this.apiFetch('/track/'+ref);
-        // A guest booking or a signed-out session 401s on every poll. This
-        // used to retry every 8 seconds forever with nothing surfaced.
+        // A guest booking or a signed-out session used to 401 on every poll and
+        // retry every 8 seconds forever with nothing surfaced. A 403 now means
+        // the booking exists and this browser simply has not proved it owns it
+        // — so stop polling and put the unlock panel up instead of failing
+        // silently until the fail counter gives up.
+        if(r.status===403){ this.stopTracking(); this.openUnlock(ref); return; }
         if(!r.ok){ this._pollFails = (this._pollFails||0) + 1; return; }
         this._pollFails = 0;
         const d = await r.json();
+        // The server's copy of the job wins: statuses and times change while
+        // the customer is looking at a page that loaded ten minutes ago.
+        if(d.job) this.setState(s=>({orders:(s.orders||[]).map(o=>o.ref===ref?{...o,...d.job}:o)}));
         if(d.location && d.location.lat!=null){
           // real driver GPS is live — stop the simulation and follow it
           this._useLive = true; if(this._trackTimer) clearInterval(this._trackTimer);
@@ -2241,6 +2395,11 @@ class Component extends DCLogic {
     // tracking derived
     const active_order = s.orders.find(o=>o.ref===s.trackRef);
     const hasTrack = !!active_order && active_order.status!=='cancelled';
+    // Somebody has pointed the tracker at a booking this browser cannot yet
+    // prove is theirs. It takes precedence over the "book a job" panel: they
+    // have already booked one — that panel would be telling them to do it again.
+    const needUnlock = !hasTrack && !!s.unlockRef;
+    const uh = s.unlockHint;
     // An ETA means nothing until the van moves. "enroute" is the status Simon
     // sets when he sets off; "arrived" is after. Anything else is a booking in
     // the diary, however soon it is.
@@ -2476,7 +2635,28 @@ class Component extends DCLogic {
       editDate:s.editDate, editTime:s.editTime, editNotes:s.editNotes,
       setEditDate:this.setEditDate, setEditTime:this.setEditTime, setEditNotes:this.setEditNotes,
       // tracking
-      setMapEl:this.setMapEl, hasTrack, noTrack:!hasTrack, trackFeed,
+      setMapEl:this.setMapEl, hasTrack, noTrack:!hasTrack && !needUnlock, trackFeed,
+      // --- unlock panel ---
+      needUnlock,
+      unlockAsk: needUnlock && s.unlockStage!=='code',
+      unlockCoding: needUnlock && s.unlockStage==='code',
+      unlockRefLabel: 'Booking '+(s.unlockRef||''),
+      unlockWhose: uh && uh.emailHint
+        ? 'This booking is under '+uh.emailHint+'. Sign in with that address and it opens straight away.'
+        : 'Sign in with the email address the booking was made under and it opens straight away.',
+      unlockWrongAccount: !!(uh && uh.signedInAs && uh.emailHint),
+      unlockWrongAccountText: (uh && uh.signedInAs)
+        ? 'You are signed in as '+uh.signedInAs+', which is a different account.' : '',
+      unlockCanSms: !!(uh && uh.canSms),
+      unlockSmsLabel: (uh && uh.phoneHint) ? 'Text me a code ('+uh.phoneHint+')' : 'Text me a code',
+      unlockSentLine: s.unlockSentTo ? ('We texted a six-digit code to '+s.unlockSentTo+'.') : 'We texted you a six-digit code.',
+      unlockCode:s.unlockCode, setUnlockCode:this.setUnlockCode,
+      unlockErr:s.unlockErr, hasUnlockErr:!!s.unlockErr,
+      sendTrackCode:this.sendTrackCode, submitTrackCode:this.submitTrackCode,
+      unlockBack:this.unlockBack, closeUnlock:this.closeUnlock,
+      unlockBusy:s.unlockBusy,
+      unlockSendLabel: s.unlockBusy ? 'Sending…' : ((uh && uh.phoneHint) ? 'Text me a code ('+uh.phoneHint+')' : 'Text me a code'),
+      unlockVerifyLabel: s.unlockBusy ? 'Checking…' : 'Unlock tracking',
       /*
        * What the tracker says, and when it is allowed to say a time.
        *

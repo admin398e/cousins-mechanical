@@ -541,10 +541,11 @@ try {
     assert.ok('lat' in (jl.jobs.find(j => j.ref === gpsRef) || {}), 'driver job list omits coordinates — the ETA cannot work');
   });
 
-  await check('job tracking requires sign-in and is scoped to the owner', async () => {
-    // Anonymous callers get nothing.
-    assert.equal((await api('/api/track/CMS-TEST1')).status, 401);
-    // A signed-in customer cannot read someone else's job either.
+  await check('job tracking is scoped to the owner', async () => {
+    // A reference that names nothing is a 404 to everyone, signed in or not.
+    // It used to 401 anonymous callers, which told a guesser that a session
+    // was the only thing between them and an answer.
+    assert.equal((await api('/api/track/CMS-TEST1')).status, 404);
     const r = await api('/api/track/CMS-NOTMINE', { headers: { authorization: 'Bearer ' + customerToken } });
     assert.equal(r.status, 404);
   });
@@ -3721,6 +3722,135 @@ try {
     const d = await (await api('/api/tyres/lookup?size=195/65R15')).json();
     const r = await api(d.tyres[0].image);
     assert.equal(r.status, 200, `missing image ${d.tyres[0].image}`);
+  });
+
+  // --- TRACKING ACCESS ------------------------------------------------------
+  //
+  // The tracker used to demand a session. Nearly every booking is a guest
+  // booking, so `#track=CMS-XXXXX` from a confirmation email opened a panel
+  // that said "No active job" and offered no way forward.
+
+  const guestBooking = async (suffix) => {
+    const r = await postJson('/api/service-requests', {
+      name: 'Track Me', phone: '0790000' + suffix, email: `track-${suffix}-${Date.now()}@example.com`,
+      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ',
+      date: soonISO(4), time: 'Morning (8-12)',
+    }, { 'cf-connecting-ip': '203.0.113.' + suffix });
+    assert.equal(r.status, 200, 'the fixture booking was refused');
+    return (await r.json()).ref;
+  };
+
+  await check('an unknown reference is a 404, not an unlock prompt', async () => {
+    assert.equal((await api('/api/track/CMS-NOPE9')).status, 404);
+    const ch = await api('/api/track/CMS-NOPE9/challenge');
+    assert.equal(ch.status, 200);
+    assert.equal((await ch.json()).found, false, 'a reference that names nothing was reported as found');
+  });
+
+  await check('a real reference with no proof is locked, not lost', async () => {
+    const ref = await guestBooking('301');
+    const r = await api('/api/track/' + ref);
+    assert.equal(r.status, 403, 'expected a lock, got ' + r.status);
+    const d = await r.json();
+    assert.equal(d.locked, true, 'the 403 body does not tell the browser it can unlock');
+  });
+
+  await check('the challenge names the account without disclosing it', async () => {
+    const ref = await guestBooking('302');
+    const d = await (await api('/api/track/' + ref + '/challenge')).json();
+    assert.equal(d.found, true);
+    assert.equal(d.unlocked, false);
+    assert.match(d.emailHint, /^..•••@/, 'the email hint is not masked: ' + d.emailHint);
+    assert.ok(!/track-302/.test(d.emailHint), 'the hint leaks the local part: ' + d.emailHint);
+    assert.match(d.phoneHint, /^•+ \d{4}$/, 'the phone hint is not masked: ' + d.phoneHint);
+    assert.equal(d.canSms, true);
+  });
+
+  await check('a code texted to the booking number unlocks that one booking', async () => {
+    const ref = await guestBooking('303');
+    const start = await postJson('/api/track/' + ref + '/code', {}, { 'cf-connecting-ip': '203.0.113.33' });
+    assert.equal(start.status, 200, 'the code request failed');
+    const sd = await start.json();
+    assert.ok(sd.devCode, 'no test code returned: ' + JSON.stringify(sd));
+    assert.match(sd.phoneHint, /0303$/, 'the code went somewhere unexpected');
+
+    const v = await postJson('/api/track/' + ref + '/verify', { code: sd.devCode }, { 'cf-connecting-ip': '203.0.113.33' });
+    assert.equal(v.status, 200, 'the right code was rejected');
+    const vd = await v.json();
+    assert.ok(vd.token, 'no track token returned');
+    assert.equal(vd.job.ref, ref, 'the wrong job came back');
+
+    const t = await api('/api/track/' + ref, { headers: { 'x-track-token': vd.token } });
+    assert.equal(t.status, 200, 'the token did not open the tracker');
+    assert.ok((await t.json()).job, 'the tracker returned no job');
+
+    // Scoped to ONE reference. This is the whole reason it is not a session.
+    const other = await guestBooking('304');
+    const cross = await api('/api/track/' + other, { headers: { 'x-track-token': vd.token } });
+    assert.equal(cross.status, 403, 'a token for one booking opened another');
+  });
+
+  await check('a wrong code is refused and burns out', async () => {
+    const ref = await guestBooking('305');
+    const sd = await (await postJson('/api/track/' + ref + '/code', {}, { 'cf-connecting-ip': '203.0.113.35' })).json();
+    const wrong = String((Number(sd.devCode) + 1) % 1000000).padStart(6, '0');
+    for (let i = 0; i < 5; i++) {
+      const r = await postJson('/api/track/' + ref + '/verify', { code: wrong }, { 'cf-connecting-ip': '203.0.113.35' });
+      assert.equal(r.status, 400, 'a wrong code was accepted on attempt ' + (i + 1));
+    }
+    // Sixth attempt: even the RIGHT code must now fail, or five guesses is
+    // just the start of an unlimited run at six digits.
+    const after = await postJson('/api/track/' + ref + '/verify', { code: sd.devCode }, { 'cf-connecting-ip': '203.0.113.35' });
+    assert.equal(after.status, 400, 'the code survived five wrong guesses');
+  });
+
+  await check('a token cannot list, amend or cancel — only watch', async () => {
+    const ref = await guestBooking('306');
+    const sd = await (await postJson('/api/track/' + ref + '/code', {}, { 'cf-connecting-ip': '203.0.113.36' })).json();
+    const vd = await (await postJson('/api/track/' + ref + '/verify', { code: sd.devCode }, { 'cf-connecting-ip': '203.0.113.36' })).json();
+    const h = { 'x-track-token': vd.token };
+    assert.equal((await api('/api/bookings', { headers: h })).status, 401, 'a track token listed bookings');
+    const patch = await api('/api/bookings/' + ref, {
+      method: 'PATCH', headers: { ...h, 'content-type': 'application/json' },
+      body: JSON.stringify({ postcode: 'DT1 1AA' }),
+    });
+    assert.equal(patch.status, 401, 'a track token amended a booking');
+  });
+
+  await check('the signed-in owner needs no code at all', async () => {
+    const em = `owner-${Date.now()}@example.com`;
+    const s = await signupVerified({ name: 'Owner', email: em, phone: '07900000307', password: 'Str0ng!Pass9' });
+    const r = await api('/api/bookings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + s.token },
+      body: JSON.stringify({ service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ', date: soonISO(4), time: 'Morning (8-12)' }),
+    });
+    assert.equal(r.status, 200);
+    const ref = (await r.json()).booking.ref;
+    const ch = await (await api('/api/track/' + ref + '/challenge', { headers: { authorization: 'Bearer ' + s.token } })).json();
+    assert.equal(ch.unlocked, true, 'the owner was asked to prove ownership of their own booking');
+    const t = await api('/api/track/' + ref, { headers: { authorization: 'Bearer ' + s.token } });
+    assert.equal(t.status, 200);
+  });
+
+  await check('a different account is told which account to use, and shown nothing else', async () => {
+    const ref = await guestBooking('308');
+    const em = `stranger-${Date.now()}@example.com`;
+    const s = await signupVerified({ name: 'Stranger', email: em, phone: '07900000309', password: 'Str0ng!Pass9' });
+    const h = { authorization: 'Bearer ' + s.token };
+    assert.equal((await api('/api/track/' + ref, { headers: h })).status, 403, 'a stranger opened the tracker');
+    const ch = await (await api('/api/track/' + ref + '/challenge', { headers: h })).json();
+    assert.equal(ch.unlocked, false);
+    assert.equal(ch.signedInAs, em, 'the panel cannot say "you are signed in as the wrong account"');
+    assert.ok(!ch.job, 'the challenge handed the job to somebody who had not proved anything');
+  });
+
+  await check('the CORS preflight allows the track token header', async () => {
+    // Omitted, the header never survives the preflight and every guest tracker
+    // stays locked with no visible reason.
+    const r = await api('/api/health', { headers: { origin: 'https://cousinsmechanicalservices.co.uk' } });
+    const allow = (r.headers.get('access-control-allow-headers') || '').toLowerCase();
+    assert.ok(allow.includes('x-track-token'), 'x-track-token is not an allowed header: ' + allow);
   });
 
   await check('source files outside public/ are not served', async () => {

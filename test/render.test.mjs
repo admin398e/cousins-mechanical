@@ -245,6 +245,101 @@ async function checkOtherBooking() {
   console.log('  PASS  booking "Something else" asks what the job is, and insists');
   return 0;
 }
+/*
+ * Tracking a booking this browser has never seen.
+ *
+ * The confirmation email's "Track & manage booking" link opens on whichever
+ * phone received the text — not necessarily the one that made the booking, and
+ * usually with no account behind it at all. The tracker required a session, so
+ * that link landed on "LIVE TRACKING UNLOCKS ONCE YOU'RE BOOKED IN": an
+ * instruction to book the job they had just booked.
+ *
+ * Driven end to end here — real booking, real challenge, real code — because
+ * every part of this is behaviour, and none of it is visible in the HTML.
+ */
+async function checkGuestTracking() {
+  const problems = [];
+  const phoneTail = '390';
+  const r = await fetch(BASE + '/api/service-requests', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.7' },
+    body: JSON.stringify({
+      name: 'Guest Tracker', phone: '0790000' + phoneTail,
+      email: `guest-track-${Date.now()}@example.com`,
+      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ',
+      date: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10), time: 'Morning (8-12)',
+    }),
+  });
+  if (!r.ok) { console.log('  SKIP  guest tracking (the fixture booking was refused: ' + r.status + ')'); return 0; }
+  const { ref } = await r.json();
+
+  const page = await browser.newPage();
+  page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await page.goto(BASE + '/#track=' + ref, { waitUntil: 'networkidle', timeout: 45000 });
+  await page.waitForTimeout(2200);
+  const text = () => page.evaluate(() => document.body.innerText || '');
+
+  let t = await text();
+  if (/LIVE TRACKING UNLOCKS ONCE YOU/.test(t)) problems.push('a real booking still lands on "book a job" — the dead end this exists to remove');
+  if (!/CHECK IT'S YOU/.test(t)) problems.push('no unlock panel appeared for a real booking');
+  if (!new RegExp('Booking ' + ref).test(t)) problems.push('the panel does not say which booking it is asking about');
+  if (!/•••@/.test(t)) problems.push('the panel does not name the account to sign in with');
+
+  const click = async re => {
+    await page.evaluate(x => {
+      const b = [...document.querySelectorAll('button')].find(y => new RegExp(x).test(y.innerText));
+      if (b) b.click();
+    }, re);
+    await page.waitForTimeout(900);
+  };
+
+  await click('Text me a code');
+  t = await text();
+  if (!/six-digit code/.test(t)) problems.push('asking for a code did not move on to the code step');
+  if (!new RegExp('•+ \\d*' + phoneTail).test(t)) problems.push('the code step does not say which number it went to');
+
+  // A missing box has to be a reported failure, not a thrown timeout: a throw
+  // here abandons the check and every assertion above it goes unreported, so
+  // the run says "the check blew up" instead of naming what broke.
+  const type = async code => {
+    try { await page.fill('input[inputmode="numeric"]', code, { timeout: 4000 }); return true; }
+    catch (e) { problems.push('there is no code box to type into'); return false; }
+  };
+
+  // The wrong code must be refused visibly, not silently swallowed.
+  if (await type('000000')) {
+    await click('Unlock tracking');
+    t = await text();
+    if (!/was not right|expired/.test(t)) problems.push('a wrong code produced no visible refusal');
+  }
+
+  // And the right one opens the tracker. The suite is the only thing that can
+  // read the code — server.js returns it under ALLOW_TEST_VERIFY_CODE.
+  const sd = await (await fetch(BASE + '/api/track/' + ref + '/code', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.8' }, body: '{}',
+  })).json();
+  if (!sd.devCode) { problems.push('no test code available to finish the flow'); }
+  else if (await type(sd.devCode)) {
+    await click('Unlock tracking');
+    await page.waitForTimeout(1500);
+    t = await text();
+    if (/CHECK IT'S YOU/.test(t)) problems.push('the right code did not open the tracker');
+    if (!new RegExp('Reference ' + ref).test(t)) problems.push('the tracker opened but is not showing this booking');
+    if (!/JOB STATUS/.test(t)) problems.push('the status feed did not render');
+  }
+
+  await page.close();
+  if (problems.length) { console.log('  FAIL  guest tracking'); problems.forEach(x => console.log('          ' + x)); return 1; }
+  console.log('  PASS  guest tracking unlocks with a texted code');
+  return 0;
+}
+failed += await checkGuestTracking().catch(e => {
+  console.log('  FAIL  guest tracking');
+  console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
+  return 1;
+});
+
 failed += await checkOtherBooking().catch(e => {
   console.log('  FAIL  booking "Something else"');
   console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
