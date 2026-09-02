@@ -1,37 +1,35 @@
-# Cousins Mechanical Services
-User-agent: *
-Allow: /
-
-# ---------------------------------------------------------------------------
-# What is deliberately NOT listed here, and why.
+# Cousins Mechanical Services — https://cousinsmechanicalservices.co.uk
+#
+# NOTE ON FORMAT: a blank line ENDS a record. Every comment here is kept above
+# the first User-agent line, and each record below is contiguous, because a
+# blank line in the middle of one orphans every rule after it — the rules parse
+# as belonging to no crawler at all, and quietly stop applying. That is not
+# theoretical: it happened to the /api block in this very file.
+#
+# WHAT IS DELIBERATELY NOT BLOCKED, AND WHY
 #
 # A Disallow on a URL that does not exist is permanent. The crawler is told not
 # to look, so it never learns the page is gone, and Search Console files it
-# under "Blocked by robots.txt" for good. A 404 clears itself in a few weeks
-# and needs nobody to remember it.
-#
-# Eleven rules used to sit here for paths that all answer 404 — /ukvd, /v1/,
-# /bookings, /messages, /track, /notify, /service-requests, two old pricing
-# worksheets and the un-hydrated "{{ token }}" URLs the booking page used to
-# emit. Every one of them was a page Google was forbidden to check and could
-# therefore never drop. They are gone from this file so they can 404 and fall
-# out of the report.
+# under "Blocked by robots.txt" for good. A 404 clears itself in a few weeks and
+# needs nobody to remember it. Eleven rules used to sit here for paths that all
+# answer 404 — /ukvd, /v1/, /bookings, /messages, /track, /notify,
+# /service-requests, two old pricing worksheets, and the un-hydrated
+# "{{ token }}" URLs the booking page used to emit. Every one was a page Google
+# was forbidden to check and could therefore never drop.
 #
 # The staff portals are not blocked here either. Blocking them meant Google
-# could not read the noindex on them, which is the tag that actually removes a
-# page from the index; robots.txt only stops the fetch. They now answer with
-# X-Robots-Tag: noindex, nofollow, which is the instruction that works.
-# ---------------------------------------------------------------------------
-
-# The API is real, and its responses are not pages.
+# could not read the noindex on them — and noindex is the tag that removes a
+# page, where robots.txt only stops the fetch. /admin and /driver answer with
+# X-Robots-Tag: noindex, nofollow instead, which is the instruction that works.
+#
+# There is no blanket "Allow: /". Everything is allowed unless disallowed, so
+# the line only added ambiguity: crawlers that take the FIRST matching rule read
+# it as permission to fetch everything, including /api.
+User-agent: *
 Disallow: /api
 Disallow: /api/
-
-# Block the AI scrapers that ignore commercial value, but keep Google and Bing.
 User-agent: GPTBot
 Disallow: /
-
 User-agent: CCBot
 Disallow: /
-
 Sitemap: https://cousinsmechanicalservices.co.uk/sitemap.xml

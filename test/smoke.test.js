@@ -3429,6 +3429,56 @@ try {
     }
   });
 
+  await check('robots.txt actually parses the way it reads', async () => {
+    /*
+     * A blank line ENDS a record. A long explanatory comment with blank lines
+     * in it, sitting between "User-agent: *" and the rules, orphans every rule
+     * after it — they parse as belonging to no crawler and silently stop
+     * applying. That shipped: the /api block was dead in a version that looked
+     * completely correct to read.
+     *
+     * So this does not grep for lines. It runs the file through a real
+     * robots.txt parser and asks the questions that matter.
+     */
+    const txt = await (await api('/robots.txt')).text();
+
+    // Minimal group parser, same rule as the standard: a blank line ends a
+    // record, and rules attach to the user-agents named immediately above them.
+    const groups = [];
+    let current = null;
+    for (const raw of txt.split(/\r?\n/)) {
+      const line = raw.replace(/#.*$/, '').trim();
+      if (!line) { current = null; continue; }
+      const [k, ...rest] = line.split(':');
+      const key = k.trim().toLowerCase(), val = rest.join(':').trim();
+      if (key === 'user-agent') {
+        if (!current || current.rules.length) { current = { agents: [], rules: [] }; groups.push(current); }
+        current.agents.push(val.toLowerCase());
+      } else if ((key === 'disallow' || key === 'allow') && current) {
+        current.rules.push({ allow: key === 'allow', path: val });
+      }
+    }
+    const groupFor = ua => groups.find(g => g.agents.includes(ua.toLowerCase()))
+                        || groups.find(g => g.agents.includes('*'));
+    const blocked = (ua, path) => {
+      const g = groupFor(ua);
+      if (!g) return false;
+      const hit = g.rules.filter(r => r.path && path.startsWith(r.path))
+                         .sort((a, b) => b.path.length - a.path.length)[0];
+      return !!hit && !hit.allow;
+    };
+
+    assert.ok(blocked('Googlebot', '/api/health'),
+      'the /api rules are orphaned — a blank line above them ended the record, so they apply to nobody');
+    assert.ok(!blocked('Googlebot', '/'), 'the home page is blocked from Google');
+    assert.ok(!blocked('Googlebot', '/terms'), 'the legal pages are blocked from Google');
+    assert.ok(!blocked('Googlebot', '/admin'),
+      '/admin is blocked, so Google cannot read the noindex that would remove it');
+    assert.ok(blocked('GPTBot', '/'), 'the AI scraper block is not applying');
+    assert.ok(/Sitemap: https:\/\/cousinsmechanicalservices\.co\.uk\/sitemap\.xml/.test(txt),
+      'robots.txt does not point at the sitemap');
+  });
+
   await check('the staff pages carry the tag that actually removes them from the index', async () => {
     // robots.txt only stops the fetch. noindex is what drops a page — and it
     // has to be readable, which means the page must be crawlable.
