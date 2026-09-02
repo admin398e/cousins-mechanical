@@ -1160,7 +1160,7 @@ class Component extends DCLogic {
   setCookieChoice = (v) => {
     try{ localStorage.setItem('cms_cookie_consent', v); }catch(e){}
     this.setState({cookieBanner:false});
-    if(v==='yes') this.loadHubSpot();
+    if(v==='yes'){ this.loadHubSpot(); this.loadAnalytics(); }
     // A later refusal cannot un-set cookies already dropped, so say so plainly
     // in the notice rather than pretending Reject retroactively cleans up.
   };
@@ -1176,6 +1176,59 @@ class Component extends DCLogic {
       el.src='//js-eu1.hs-scripts.com/'+d.portalId+'.js';
       document.body.appendChild(el);
     }).catch(()=>{});
+  }
+
+  /*
+   * Google Analytics 4.
+   *
+   * Deliberately NOT the snippet Google hands you, which loads on page one and
+   * sets its cookies before anybody has been asked anything. This site tells
+   * every visitor, in the banner and again in the cookie notice, that no
+   * analytics cookies are set unless they say yes — so the tag loads on the
+   * same terms as the HubSpot tracker: only after a recorded "yes", and a
+   * missing choice is not a yes.
+   *
+   * Two further guards. `consent default: denied` is set BEFORE the tag runs,
+   * so even a race cannot let it write anything, and it is only lifted to
+   * granted once the visitor has agreed. And it is skipped off the live domain,
+   * because a developer clicking around localhost is not a customer and should
+   * not appear in the numbers.
+   */
+  /*
+   * Is there a Google tag to ask about at all?
+   *
+   * Only on the live domain: a developer clicking around localhost is not a
+   * customer and should not appear in the numbers. Kept separate from the
+   * loader because the consent banner has to ask the same question — if it
+   * only asks when it has something to set, it has to know what that is.
+   */
+  gaEligible(){
+    try{ return /(^|\.)cousinsmechanicalservices\.co\.uk$/.test(location.hostname); }
+    catch(e){ return false; }
+  }
+
+  loadAnalytics(){
+    if(document.getElementById('ga4-tag')) return;
+    if(this.cookieChoice() !== 'yes') return;
+    if(!this.gaEligible()) return;
+
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){ dataLayer.push(arguments); }
+    window.gtag = window.gtag || gtag;
+    // Denied first, granted second — in that order, and both before the script
+    // arrives. Consent Mode reads whatever is on the layer when the tag boots.
+    gtag('consent', 'default', {
+      ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+      analytics_storage: 'denied',
+    });
+    gtag('consent', 'update', { analytics_storage: 'granted' });
+    gtag('js', new Date());
+    gtag('config', 'G-WWV1589E8R', { anonymize_ip: true });
+
+    const el = document.createElement('script');
+    el.id = 'ga4-tag'; el.async = true;
+    el.src = 'https://www.googletagmanager.com/gtag/js?id=G-WWV1589E8R';
+    document.head.appendChild(el);
   }
 
   componentDidMount(){
@@ -1199,9 +1252,16 @@ class Component extends DCLogic {
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);
     setTimeout(()=>{
-      if(this.cookieChoice()==='yes') this.loadHubSpot();
-      // Ask only if the site actually has analytics to ask about.
-      else if(!this.cookieChoice() && this.hasServer()){
+      if(this.cookieChoice()==='yes'){ this.loadHubSpot(); this.loadAnalytics(); }
+      /*
+       * Ask only if the site actually has analytics to ask about — but ask if
+       * there is ANY of it. This used to depend on HubSpot alone, so adding
+       * Google Analytics to a site with no CRM configured would have meant a
+       * tag nobody was ever offered, and therefore a tag that never loaded.
+       */
+      else if(!this.cookieChoice()){
+        if(this.gaEligible()){ this.setState({cookieBanner:true}); return; }
+        if(!this.hasServer()) return;
         fetch(this.apiBase()+'/api/crm-config').then(r=>r.ok?r.json():null).then(d=>{
           if(d && d.portalId) this.setState({cookieBanner:true});
         }).catch(()=>{});

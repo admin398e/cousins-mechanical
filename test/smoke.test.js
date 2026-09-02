@@ -2823,6 +2823,33 @@ try {
     assert.ok(/cookieChoice\(\)\s*!==\s*'yes'/.test(html), 'the loader is not gated on a recorded choice');
     assert.ok(/rejectCookies/.test(html) && /acceptCookies/.test(html), 'the banner has no reject option');
     assert.ok(/cms_cookie_consent/.test(html), 'no consent value is stored');
+
+    /*
+     * Google Analytics, on the same terms. The snippet Google hands you loads
+     * on page one and sets its cookies before anyone has been asked anything —
+     * which is exactly what the banner on this site promises does not happen.
+     */
+    assert.ok(!/<script[^>]+src=["']?[^"'>]*googletagmanager\.com/.test(html),
+      'the Google tag is embedded as an unconditional script tag — it would set cookies before the visitor is asked');
+    // The DEFINITION, not the first mention: the call site appears earlier, and
+    // slicing from that read the wrong 1600 characters entirely.
+    const at = html.indexOf('loadAnalytics(){');
+    assert.ok(at > 0, 'there is no analytics loader to check');
+    const ga = html.slice(at, at + 1800);
+    assert.ok(/cookieChoice\(\)\s*!==\s*'yes'/.test(ga), 'the Google tag is not gated on a recorded choice');
+    assert.ok(/analytics_storage:\s*'denied'/.test(ga) && /'consent',\s*'default'/.test(ga),
+      'Consent Mode does not default to denied before the tag loads');
+    assert.ok(ga.indexOf("'default'") < ga.indexOf("'update'"),
+      'consent is granted before it is denied — the order is what makes the default mean anything');
+
+    // And the CSP has to allow it, or the tag is blocked and quietly measures
+    // nothing while appearing to be installed.
+    const head = await api('/');
+    const policy = head.headers.get('content-security-policy') || '';
+    assert.ok(/script-src[^;]*googletagmanager\.com/.test(policy),
+      'the CSP blocks the Google tag, so it would collect nothing');
+    assert.ok(/connect-src[^;]*google-analytics\.com/.test(policy),
+      'the CSP blocks the analytics beacon, so hits would never arrive');
   });
 
   /* -------------------------------------------------------------------
@@ -2961,6 +2988,10 @@ try {
   await check('the cookie notice describes the analytics cookies by name', async () => {
     const html = await (await api('/cookies.html')).text();
     assert.ok(/hubspotutk/.test(html), 'the HubSpot cookies are not named');
+    // Anything that sets a cookie has to be in the table. A notice that lists
+    // some of them is worse than one that lists none — it reads as complete.
+    assert.ok(/_ga/.test(html) && /Google Analytics/.test(html),
+      'Google Analytics sets cookies but is not named in the notice');
     assert.ok(/Turnstile/i.test(html), 'the security cookie is not described');
     assert.ok(/Reject/.test(html), 'the notice does not mention the reject option');
   });

@@ -196,12 +196,12 @@ function corsFor(request, env) {
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://cdn.jsdelivr.net",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://www.googletagmanager.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://cdn.jsdelivr.net",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com https://*.hubspot.com https://*.hsforms.com https://track.hubspot.com",
+  "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com https://*.tile.openstreetmap.org https://unpkg.com https://*.hubspot.com https://*.hsforms.com https://track.hubspot.com",
   // jsdelivr serves the WebAssembly the Lottie player fetches at runtime.
-  "connect-src 'self' https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host https://cdn.jsdelivr.net",
+  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host https://cdn.jsdelivr.net",
   "frame-src 'self' https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com",
   "object-src 'none'",
   "base-uri 'self'",
