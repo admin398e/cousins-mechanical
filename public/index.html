@@ -1291,6 +1291,17 @@ class Component extends DCLogic {
       if(t){ const ref=decodeURIComponent(t[1]); this.startTracking(ref);
         setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 300); }
     }catch(e){}
+    /*
+     * #book — open the booking form on arrival.
+     *
+     * Google Business Profile's "Bookings" field, the Maps "Book online"
+     * button and every ad or QR code want ONE url that lands on the form. The
+     * form only ever opened from a button inside the page, so the only link
+     * that could be given out was the homepage — which drops somebody who came
+     * to book at the top of a marketing page to go and find the button. That
+     * is a click lost at exactly the point the customer had already decided.
+     */
+    try{ if(/(^|[#&])book(=1)?\b/.test(location.hash||'')) setTimeout(()=>this.openBook(), 150); }catch(e){}
     setTimeout(()=>this.loadSizes(), 60);
     this._tick = setInterval(()=>this.setState({now:Date.now()}), 1000);
     setTimeout(()=>this.showMobCta(), 60);

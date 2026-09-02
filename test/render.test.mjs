@@ -334,6 +334,45 @@ async function checkGuestTracking() {
   console.log('  PASS  guest tracking unlocks with a texted code');
   return 0;
 }
+/*
+ * #book — the one url that can be given to Google, Maps, an ad or a QR code.
+ *
+ * The booking form only ever opened from a button inside the page, so the only
+ * link that could be handed out was the homepage. Somebody who arrived having
+ * already decided to book landed at the top of a marketing page to go and find
+ * the button.
+ */
+async function checkBookDeepLink() {
+  const problems = [];
+  const page = await browser.newPage();
+  page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await page.goto(BASE + '/#book', { waitUntil: 'networkidle', timeout: 45000 });
+  await page.waitForTimeout(1800);
+  const t = await page.evaluate(() => document.body.innerText || '');
+  if (!/What do you need/.test(t)) problems.push('#book did not open the booking form');
+
+  // And the plain homepage must NOT open it — a form in the face of somebody
+  // who came to read about the business is worse than the missing link was.
+  const plain = await browser.newPage();
+  await plain.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await plain.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 45000 });
+  await plain.waitForTimeout(1500);
+  const pt = await plain.evaluate(() => document.body.innerText || '');
+  if (/What do you need/.test(pt)) problems.push('the booking form opens on the plain homepage too');
+  await plain.close();
+
+  await page.close();
+  if (problems.length) { console.log('  FAIL  the #book deep link'); problems.forEach(x => console.log('          ' + x)); return 1; }
+  console.log('  PASS  #book opens the booking form, / does not');
+  return 0;
+}
+failed += await checkBookDeepLink().catch(e => {
+  console.log('  FAIL  the #book deep link');
+  console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
+  return 1;
+});
+
 failed += await checkGuestTracking().catch(e => {
   console.log('  FAIL  guest tracking');
   console.log('          the check itself blew up: ' + String(e.message).split('\n')[0]);
