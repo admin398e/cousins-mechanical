@@ -4196,6 +4196,31 @@ async function processTyreStockForOrder(env, order) {
       updates: [{ t: Date.now(), s: "Booking confirmed", d: "We have your job — you will get a message when the van is on the way." }],
     };
 
+    /*
+     * The date has to be a real date, in the window we actually work in.
+     *
+     * It was taken as free text and stored as typed. A mistyped year produced
+     * a booking for 31 July 2027 that was confirmed by email and by text, held
+     * a slot, and sat in the diary looking like this month because the year was
+     * never displayed. The picker now has min/max attributes, but a form
+     * attribute is a courtesy to the browser — this is the part that decides.
+     */
+    if (order.date) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(order.date)) {
+        return bad("That date is not one we can read. Please pick it from the calendar.", 400);
+      }
+      const when = new Date(order.date + "T12:00:00Z");
+      if (isNaN(when)) return bad("That date does not exist. Please pick it from the calendar.", 400);
+      // Yesterday is allowed through: somebody booking at 00:05 in London is
+      // still "today" in UTC terms, and refusing them would be baffling.
+      const floor = new Date(Date.now() - 36 * 3600 * 1000);
+      const ceiling = new Date(Date.now() + 366 * 24 * 3600 * 1000);
+      if (when < floor) return bad("That date has already passed — please pick a day from today onwards.", 400);
+      if (when > ceiling) {
+        return bad("We only take bookings up to a year ahead. Please check the year and pick a nearer date.", 400);
+      }
+    }
+
     // ---------------------------------------------------------------------
     // PERSIST FIRST. Everything else here (stock allocation, calendar invite,
     // emails, owner alerts) is optional and must never be able to stop a

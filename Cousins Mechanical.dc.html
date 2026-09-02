@@ -689,7 +689,7 @@
             </div>
             <div style="display:flex;gap:10px">
               <div style="flex:1"><label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Date</label>
-                <input type="date" value="{{ book.date }}" onInput="{{ setBookDate }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px"/></div>
+                <input type="date" value="{{ book.date }}" onInput="{{ setBookDate }}" min="{{ bookDateMin }}" max="{{ bookDateMax }}" style="width:100%;border:1.5px solid #ddd4cb;border-radius:10px;padding:12px 14px;font-size:15px"/></div>
             </div>
             <div>
               <label style="display:block;font-weight:700;color:#1c1817;font-size:13.5px;margin-bottom:6px">Preferred time</label>
@@ -2060,14 +2060,36 @@ class Component extends DCLogic {
   }
   // Rough distance-based ETA from the depot, used when there's no live driver GPS
   haversine(a, b){ const R=3958.8, toR=x=>x*Math.PI/180; const dLat=toR(b[0]-a[0]), dLng=toR(b[1]-a[1]); const s=Math.sin(dLat/2)**2+Math.cos(toR(a[0]))*Math.cos(toR(b[0]))*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
+  /*
+   * An arrival estimate, only when there is something to estimate.
+   *
+   * This used to measure from the depot to the BROWSER's location and show the
+   * answer whatever the date. A test booking for 2027, opened on a connection
+   * that placed the browser in another country, displayed "Estimated arrival
+   * ~8430 min · about 3509.1 miles from us" — a fabricated number, on a job
+   * that was two years away, presented to somebody who might be stranded.
+   *
+   * Two rules now. Nothing is estimated unless the job is TODAY and Simon has
+   * marked it on the way; before that the customer sees the slot they booked,
+   * which is the only thing anybody actually knows. And a distance outside the
+   * working area is not turned into a time — it means the browser is somewhere
+   * other than the job, so it says so instead of inventing minutes.
+   */
   updateEstimate(){
     if(this._useLive || !this._cust) return;
     const depot=[50.7332,-2.7594];
     const miles=this.haversine(depot, this._cust);
+    // Bridport to the far edge of the patch is under 40 miles. Beyond that the
+    // browser is not where the job is, so there is nothing honest to say.
+    if(!(miles >= 0) || miles > 60){
+      this._estMin = null;
+      this.setState({ eta:null, distance:null, estimate:false, estimateOffPatch:true });
+      return;
+    }
     // ~2.4 min/mile on local roads + 8 min prep/dispatch buffer
     const est=Math.max(8, Math.round(miles*2.4 + 8));
     this._estMin = est;
-    this.setState({ eta:est, distance:miles.toFixed(1), estimate:true });
+    this.setState({ eta:est, distance:miles.toFixed(1), estimate:true, estimateOffPatch:false });
   }
   startTracking(ref){
     this.setState({trackRef:ref});
@@ -2183,7 +2205,24 @@ class Component extends DCLogic {
       ? compact.slice(0, -3) + ' ' + compact.slice(-3)
       : raw;
   }
-  fmtDate(s){ if(!s) return 'TBC'; try{ return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return s; } }
+  /*
+   * The year is shown whenever it is not this one.
+   *
+   * A booking for 31 July 2027 read "Sat 31 Jul" — indistinguishable from this
+   * month at a glance, in the confirmation, the diary and the tracker alike.
+   * That is how a test booking two years out got made and confirmed without
+   * anybody noticing the year.
+   */
+  fmtDate(s){
+    if(!s) return 'TBC';
+    try{
+      const d = new Date(s);
+      if(isNaN(d)) return s;
+      const opts = { weekday:'short', day:'numeric', month:'short' };
+      if(d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+      return d.toLocaleDateString('en-GB', opts);
+    }catch(e){ return s; }
+  }
 
   renderVals(){
     const s = this.state;
@@ -2202,6 +2241,10 @@ class Component extends DCLogic {
     // tracking derived
     const active_order = s.orders.find(o=>o.ref===s.trackRef);
     const hasTrack = !!active_order && active_order.status!=='cancelled';
+    // An ETA means nothing until the van moves. "enroute" is the status Simon
+    // sets when he sets off; "arrived" is after. Anything else is a booking in
+    // the diary, however soon it is.
+    const enRoute = hasTrack && (active_order.status === 'enroute' || active_order.status === 'arrived');
     // collapse consecutive duplicate status entries so stale data never shows repeats
     const rawUps = hasTrack ? (active_order.updates||[]).filter((u,i,arr)=> i===0 || u.s!==arr[i-1].s) : [];
     const feed = [...rawUps].reverse();
@@ -2294,6 +2337,17 @@ class Component extends DCLogic {
       otherNoteHint: s.otherNoteErr
         || 'A sentence is plenty — it tells us what to bring, and it is what Simon reads before setting off.',
       otherNoteHintStyle: 'font-size:12.5px;margin-top:6px;line-height:1.45;color:' + (s.otherNoteErr ? '#c2410c' : '#8a817b'),
+      /*
+       * Bounds on the date picker.
+       *
+       * There were none, so a mistyped year sailed through: a test booking was
+       * taken for 31 July 2027, confirmed by email and text, and sat in the
+       * diary looking like this month because the year was not displayed
+       * anywhere. Nobody books a mobile mechanic two years out, and nobody
+       * books one for last week.
+       */
+      bookDateMin: new Date().toISOString().slice(0,10),
+      bookDateMax: (() => { const d = new Date(); d.setMonth(d.getMonth() + 12); return d.toISOString().slice(0,10); })(),
       step1:s.bookStep===1&&!s.bookDone, step2:s.bookStep===2&&!s.bookDone, step3:s.bookStep===3&&!s.bookDone,
       stepBars:bars, serviceChoices, book:s.book, locHint:s.locHint,
       setBookReg:this.setBookReg, setBookPostcode:this.setBookPostcode, setBookDate:this.setBookDate, setBookTime:this.setBookTime,
@@ -2423,9 +2477,32 @@ class Component extends DCLogic {
       setEditDate:this.setEditDate, setEditTime:this.setEditTime, setEditNotes:this.setEditNotes,
       // tracking
       setMapEl:this.setMapEl, hasTrack, noTrack:!hasTrack, trackFeed,
-      trackHeadline: hasTrack? (active_order.status==='arrived'?'Your mechanic has arrived':(s.estimate?'Estimated arrival':'Cousins van en route')) : 'No active job',
-      trackSub: hasTrack? (s.estimate? ('Ref '+active_order.ref+' · about '+s.distance+' miles from us') : ('Ref '+active_order.ref+' · '+s.distance+' miles away · live')) : 'Book a job to track live',
-      etaText: hasTrack ? (active_order.status==='arrived'?'Here':((s.estimate?'~':'')+s.eta+' min')) : '—',
+      /*
+       * What the tracker says, and when it is allowed to say a time.
+       *
+       * A number here is a promise to somebody who may be at the roadside, so
+       * it is only shown when the van is actually on the way. Until then the
+       * customer sees the slot they booked — the one thing that is true.
+       */
+      trackHeadline: !hasTrack ? 'No active job'
+        : active_order.status === 'arrived' ? 'Your mechanic has arrived'
+        : !enRoute ? 'Booked in'
+        : s.estimate ? 'Estimated arrival'
+        : 'Cousins van en route',
+      trackSub: !hasTrack ? 'Book a job to follow your mechanic here.'
+        : !enRoute
+          ? ('Ref ' + active_order.ref + ' · ' + this.fmtDate(active_order.date)
+             + (active_order.time ? ' · ' + active_order.time : '')
+             + ' — we will text you when the van sets off.')
+        : s.estimateOffPatch
+          ? ('Ref ' + active_order.ref + ' · on the way — we will text you when we are close.')
+        : s.estimate
+          ? ('Ref ' + active_order.ref + ' · about ' + s.distance + ' miles from us')
+          : ('Ref ' + active_order.ref + ' · ' + s.distance + ' miles away · live'),
+      etaText: !hasTrack ? '—'
+        : active_order.status === 'arrived' ? 'Here'
+        : !enRoute || s.eta == null ? 'On the day'
+        : ((s.estimate ? '~' : '') + s.eta + ' min'),
       trackBadge: hasTrack ? (statusMap[active_order.status]||['LIVE','#e8791a'])[0] : 'IDLE',
       trackBadgeStyle: 'font-family:\'Barlow Condensed\';font-weight:800;font-size:12px;letter-spacing:.06em;color:#fff;border-radius:6px;padding:4px 10px;background:'+(hasTrack?(statusMap[active_order.status]||['','#e8791a'])[1]:'#b3aaa3'),
       trackRefLabel: hasTrack ? ('Reference '+active_order.ref+' · '+(active_order.svcLabel||'Mobile job')) : 'Live map, ETA and SMS-style updates',

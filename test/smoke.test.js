@@ -10,6 +10,20 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { capSizeInversions } from '../tyre-data.js';
 import { BUSINESS } from '../business.js';
+
+/*
+ * A date a few days out, computed rather than typed.
+ *
+ * These were hard-coded ("2026-09-01"), which is a time bomb: the moment the
+ * calendar passed them they became bookings in the past. Adding the server-side
+ * date guard set it off — six tests failed on dates that were fine when they
+ * were written and are now history.
+ */
+const soonISO = (days = 5) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 import { qrMatrix, qrSvgDataUri } from '../worker.js';
 
 const PORT = 3799;
@@ -425,7 +439,7 @@ try {
   await check('a booking can be created and read back', async () => {
     const r = await postJson('/api/bookings', {
       svc: 'tyre', svcLabel: 'Tyre fitting — test', reg: 'AB12CDE',
-      postcode: 'DT6 3QP', date: '2026-09-01', notes: 'smoke test booking',
+      postcode: 'DT6 3QP', date: soonISO(5), notes: 'smoke test booking',
     }, { authorization: 'Bearer ' + customerToken });
     const d = await r.json();
     assert.equal(r.status, 200, `booking failed: ${JSON.stringify(d)}`);
@@ -682,7 +696,7 @@ try {
   await check('a website booking reaches the admin dashboard', async () => {
     const r = await postJson('/api/service-requests', {
       name: 'Smoke Booker', phone: '07900555111', email: `booker-${Date.now()}@example.com`,
-      reg: 'KM16GLY', postcode: 'dt64lb', date: '2026-08-21', time: 'Afternoon (12-5)',
+      reg: 'KM16GLY', postcode: 'dt64lb', date: soonISO(6), time: 'Afternoon (12-5)',
       service: 'recovery', svcLabel: 'Breakdown / recovery',
     });
     assert.equal(r.status, 200);
@@ -1004,6 +1018,49 @@ try {
     assert.equal(anon.status, 403, `the diary is readable without a session (${anon.status})`);
   });
 
+  await check('a booking cannot be taken for a date nobody meant', async () => {
+    /*
+     * The date was free text, stored as typed. A mistyped year produced a
+     * booking for 31 July 2027 that was confirmed by email and by text, held a
+     * slot, and sat in the diary looking like this month because the year was
+     * never shown. The picker has min/max now, but a form attribute is a
+     * courtesy to the browser — anyone can POST past it.
+     */
+    const base = {
+      service: 'tyre', svcLabel: 'Tyre fitting', reg: 'DATE1', postcode: 'DT6 3QP',
+      time: '10:00', name: 'Date Tester', phone: '07700900111', email: 'date-test@example.com',
+      status: 'confirmed',
+    };
+    const far = new Date(); far.setFullYear(far.getFullYear() + 2);
+    const past = new Date(); past.setFullYear(past.getFullYear() - 1);
+
+    // Each attempt from its own address. The write limiter is 20 per IP per
+    // minute and is correct production behaviour — five bookings from one
+    // address here starved a later test instead of testing anything.
+    let ip = 0;
+    const tryDate = (date) => api('/api/service-requests', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.' + (++ip) },
+      body: JSON.stringify({ ...base, date }),
+    });
+
+    for (const [date, why] of [
+      [far.toISOString().slice(0, 10), 'two years ahead'],
+      [past.toISOString().slice(0, 10), 'a year in the past'],
+      ['2026-13-45', 'a month and day that do not exist'],
+      ['next tuesday', 'not a date at all'],
+    ]) {
+      const r = await tryDate(date);
+      assert.equal(r.status, 400, `a booking ${why} (${date}) was accepted`);
+      const d = await r.json();
+      assert.ok((d.error || '').length > 10, `the refusal of ${date} does not explain itself`);
+    }
+
+    // And a sensible date still works, or the guard has eaten the feature.
+    const ok = await tryDate(soonISO(5));
+    assert.equal(ok.status, 200, `a booking five days out was refused: ${await ok.text()}`);
+  });
+
   await check('the metered third-party proxies are not open to the world', async () => {
     // These bill the client per call. Nothing on the public site uses them, so
     // open access was pure liability: anyone could run the quota to zero.
@@ -1274,10 +1331,10 @@ try {
 
     const patched = await api(`/api/bookings/${ref}`, {
       method: 'PATCH', headers: h,
-      body: JSON.stringify({ date: '2026-09-01', paidPence: 20000, payments: [{ kind: 'payment', pence: 20000 }], status: 'complete' }),
+      body: JSON.stringify({ date: soonISO(5), paidPence: 20000, payments: [{ kind: 'payment', pence: 20000 }], status: 'complete' }),
     });
     const job = (await patched.json()).booking;
-    assert.equal(job.date, '2026-09-01', 'a legitimate amendment was refused');
+    assert.equal(job.date, soonISO(5), 'a legitimate amendment was refused');
     assert.equal(job.paidPence, undefined, 'a customer marked their own job paid');
     assert.equal(job.payments, undefined, 'a customer wrote their own payment records');
     assert.notEqual(job.status, 'complete', 'a customer set their own job status');
@@ -1286,7 +1343,7 @@ try {
   await check('calendar invites cannot be sent by an anonymous caller', async () => {
     // Ungated, this sent a real Google invite FROM the business account to any
     // address the caller chose.
-    const r = await postJson('/api/calendar/add-event', { date: '2026-09-01', name: 'Spam', customerEmail: 'target@example.com' });
+    const r = await postJson('/api/calendar/add-event', { date: soonISO(5), name: 'Spam', customerEmail: 'target@example.com' });
     assert.equal(r.status, 403, `calendar event creation is open to the world (status ${r.status})`);
   });
 
@@ -1552,7 +1609,7 @@ try {
     const vars = {
       subject: 'Test', preheader: 'Test preheader', firstname: 'Josh',
       booking_ref: 'CMS-TEST1', service: 'Tyre fitting', vehicle_reg: 'KM16GLY',
-      booking_date: '2026-08-21', booking_time: 'Afternoon (12-5)', booking_location: 'DT6 4LB',
+      booking_date: soonISO(6), booking_time: 'Afternoon (12-5)', booking_location: 'DT6 4LB',
       manage_booking_url: 'https://cousinsmechanicalservices.co.uk/#track=CMS-TEST1',
       amount: '245.00',
     };
@@ -2577,7 +2634,7 @@ try {
     const em = `delivery-${Date.now()}@example.com`;
     const r = await postJson('/api/service-requests', {
       name: 'Delivery Check', phone: '07900000900', email: em,
-      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ', date: '2026-09-01', time: 'Morning (8-12)',
+      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ', date: soonISO(5), time: 'Morning (8-12)',
     });
     assert.equal(r.status, 200);
     const { ref } = await r.json();
@@ -2635,7 +2692,7 @@ try {
     const r = await postJson('/api/service-requests', {
       name: 'Renée O\u2019Brien', phone: '07900000910', email: em,
       service: 'tyre', svcLabel: 'Tyre fitting — mobile',
-      postcode: 'DT6 5NJ', date: '2026-09-02', time: 'Morning (8-12)',
+      postcode: 'DT6 5NJ', date: soonISO(7), time: 'Morning (8-12)',
       notes: 'Curly quote \u201Cparked round the back\u201D and a £ sign.',
     });
     assert.equal(r.status, 200);
