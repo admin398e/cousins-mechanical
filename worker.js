@@ -7709,6 +7709,31 @@ export default {
       }
     }
 
+    /*
+     * One permanent home per page.
+     *
+     * Cloudflare's asset handling already redirects /terms.html to /terms — but
+     * with a 307, which means "temporary, keep asking". Search Console files
+     * every one of those under "Page with redirect" and holds on to the old
+     * URL indefinitely, because a temporary redirect is a promise the original
+     * might come back. These are not coming back: the site has served
+     * extensionless URLs for as long as it has existed, and the sitemap, the
+     * canonical tags and every internal link now agree on them.
+     *
+     * So the Worker answers first, with a 301. That is the signal that lets
+     * Google consolidate the two and drop the .html form for good.
+     */
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname.endsWith(".html")) {
+      const to = new URL(url.toString());
+      to.pathname = url.pathname === "/index.html"
+        ? "/"
+        : url.pathname.slice(0, -".html".length);
+      return new Response(null, {
+        status: 301,
+        headers: { location: to.toString(), "cache-control": "public, max-age=3600" },
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       try {
         return await api(request, env, url, ctx);
@@ -7793,7 +7818,20 @@ export default {
       const headers = new Headers(res.headers);
       for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
       headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-      if (url.hostname.split(".")[0] === "admin") headers.set("X-Robots-Tag", "noindex, nofollow");
+      /*
+       * The staff pages, kept out of the index by the tag that actually does it.
+       *
+       * They were kept out by robots.txt alone, which only stops the fetch —
+       * and a page Google may not fetch is a page whose noindex Google cannot
+       * read, so it sat in "Blocked by robots.txt" indefinitely instead of
+       * being dropped. The block is gone from robots.txt and the header is set
+       * here, on every hostname rather than only the admin subdomain, because
+       * /admin and /driver are reachable on the apex too.
+       */
+      const staffPath = /^\/(admin|driver)(\.html)?(\/|$)/.test(url.pathname);
+      if (staffPath || url.hostname.split(".")[0] === "admin") {
+        headers.set("X-Robots-Tag", "noindex, nofollow");
+      }
       return new Response(res.body, {
         status: named404 && res.status === 200 ? 404 : res.status,
         statusText: res.statusText,

@@ -3377,11 +3377,70 @@ try {
     }
   });
 
-  await check('robots.txt blocks un-hydrated template tokens and API paths', async () => {
+  await check('robots.txt blocks the API, and nothing that merely does not exist', async () => {
+    /*
+     * A Disallow on a URL that does not exist is permanent. The crawler is
+     * told not to look, so it never learns the page is gone, and Search
+     * Console files it under "Blocked by robots.txt" for good. A 404 clears
+     * itself and needs nobody to remember it.
+     *
+     * Eleven rules used to sit here for paths that all answer 404. Every one
+     * was a page Google was forbidden to check and could therefore never drop.
+     */
     const txt = await (await api('/robots.txt')).text();
-    for (const rule of ['Disallow: /*{{', 'Disallow: /bookings', 'Disallow: /messages', 'Disallow: /track']) {
-      assert.ok(txt.includes(rule), `robots.txt missing "${rule}"`);
+    assert.ok(/^Disallow: \/api$/m.test(txt), 'the API is no longer blocked — its responses are not pages');
+    assert.ok(/Sitemap: https:\/\/cousinsmechanicalservices\.co\.uk\/sitemap\.xml/.test(txt),
+      'robots.txt does not point at the sitemap');
+
+    // Rules for things that are not there. Each of these is checked live: if a
+    // path 404s, blocking it only stops Google finding that out.
+    for (const gone of ['/ukvd', '/v1/', '/bookings', '/messages', '/track', '/notify',
+                        '/service-requests', '/pricingworkout.html', '/tyre_finder.html',
+                        '/ctyres_catalogue.html', '/*{{', '/*%7B%7B']) {
+      assert.ok(!txt.includes('Disallow: ' + gone),
+        `robots.txt still blocks ${gone}, which does not exist — so Google can never drop it`);
     }
+
+    // The staff portals are removed from here on purpose: a page Google may
+    // not fetch is a page whose noindex Google cannot read.
+    assert.ok(!/Disallow: \/admin/.test(txt) && !/Disallow: \/driver/.test(txt),
+      'the staff pages are blocked in robots.txt, which stops Google reading the noindex that would actually remove them');
+  });
+
+  await check('dev serves the authored page, not yesterday\'s build', async () => {
+    /*
+     * This server exists to serve the AUTHORED .dc.html so an edit shows up on
+     * refresh. Adding `extensions: ['html']` to express.static for the legal
+     * pages quietly took that away: registered before the routes, it answered
+     * /admin from public/admin.html and the route never ran. Both return a
+     * working page, so nothing looked wrong — an edit just did nothing until
+     * the next build, and the noindex header stopped being sent with it.
+     */
+    const authored = (await import('node:fs')).readFileSync;
+    for (const [path, file] of [['/', 'Cousins Mechanical.dc.html'], ['/admin', 'Cousins Admin.dc.html'], ['/driver', 'Cousins Driver.dc.html']]) {
+      const served = await (await api(path)).text();
+      const src = authored(new URL('../' + file, import.meta.url), 'utf8');
+      // A marker that only ever exists in the authored file: the build strips
+      // the placeholder hints the editor uses.
+      const marker = (src.match(/hint-placeholder-count="\d+"/) || [])[0];
+      if (!marker) continue;
+      assert.ok(served.includes(marker),
+        `${path} is being served from public/, not from ${file} — editing the source would do nothing`);
+    }
+  });
+
+  await check('the staff pages carry the tag that actually removes them from the index', async () => {
+    // robots.txt only stops the fetch. noindex is what drops a page — and it
+    // has to be readable, which means the page must be crawlable.
+    for (const path of ['/admin', '/driver']) {
+      const r = await api(path);
+      const tag = r.headers.get('x-robots-tag') || '';
+      assert.ok(/noindex/.test(tag), `${path} does not send X-Robots-Tag: noindex (got "${tag}")`);
+    }
+    // And a normal page must NOT carry it, or the site would deindex itself.
+    const home = await api('/');
+    assert.ok(!/noindex/.test(home.headers.get('x-robots-tag') || ''),
+      'the home page is telling Google not to index it');
   });
 
   await check('a branded 404 page exists and offers a way back', async () => {

@@ -308,6 +308,64 @@ await check('Google has a favicon it will actually use', async () => {
   }
 });
 
+await check('every old URL points permanently at the new one', async () => {
+  /*
+   * Search Console had five reasons pages were not indexed. Four of them were
+   * one problem wearing different hats: the same page reachable at more than
+   * one address, with the signals disagreeing about which was real.
+   *
+   * The .html forms redirect — but they used to do it with a 307, which means
+   * "temporary, keep asking", so Google held the old URL indefinitely. A 301
+   * is what lets it consolidate and forget.
+   */
+  for (const [from, to] of [
+    ['/index.html', '/'],
+    ['/terms.html', '/terms'],
+    ['/privacy.html', '/privacy'],
+    ['/cookies.html', '/cookies'],
+    ['/accessibility.html', '/accessibility'],
+  ]) {
+    const r = await fetch(BASE + from, { redirect: 'manual' });
+    assert(r.status === 301, `${from} answers ${r.status}, not a permanent redirect`);
+    assert(r.headers.get('location') === BASE + to, `${from} -> ${r.headers.get('location')}, expected ${BASE + to}`);
+  }
+
+  // And the canonical URLs each claim themselves, or the redirect is pointing
+  // at a page that disowns it.
+  for (const path of ['/', '/terms', '/privacy', '/cookies', '/accessibility']) {
+    const html = await (await get(BASE + path)).text();
+    const canon = (html.match(/<link rel="canonical" href="([^"]+)"/) || [])[1];
+    assert(canon === BASE + path, `${path} declares its canonical as ${canon}`);
+  }
+});
+
+await check('nothing is blocked from crawling that simply does not exist', async () => {
+  /*
+   * A Disallow on a URL that 404s is permanent: the crawler is told not to
+   * look, so it never learns the page is gone. Eleven such rules were the bulk
+   * of the "Blocked by robots.txt" count.
+   */
+  const txt = await (await get(BASE + '/robots.txt')).text();
+  const blocked = [...txt.matchAll(/^Disallow:\s*(\S+)/gm)].map(m => m[1])
+    .filter(p => p !== '/' && !p.includes('*'));
+  for (const path of blocked) {
+    if (path.startsWith('/api')) continue;          // real endpoints, correctly blocked
+    const r = await get(BASE + path);
+    assert(r.status !== 404,
+      `robots.txt blocks ${path}, which answers 404 — Google can never find that out, so it stays in the report for good`);
+  }
+
+  // The staff pages must be crawlable AND noindex: robots.txt only stops the
+  // fetch, and a page Google cannot fetch is one whose noindex it cannot read.
+  for (const path of ['/admin', '/driver']) {
+    assert(!new RegExp('^Disallow:\\s*' + path + '$', 'm').test(txt),
+      `${path} is blocked in robots.txt, which stops Google reading the noindex that would remove it`);
+    const r = await get(BASE + path);
+    assert(/noindex/.test(r.headers.get('x-robots-tag') || ''),
+      `${path} is crawlable but sends no noindex — it could be indexed`);
+  }
+});
+
 await check('an unknown URL is a 404, not a 200', async () => {
   const r = await get(BASE + '/definitely-not-a-real-page-xyz');
   assert(r.status === 404, `returned ${r.status}`);

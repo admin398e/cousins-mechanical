@@ -236,28 +236,37 @@ app.use((req, res, next) => {
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 /*
- * `extensions: ['html']` mirrors Cloudflare's asset handling, which serves
- * /terms from public/terms.html. Without it, dev 404s on exactly the URLs the
- * sitemap and the canonical tags point at, while production serves them fine —
- * the same class of dev/prod gap as the branded 404 below.
- */
-app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
-
-/*
  * Dev serves the AUTHORED .dc.html so editing is live, but it must serve it
  * through the same transform the build applies — otherwise what you test here
  * is not what ships, which is exactly how the placeholder <img src="{{ ... }}">
  * 404s survived every local check and only showed up in production.
  */
-const page = file => (req, res) => {
+const page = (file, opts) => (req, res) => {
   const authored = path.join(__dirname, file);
   if (!fs.existsSync(authored)) return res.status(404).send('Page not built — run `npm run build`');
+  // The staff pages are noindex in production, set by the Worker on the way
+  // out. Without the same header here, dev and prod disagree about the one
+  // thing that keeps the dashboard out of Google.
+  if (opts && opts.noindex) res.set('X-Robots-Tag', 'noindex, nofollow');
   const { out } = neutralisePlaceholderFetches(fs.readFileSync(authored, 'utf8'));
   res.type('html').send(out);
 };
 app.get(['/', '/index.html'], page('Cousins Mechanical.dc.html'));
-app.get(['/admin', '/admin.html'], page('Cousins Admin.dc.html'));
-app.get(['/driver', '/driver.html'], page('Cousins Driver.dc.html'));
+app.get(['/admin', '/admin.html'], page('Cousins Admin.dc.html', { noindex: true }));
+app.get(['/driver', '/driver.html'], page('Cousins Driver.dc.html', { noindex: true }));
+
+/*
+ * Static files come AFTER the three page routes, and that order matters.
+ *
+ * `extensions: ['html']` mirrors Cloudflare's asset handling, which serves
+ * /terms from public/terms.html — without it, dev 404s on exactly the URLs the
+ * sitemap and the canonical tags point at. But with the middleware registered
+ * first it also answered /admin from public/admin.html, so the routes above
+ * never ran: dev quietly stopped serving the AUTHORED .dc.html, which is the
+ * entire reason this server exists, and stopped sending the noindex header
+ * with it. Editing a .dc.html appeared to do nothing until the next build.
+ */
+app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
 /*
  * Serve the branded 404 for anything unmatched, which is what production does

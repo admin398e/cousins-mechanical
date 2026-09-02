@@ -2,39 +2,32 @@
 User-agent: *
 Allow: /
 
-# Staff-only areas — never index these
-Disallow: /admin
-Disallow: /admin.html
-Disallow: /driver
-Disallow: /driver.html
+# ---------------------------------------------------------------------------
+# What is deliberately NOT listed here, and why.
+#
+# A Disallow on a URL that does not exist is permanent. The crawler is told not
+# to look, so it never learns the page is gone, and Search Console files it
+# under "Blocked by robots.txt" for good. A 404 clears itself in a few weeks
+# and needs nobody to remember it.
+#
+# Eleven rules used to sit here for paths that all answer 404 — /ukvd, /v1/,
+# /bookings, /messages, /track, /notify, /service-requests, two old pricing
+# worksheets and the un-hydrated "{{ token }}" URLs the booking page used to
+# emit. Every one of them was a page Google was forbidden to check and could
+# therefore never drop. They are gone from this file so they can 404 and fall
+# out of the report.
+#
+# The staff portals are not blocked here either. Blocking them meant Google
+# could not read the noindex on them, which is the tag that actually removes a
+# page from the index; robots.txt only stops the fetch. They now answer with
+# X-Robots-Tag: noindex, nofollow, which is the instruction that works.
+# ---------------------------------------------------------------------------
 
-# API responses are not pages
+# The API is real, and its responses are not pages.
 Disallow: /api
 Disallow: /api/
-Disallow: /ukvd
-Disallow: /v1/
-Disallow: /bookings
-Disallow: /messages
-Disallow: /track
-Disallow: /notify
-Disallow: /service-requests
 
-# Un-hydrated template tokens: the pages are React-rendered, so a crawler that
-# reads the raw HTML before JS runs can follow a literal "{{ token }}" as a URL.
-# These are never real pages. (Seen in Search Console as /{{ waConfirm }}.)
-Disallow: /*{{
-Disallow: /*%7B%7B
-
-# The error page is NOT blocked here on purpose. /404 answers with a real 404
-# status now, and a 404 drops out of the index by itself; blocking it would
-# only stop Google seeing the status that tells it to.
-
-# Internal pricing worksheets
-Disallow: /pricingworkout.html
-Disallow: /tyre_finder.html
-Disallow: /ctyres_catalogue.html
-
-# Block the AI scrapers that ignore commercial value but keep Google/Bing
+# Block the AI scrapers that ignore commercial value, but keep Google and Bing.
 User-agent: GPTBot
 Disallow: /
 
