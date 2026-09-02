@@ -80,10 +80,19 @@
 </style>
 <!--
   What Google reads to understand the business: who it is, where it works, what
-  it does and when. "sameAs" is still empty — that array is how a website is
-  tied to a Google Business Profile and to social pages, so the Business
-  Profile share link belongs in it. Nothing has been guessed: an invented URL
-  in sameAs is worse than an empty one.
+  it does and when.
+
+  "sameAs" is how a website is tied to a Google Business Profile. Both entries
+  came from the profile itself — the ?cid= url is the canonical Maps listing
+  (cid 6979815216310135220, hex 0x60dd48f5660829b4, read off the place url) and
+  the share.google link is the one the profile's own Share button hands out.
+  Nothing here is guessed: an invented url in sameAs is worse than an empty
+  array, because it asserts an identity that is not ours.
+
+  "potentialAction" is the same booking url that is set as the Bookings link on
+  the Business Profile. They have to agree — a "Book online" button in Maps and
+  a different one in search results is how a customer ends up on a page that
+  does not open the form.
 -->
 <script type="application/ld+json">
 {
@@ -137,7 +146,25 @@
     { "@type": "ContactPoint", "telephone": "+447925340977", "contactType": "customer service", "areaServed": "GB", "availableLanguage": "English" },
     { "@type": "ContactPoint", "telephone": "+441308538046", "contactType": "customer service", "areaServed": "GB", "availableLanguage": "English" }
   ],
-  "sameAs": []
+  "hasMap": "https://maps.google.com/?cid=6979815216310135220",
+  "potentialAction": {
+    "@type": "ReserveAction",
+    "name": "Book a mobile mechanic",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "https://cousinsmechanicalservices.co.uk/#book",
+      "inLanguage": "en-GB",
+      "actionPlatform": [
+        "https://schema.org/DesktopWebPlatform",
+        "https://schema.org/MobileWebPlatform"
+      ]
+    },
+    "result": { "@type": "Reservation", "name": "Mobile mechanic booking" }
+  },
+  "sameAs": [
+    "https://maps.google.com/?cid=6979815216310135220",
+    "https://share.google/wKeTLPq1SHNBstQD9"
+  ]
 }
 </script>
 <script type="application/ld+json">

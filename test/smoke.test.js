@@ -3384,6 +3384,25 @@ try {
     assert.ok(phones.includes(BUSINESS.phoneHref) && phones.includes(BUSINESS.landlineHref),
       `the schema lists ${phones.join(', ')} but the site prints two numbers`);
 
+    /*
+     * sameAs is the tie between this website and the Google Business Profile,
+     * and it is the one field where a wrong value is worse than no value: it
+     * asserts that we ARE some other listing. So every entry has to be a
+     * Google-owned url, and the booking action has to point at the same place
+     * the Business Profile's own Bookings link does — a "Book online" button
+     * in Maps and a different one in search results is how somebody lands on a
+     * page that never opens the form.
+     */
+    const same = biz.sameAs || [];
+    assert.ok(same.length, 'sameAs is empty — nothing ties the site to the Business Profile');
+    for (const u of same) {
+      assert.match(u, /^https:\/\/(maps\.google\.com|share\.google|www\.google\.com)\//,
+        `sameAs contains a url that is not a Google profile: ${u}`);
+    }
+    const book = biz.potentialAction && biz.potentialAction.target && biz.potentialAction.target.urlTemplate;
+    assert.equal(book, BUSINESS.siteUrl.replace(/\/$/, '') + '/#book',
+      'the booking action does not point at the booking url');
+
     // Every area named in the schema should be somewhere a reader can see, or
     // it is a claim made only to a crawler.
     const visible = html.replace(/<script[\s\S]*?<\/script>/g, '');
