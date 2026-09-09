@@ -1,5 +1,5 @@
 /*
- * build-dpa.mjs — turn legal/data-processing-agreement.md into the two files a
+ * build-legal.mjs — turn each markdown source in legal/ into the two files a
  * client actually receives: the signable agreement, and the covering note that
  * explains it.
  *
@@ -15,9 +15,23 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
-const SRC = 'legal/data-processing-agreement.md';
-const out = process.argv[2] || 'legal/build';
+const DOCS = [
+  { src: 'legal/data-processing-agreement.md', slug: 'Cousins-DPA',
+    note: 'Data Processing Agreement — covering note', checkProvider: true },
+  { src: 'legal/services-agreement.md', slug: 'Cousins-services',
+    note: 'Website, Hosting and Marketing Agreement — covering note' },
+];
+
+const out = process.argv.find(a => !a.startsWith('--') && a !== process.argv[0]
+  && a !== process.argv[1]) || 'legal/build';
 mkdirSync(out, { recursive: true });
+
+let anyMismatch = false;
+for (const doc of DOCS) await build(doc);
+process.exit(anyMismatch ? 1 : 0);
+
+async function build({ src: SRC, slug, note, checkProvider }) {
+console.log(SRC);
 
 const src = readFileSync(SRC, 'utf8');
 const MARK = '<!-- AGREEMENT BEGINS -->';
@@ -49,6 +63,7 @@ if (holes.length) {
  * has to be built before the switch lands. What must not happen is building
  * through a mismatch without noticing.
  */
+if (checkProvider) {
 const PROVIDERS = ['stripe', 'sumup'];
 const named = PROVIDERS.filter(x => new RegExp(x, 'i').test(body));
 const health = await fetch('https://cousinsmechanicalservices.co.uk/api/health')
@@ -70,20 +85,22 @@ if (!health) {
     console.error('');
     console.error('    Re-run with --accept-provider-mismatch if this is intentional');
     console.error('    (drafted ahead of a switch that has not landed yet).');
-    process.exit(1);
+    anyMismatch = true;
+    return;
   }
   console.error('    --accept-provider-mismatch given; building anyway.');
   console.error('');
 } else {
   console.log(`  provider check: agreement and live system both say ${health}`);
 }
+}
 
 const title = front.slice(0, front.indexOf('## Covering note')).trim();
 
 const files = {
-  'Cousins-DPA-agreement': title + '\n\n---\n\n' + strip(body),
-  'Cousins-DPA-covering-note':
-    '# Data Processing Agreement — covering note\n\n'
+  [slug + '-agreement']: title + '\n\n---\n\n' + strip(body),
+  [slug + '-covering-note']:
+    '# ' + note + '\n\n'
     + '**Cousins Mechanical Services Ltd and Rockwell Consulting**\n\n'
     + strip(front.slice(front.indexOf('## Covering note')))
         .replace(/^## Covering note — not part of the agreement\n+/, ''),
@@ -98,4 +115,4 @@ for (const [name, md] of Object.entries(files)) {
     '--outdir', out, path.join(out, name + '.docx')], { stdio: 'ignore' });
   console.log('  ' + name + '.docx + .pdf');
 }
-console.log('Built into ' + out);
+}
