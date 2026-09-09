@@ -35,6 +35,49 @@ if (holes.length) {
   process.exit(1);
 }
 
+/*
+ * Does the agreement name the payment processor the live system actually uses?
+ *
+ * v1.1 said SumUp for weeks while the site took money through Stripe. Nothing
+ * caught it, because a contract is a document and nothing in the build had ever
+ * read one. Section 6 is the part that tells the ICO who handles Cousins'
+ * customers' payment data; if it and the running system disagree on the day of
+ * signature, the document misrepresents the arrangement it exists to record.
+ *
+ * Deliberately a WARNING and an explicit flag rather than a hard failure: there
+ * is a legitimate window where the agreement is drafted ahead of a switch and
+ * has to be built before the switch lands. What must not happen is building
+ * through a mismatch without noticing.
+ */
+const PROVIDERS = ['stripe', 'sumup'];
+const named = PROVIDERS.filter(x => new RegExp(x, 'i').test(body));
+const health = await fetch('https://cousinsmechanicalservices.co.uk/api/health')
+  .then(r => r.json()).then(d => d?.configured?.paymentProvider || '')
+  .catch(() => '');
+
+if (!health) {
+  console.warn('  ! could not reach /api/health — payment provider NOT verified');
+} else if (named.length !== 1 || named[0] !== health.toLowerCase()) {
+  const how = named.length === 1 ? `names ${named[0]}`
+    : named.length ? `names more than one (${named.join(', ')})` : 'names none of them';
+  console.error('');
+  console.error('  PAYMENT PROVIDER MISMATCH');
+  console.error(`    the agreement ${how}`);
+  console.error(`    the live system reports  ${health}`);
+  console.error('    Section 6 records who handles the customers\' payment data.');
+  console.error('    Do not put this in front of anyone to sign until they agree.');
+  if (!process.argv.includes('--accept-provider-mismatch')) {
+    console.error('');
+    console.error('    Re-run with --accept-provider-mismatch if this is intentional');
+    console.error('    (drafted ahead of a switch that has not landed yet).');
+    process.exit(1);
+  }
+  console.error('    --accept-provider-mismatch given; building anyway.');
+  console.error('');
+} else {
+  console.log(`  provider check: agreement and live system both say ${health}`);
+}
+
 const title = front.slice(0, front.indexOf('## Covering note')).trim();
 
 const files = {

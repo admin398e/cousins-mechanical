@@ -3,7 +3,7 @@
 **Cousins Mechanical Services Ltd (Controller) and Joshua Stone trading as
 Rockwell Consulting (Processor)**
 
-*Version 1.2 · 9 September 2026*
+*Version 1.3 · 9 September 2026*
 
 ---
 
@@ -57,8 +57,14 @@ England and Wales, company number 16045339, registered office 7 Watton Park,
 Bridport, DT6 5NJ ("Cousins").
 
 **The Processor:** Joshua Stone, a sole trader trading as **Rockwell
-Consulting**, of Flat 4, Pullman House, Axminster, Devon EX13 5DP ("the
+Consulting**, of 4 Pulman House, George Street, Axminster, Devon EX13 5DP ("the
 Supplier").
+
+The Supplier is registered with the Information Commissioner's Office under
+registration reference **ZB886964** (registered 9 April 2025, current to 8 April
+2027, payment tier 1). The register entry records both "Joshua Stone" and
+"Rockwell Consulting". The Supplier shall keep that registration current for the
+term of this agreement.
 
 Contact for notices under this agreement, including breach notification under
 section 4: admin@joshuastone.co.uk, 07404 515651.
@@ -100,14 +106,14 @@ staff who hold logins to the system.
 | Marketing preferences | Whether consent was given, and when it was withdrawn |
 | Account credentials | Password hashes and salts for customer, driver and staff logins |
 | Approximate live location | A driver's position while they are sharing it on an active job |
-| Payment records | The fact and amount of a payment, and Stripe's reference for it |
+| Payment records | The fact and amount of a payment, and SumUp's reference for it |
 
 **No special category data and no criminal offence data** is knowingly collected
 by the system. Free-text note fields could in principle contain anything a
 person types, which is a reason to keep notes factual and about the vehicle.
 
 **Card details are never processed by the Supplier.** Card numbers are entered
-on Stripe's own hosted checkout page and never reach the Cousins system, so
+on SumUp's own hosted checkout page and never reach the Cousins system, so
 Cousins is in scope for SAQ-A rather than the far heavier SAQ-D.
 
 ---
@@ -195,14 +201,14 @@ rather than quietly wrong.
   from its own account at any time without the Supplier's involvement. No
   password for a Cousins account is shared with the Supplier or typed into this
   system.
-- **The one API key the system does hold** is Stripe's secret key, because
-  Stripe has no consent-screen equivalent for this. It is stored as an encrypted
-  platform secret, never in source control, never printed in a log, and never
-  sent to a browser. It belongs to Cousins' own Stripe account and Cousins can
-  roll or revoke it from the Stripe dashboard at any moment, which immediately
-  and permanently cuts the system's access to payments. It is named here rather
-  than left inside a general claim about tokens, because a security schedule
-  that quietly overstates itself is worse than one that admits a specific fact.
+- **Payment credentials.** SumUp is linked by Cousins authorising this system
+  from its own SumUp account; the resulting credentials are held server-side as
+  encrypted platform secrets, never in source control, never printed in a log,
+  and never sent to a browser. Cousins can withdraw that authorisation from its
+  own SumUp account at any moment, which immediately and permanently cuts the
+  system's access to payments. This is set out specifically rather than left
+  inside a general claim about tokens, because a security schedule that quietly
+  overstates itself is worse than one that admits a specific fact.
 - **Rate limiting** on authentication, lookups and bookings, to blunt
   credential-stuffing and scraping.
 - **Session handling.** Admin sessions live in `sessionStorage` and expire; the
@@ -250,20 +256,20 @@ and Cousins can reach and revoke each one without the Supplier's involvement.
 | --- | --- | --- |
 | HubSpot, Inc. | Cousins' | Customer records; site analytics where consent is given |
 | Google Ireland Ltd | Cousins' | The diary jobs are booked into, and the business mailbox |
-| Stripe, Inc. and Stripe Payments UK Ltd | Cousins' | Card payments into Cousins' own Stripe account |
+| SumUp Limited | Cousins' | Card payments into Cousins' own merchant account |
 
 This distinction matters in both directions. It means Cousins — not the
 Supplier — holds the contract, the data and the ability to switch provider for
 everything that carries its customers' records and its takings. It also means
 Cousins is responsible for the terms it has accepted with each of them.
 
-**Stripe is a controller in its own right** for the payments it handles, not
+**SumUp is a controller in its own right** for the payments it handles, not
 anybody's processor. As a regulated payment institution it has its own legal
 duties — anti-money-laundering checks, transaction monitoring, records it must
 keep whatever Cousins says — so it decides its own purposes for that data. The
-account is in Cousins' name because the law requires the business receiving the
-money to hold it. The Supplier never holds Cousins' takings and never sees a
-card number.
+merchant account is in Cousins' name because the law requires the business
+receiving the money to hold it. The Supplier never holds Cousins' takings and
+never sees a card number.
 
 If Cousins moves card processing to another provider, **this section, the
 customer-facing privacy notice and section 5 must all be changed on the same
@@ -350,15 +356,22 @@ or personal injury caused by negligence, for fraud, or for anything else that
 cannot lawfully be limited. **A cap between the parties does not limit what the
 ICO may fine either party directly** — the ICO is not bound by private contract.
 
-**10.3 Insurance.** The Supplier **does** carry insurance with **Hiscox**:
-professional indemnity, public liability and cyber, each with a limit of
-indemnity of **£1,000,000**. The Supplier shall maintain that cover for the term
-of this agreement and provide evidence of it to Cousins on request.
+**10.3 Insurance.** The Supplier **does** carry insurance with **Hiscox**, with
+a limit of indemnity of **£100,000** for each of the following:
 
-Note that the cap in 10.2 is a cap on what Cousins can recover from the
-Supplier, and it is likely to be a lower figure than the cover above. That is
-the ordinary arrangement — the insurance sits behind the cap, it does not
-replace it — and Cousins is free to negotiate 10.2 upward before signing.
+- professional indemnity
+- public liability
+- cyber
+- legal expenses
+
+The Supplier shall maintain that cover for the term of this agreement and
+provide evidence of it to Cousins on request.
+
+The cap in 10.2 is a cap on what Cousins can recover from the Supplier; the
+cover above sits behind that cap rather than replacing it. Cousins is free to
+negotiate 10.2 upward before signing, and should say now if it needs a higher
+limit of indemnity than £100,000, since that is a matter for the Supplier's
+insurer rather than for this document.
 
 **10.4 Business continuity — the clause that matters most.** This is a practical
 risk, not a legal one, and it is the likeliest of anything here to actually hurt
@@ -368,7 +381,7 @@ particular:
 
 - Cousins holds, or can obtain within **5** working days, administrative access
   to the domain **cousinsmechanicalservices.co.uk** and to the hosting account.
-- Cousins' own accounts — Google, Stripe, HubSpot — are registered in Cousins'
+- Cousins' own accounts — Google, SumUp, HubSpot — are registered in Cousins'
   name and remain accessible to Cousins independently of the Supplier.
 - At least one Cousins-held login to the dashboard carries the **owner** role at
   all times, and it is not the Supplier's account.
@@ -408,11 +421,17 @@ Date: ..............................
 
 ---
 
-*Version 1.2, 9 September 2026. Changed from v1.1: the Supplier's details,
-notice period, liability cap, insurance and signature block are filled in; the
-payment provider is corrected from SumUp to Stripe throughout, because Stripe is
-what the live system actually uses; and section 5 now states plainly that the
-system holds Cousins' Stripe secret key, which the previous wording did not.*
+*Version 1.3, 9 September 2026. Changed from v1.2: the Supplier's address is
+corrected to the one on its ICO registration certificate; the ICO registration
+reference is recorded in section 1; the insurance limits in 10.3 are stated at
+their actual figures; and the payment provider is SumUp.*
+
+**Not to be signed while the live system still processes card payments through a
+different provider.** Section 6 names who handles Cousins' customers' payment
+data. If that name and the running system disagree on the day of signature, this
+document misrepresents the arrangement it exists to record — which is a worse
+problem than an unsigned contract. `tools/build-dpa.mjs` checks the two against
+each other and will not build quietly through a mismatch.
 
 *Review when a sub-processor changes, when the payment provider changes, when
 the security measures in section 5 change, or annually — whichever comes first.*
