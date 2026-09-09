@@ -500,6 +500,34 @@ await check("Apple's domain file is served by the Worker, and fails closed", asy
   }
 });
 
+await check('what is deployed is what is in git', async () => {
+  /*
+   * The sitemap is generated from git history at build time, so it is the one
+   * file that can silently disagree between the repository and the deployment
+   * — and it did. lastmodOf() asked git when each page was last COMMITTED, but
+   * the sitemap is committed in the same commit as the pages it describes, and
+   * that commit does not exist while the build is running. So every build
+   * wrote a sitemap one commit stale, the deploy then rebuilt it correctly,
+   * and the committed copy quietly stopped matching the live one.
+   *
+   * Nothing noticed for a week. This is the check that would have.
+   */
+  const { readFileSync } = await import('node:fs');
+  let repo;
+  try { repo = readFileSync(new URL('../public/sitemap.xml', import.meta.url), 'utf8'); }
+  catch (e) { return; }   // running against prod from outside a checkout
+
+  const live = await (await get(BASE + '/sitemap.xml')).text();
+  const norm = t => t.replace(/\r\n/g, '\n').trim();
+  if (norm(live) === norm(repo)) return;
+
+  const lm = t => [...t.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)</g)].map(m => `${new URL(m[1]).pathname} ${m[2]}`);
+  const a = lm(repo), b = lm(live);
+  const diff = a.filter((x, i) => x !== b[i]).map((x, i) => `repo "${x}" vs live "${b[a.indexOf(x)] ?? '(absent)'}"`);
+  assert(false, 'the deployed sitemap differs from public/sitemap.xml — run npm run build and commit the result. '
+    + (diff.length ? diff.slice(0, 4).join('; ') : `${a.length} URLs in git, ${b.length} live`));
+});
+
 // --- report -----------------------------------------------------------------
 
 console.log('\nProduction smoke — ' + BASE + '\n');

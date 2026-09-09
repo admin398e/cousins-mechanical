@@ -483,12 +483,40 @@ for (const { slug, title, desc, crumb } of CONTENT) {
  * Falls back to mtime where git is not available (a tarball, a CI shallow
  * copy with no history), because a slightly wrong date beats a failed build.
  */
-const lastmodOf = file => {
+const git = args => {
   try {
-    const out = execFileSync('git', ['log', '-1', '--format=%cs', '--', file],
-      { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
-  } catch (e) { /* no git, or the file is untracked — fall through */ }
+    return execFileSync('git', args, { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch (e) { return null; }   // no git, a tarball, a shallow CI copy
+};
+
+const lastmodOf = file => {
+  /*
+   * A file changed in the working tree is about to be committed, so its date
+   * is TODAY — not the date of the last commit that touched it.
+   *
+   * Without this the generated sitemap can never be right at the moment it is
+   * written. lastmodOf asks git "when was this last committed?", but the
+   * sitemap is committed in the SAME commit as the pages it describes, and
+   * that commit does not exist yet at build time. So every build produced a
+   * sitemap one commit stale, and the committed artefact disagreed with what
+   * was deployed. That is exactly how public/sitemap.xml ended up claiming
+   * /terms last changed on 29 August while the live one, built after the
+   * commit landed, correctly said 9 September.
+   */
+  if (git(['status', '--porcelain', '--', file])) return new Date().toISOString().slice(0, 10);
+
+  /*
+   * AUTHOR date, not committer date.
+   *
+   * `git am` and `git rebase` rewrite the committer date and preserve the
+   * author date. Changes reach the deploy clone as patches applied with
+   * `git am`, so a committer date makes the two clones generate different
+   * sitemaps for identical content — the precise failure this function's
+   * original comment set out to avoid by not using mtime.
+   */
+  const out = git(['log', '-1', '--format=%as', '--', file]);
+  if (out && /^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
+
   const p = path.join(__dirname, file);
   return (fs.existsSync(p) ? fs.statSync(p).mtime : new Date()).toISOString().slice(0, 10);
 };
