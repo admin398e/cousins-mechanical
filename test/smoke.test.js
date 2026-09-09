@@ -3872,6 +3872,163 @@ try {
     assert.ok(allow.includes('x-track-token'), 'x-track-token is not an allowed header: ' + allow);
   });
 
+  // --- CONTENT PAGES / SEO ---------------------------------------------------
+  //
+  // The site was one indexable page plus four legal notices. Everything the
+  // business sells lived in fragments of the home page, and Google collapses
+  // /#services into "/" — so a single page competed for every term and no page
+  // was about any one service.
+
+  const CONTENT_PAGES = [
+    ['/mobile-tyre-fitting', 'mobile tyre fitting'],
+    ['/24-hour-breakdown-recovery', 'breakdown'],
+    ['/mobile-car-servicing', 'servicing'],
+    ['/car-diagnostics-and-repairs', 'diagnostics'],
+    ['/areas-we-cover', 'areas'],
+    ['/faq', 'questions'],
+  ];
+
+  await check('every content page is served, on its own URL', async () => {
+    for (const [path] of CONTENT_PAGES) {
+      const r = await api(path);
+      assert.equal(r.status, 200, `${path} answered ${r.status}`);
+      const html = await r.text();
+      assert.ok(html.length > 4000, `${path} is suspiciously thin (${html.length} bytes)`);
+    }
+  });
+
+  await check('each page has exactly one H1, and it is not shared with another page', async () => {
+    /*
+     * Four pages shipped with NO h1 at all — the bodies opened at h2 because
+     * that was what the stylesheet made big. A heading outline with no top is
+     * the single most basic on-page fault there is.
+     */
+    const seen = new Map();
+    for (const path of ['/', ...CONTENT_PAGES.map(p => p[0]), '/terms', '/privacy', '/cookies', '/accessibility']) {
+      const html = await (await api(path)).text();
+      const h1 = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)]
+        .map(m => m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+      assert.equal(h1.length, 1, `${path} has ${h1.length} H1s, expected exactly 1`);
+      const prev = seen.get(h1[0]);
+      assert.ok(!prev, `${path} and ${prev} share the same H1: "${h1[0]}"`);
+      seen.set(h1[0], path);
+    }
+  });
+
+  await check('titles and descriptions fit in a search result', async () => {
+    // A title over ~62 characters is truncated with an ellipsis; a description
+    // under ~140 gets discarded and rewritten by Google from page text, which
+    // throws away the one line of copy you control.
+    const bad = [];
+    for (const path of ['/', ...CONTENT_PAGES.map(p => p[0]), '/terms', '/privacy', '/cookies', '/accessibility']) {
+      const html = await (await api(path)).text();
+      const un = t => t.replace(/&amp;/g, '&').replace(/&mdash;/g, '—').replace(/&#39;/g, "'");
+      const title = un((html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '');
+      const desc = un((html.match(/<meta name="description" content="([^"]*)"/i) || [])[1] || '');
+      if (title.length < 30 || title.length > 62) bad.push(`${path} title ${title.length}ch`);
+      if (desc.length < 140 || desc.length > 165) bad.push(`${path} description ${desc.length}ch`);
+    }
+    assert.deepEqual(bad, [], 'these do not fit a search result: ' + bad.join(', '));
+  });
+
+  await check('every content page is reachable from the home page', async () => {
+    // A page only the sitemap knows about is an orphan. Internal links are how
+    // a crawler decides a page matters at all.
+    const home = await (await api('/')).text();
+    for (const [path] of CONTENT_PAGES) {
+      assert.ok(home.includes(`"${path}"`), `nothing on the home page links to ${path}`);
+    }
+  });
+
+  await check('the sitemap lists every content page, and every URL in it answers 200', async () => {
+    const xml = await (await api('/sitemap.xml')).text();
+    const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1]);
+    for (const [path] of CONTENT_PAGES) {
+      assert.ok(locs.some(l => l.endsWith(path)), `${path} is missing from the sitemap`);
+    }
+    for (const loc of locs) {
+      const r = await api(new URL(loc).pathname);
+      assert.equal(r.status, 200, `${loc} is in the sitemap and answers ${r.status}`);
+    }
+  });
+
+  await check('the FAQ page and its FAQ schema say the same thing', async () => {
+    /*
+     * Google requires marked-up questions and answers to match what a visitor
+     * can read. The usual way that breaks is somebody editing the copy and
+     * forgetting the schema. Both are generated from content/faq-data.js, and
+     * this is what proves they still are.
+     */
+    const html = await (await api('/faq')).text();
+    const block = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+      .map(m => JSON.parse(m[1])).find(d => d['@type'] === 'FAQPage');
+    assert.ok(block, 'the FAQ page carries no FAQPage schema');
+    assert.ok(block.mainEntity.length >= 10, `only ${block.mainEntity.length} questions marked up`);
+
+    const visible = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, "'").replace(/\s+/g, ' ');
+    for (const q of block.mainEntity) {
+      assert.ok(visible.includes(q.name.replace(/&/g, '&')),
+        `question marked up but not on the page: "${q.name}"`);
+      // The first eight words is enough to prove it is the same answer without
+      // being defeated by an entity or a line break.
+      const head = q.acceptedAnswer.text.split(/\s+/).slice(0, 8).join(' ');
+      assert.ok(visible.includes(head), `answer marked up but not on the page: "${head}…"`);
+    }
+  });
+
+  await check('service pages declare Service schema pointing at the one business', async () => {
+    for (const path of ['/mobile-tyre-fitting', '/24-hour-breakdown-recovery',
+                        '/mobile-car-servicing', '/car-diagnostics-and-repairs']) {
+      const html = await (await api(path)).text();
+      const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+        .map(m => JSON.parse(m[1]));
+      const svc = blocks.find(d => d['@type'] === 'Service');
+      assert.ok(svc, `${path} has no Service schema`);
+      // @id, not a second copy of the company. Two subtly different
+      // descriptions of one business is how an entity stops being recognised.
+      assert.equal(svc.provider['@id'], BUSINESS.siteUrl + '/#business',
+        `${path} describes its own provider instead of pointing at the business node`);
+      assert.ok(blocks.some(d => d['@type'] === 'BreadcrumbList'), `${path} has no BreadcrumbList`);
+    }
+  });
+
+  await check('AI search crawlers are allowed by name, not by accident', async () => {
+    /*
+     * GPTBot and CCBot are TRAINING crawlers; blocking them costs no
+     * visibility. OAI-SearchBot, PerplexityBot and Google-Extended are what
+     * decide whether this business is cited in an AI answer. They are named in
+     * robots.txt so that blocking a training crawler can never quietly take
+     * the search crawlers with it.
+     */
+    const txt = await (await api('/robots.txt')).text();
+    const groups = [];
+    let current = null;
+    for (const raw of txt.split(/\r?\n/)) {
+      const line = raw.replace(/#.*$/, '').trim();
+      if (!line) { current = null; continue; }
+      const [k, ...rest] = line.split(':');
+      const key = k.trim().toLowerCase(), val = rest.join(':').trim();
+      if (key === 'user-agent') {
+        if (!current || current.rules.length) { current = { agents: [], rules: [] }; groups.push(current); }
+        current.agents.push(val.toLowerCase());
+      } else if ((key === 'disallow' || key === 'allow') && current) {
+        current.rules.push({ allow: key === 'allow', path: val });
+      }
+    }
+    const groupFor = ua => groups.find(g => g.agents.includes(ua.toLowerCase()));
+    for (const bot of ['OAI-SearchBot', 'PerplexityBot', 'Google-Extended']) {
+      const g = groupFor(bot);
+      assert.ok(g, `${bot} is not named in robots.txt — a future edit could block it unnoticed`);
+      assert.ok(!g.rules.some(r => !r.allow && r.path === '/'),
+        `${bot} is blocked from the whole site — that removes the business from AI answers`);
+    }
+    for (const bot of ['GPTBot', 'CCBot']) {
+      const g = groupFor(bot);
+      assert.ok(g && g.rules.some(r => !r.allow && r.path === '/'), `${bot} is no longer blocked`);
+    }
+  });
+
   await check('source files outside public/ are not served', async () => {
     // The old server.js did express.static(__dirname), exposing .env and ctyres.db.
     for (const leak of ['/.env', '/worker.js', '/ctyres.db', '/server.js', '/package.json']) {

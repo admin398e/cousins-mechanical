@@ -9,7 +9,13 @@ import { chromium } from 'playwright-core';
 import { readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:3799';
-const PAGES = process.argv[3] ? process.argv[3].split(',') : ['/', '/admin', '/driver', '/terms'];
+const PAGES = process.argv[3] ? process.argv[3].split(',') : [
+  '/', '/admin', '/driver', '/terms',
+  // The content pages go through the same chrome as the legal ones, so a
+  // change to pageLayout() that breaks them breaks these too. They are cheap
+  // to load and they are now the pages search results land on.
+  '/mobile-tyre-fitting', '/24-hour-breakdown-recovery', '/areas-we-cover', '/faq',
+];
 
 /*
  * Whatever Chromium this machine has. The sandbox ships one at a fixed path;
@@ -82,7 +88,9 @@ for (const path of PAGES) {
     // A marker per page rather than a length threshold: /driver is a sign-in
     // card and is legitimately short, so "under 200 characters" called a
     // working page broken.
-    const MARKER = { '/': 'WE COME TO YOU', '/admin': 'ADMIN', '/driver': 'DRIVER', '/terms': 'Terms' };
+    const MARKER = { '/': 'WE COME TO YOU', '/admin': 'ADMIN', '/driver': 'DRIVER', '/terms': 'Terms',
+      '/mobile-tyre-fitting': 'Mobile Tyre Fitting', '/24-hour-breakdown-recovery': 'Breakdown',
+      '/areas-we-cover': 'Areas We Cover', '/faq': 'Frequently Asked Questions' };
     const text = (await page.evaluate(() => document.body.innerText || '')).trim();
     const want = MARKER[path];
     if (want && !text.includes(want)) problems.push(`the page did not render — no "${want}" anywhere in it (${text.length} chars)`);

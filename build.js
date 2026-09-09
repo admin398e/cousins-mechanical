@@ -13,6 +13,7 @@ import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { neutralisePlaceholderFetches } from './dc-placeholder.js';
 import { BUSINESS, fillBusinessTokens } from './business.js';
+import { FAQ } from './content/faq-data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -29,11 +30,96 @@ const SITE = (process.env.SITE_URL || 'https://cousinsmechanicalservices.co.uk')
 // Legal / info pages. Bodies live in ./legal/<slug>; the shared header + footer
 // (one menu bar for the whole public site) are applied by legalLayout() below.
 const LEGAL = [
-  ['terms.html', 'Terms & Conditions', `Booking, payment, cancellation, tyre fitting and liability terms for ${BUSINESS.name}.`],
-  ['privacy.html', 'Privacy Policy', `How ${BUSINESS.name} collects and uses your personal data under UK GDPR.`],
-  ['cookies.html', 'Cookie Policy', `The cookies and browser storage used on the ${BUSINESS.name} website.`],
-  ['accessibility.html', 'Accessibility Statement', `How we make the ${BUSINESS.name} website usable for everyone.`],
+  ['terms.html', 'Terms & Conditions',
+   'Booking, payment, cancellation and call-out terms for mobile mechanic, tyre fitting and recovery work by Cousins Mechanical Services in Bridport & West Dorset.'],
+  ['privacy.html', 'Privacy Policy',
+   'What personal data Cousins Mechanical Services collects when you book a mobile mechanic, why we hold it, how long for, and the rights you have under UK GDPR.'],
+  ['cookies.html', 'Cookie Policy',
+   'The cookies and browser storage the Cousins Mechanical Services site uses, what each one does, which need your consent, and how to change your mind later.'],
+  ['accessibility.html', 'Accessibility Statement',
+   'How the Cousins Mechanical Services booking site is built to be usable with a keyboard, a screen reader or a small screen — and how to tell us if it is not.'],
 ];
+
+/*
+ * Content pages — the ones that exist to be found.
+ *
+ * The site was five pages: a home page and four legal notices. Everything the
+ * business actually sells lived in fragments of the home page (#services,
+ * #reg), and a fragment is not a page — Google collapses /#services into "/"
+ * and indexes one thing. So there was exactly ONE indexable page competing for
+ * every term, and no page whose title, headings and body were about any single
+ * service.
+ *
+ * These are real pages with real content, one per thing somebody actually
+ * searches for. Deliberately NOT one page per town: nine near-identical
+ * "mobile mechanic in <town>" pages is the textbook doorway-page pattern
+ * Google demotes for, and it would put the client's own visibility at risk to
+ * chase it. One honest areas page, with something different to say about each
+ * place, does the same job without the exposure.
+ *
+ *   [slug, title, description, primary keyword — for the audit trail]
+ */
+/*
+ * `title` is the <title> tag and is kept under about 60 characters, because
+ * that is where Google truncates one in a result. It is NOT the same string as
+ * the h1: the h1 can afford to be a full sentence, the title cannot, and
+ * forcing them to match makes one of the two worse. `crumb` is the breadcrumb
+ * label. `keyword` is the term the page is built to answer for and exists so
+ * that a future edit can be checked against the intent rather than guessed at.
+ */
+const CONTENT = [
+  { slug: 'mobile-tyre-fitting.html',
+    title: 'Mobile Tyre Fitting Bridport',
+    crumb: 'Mobile tyre fitting',
+    desc: 'New tyres supplied and fitted at your home, work or the roadside across Bridport, Dorchester, Weymouth and West Dorset. Prices include fitting. Book online.',
+    keyword: 'mobile tyre fitting Bridport' },
+  { slug: '24-hour-breakdown-recovery.html',
+    title: '24hr Breakdown & Recovery Dorset',
+    crumb: '24 hour breakdown & recovery',
+    desc: '24 hour roadside assistance and vehicle recovery across Bridport, Dorchester, Weymouth and West Dorset. Roadside repair where possible, recovery where not.',
+    keyword: '24 hour breakdown recovery Bridport' },
+  { slug: 'mobile-car-servicing.html',
+    title: 'Mobile Car Servicing, Bridport',
+    crumb: 'Mobile car servicing',
+    desc: 'Interim and full car servicing on your driveway or at work, across Bridport and West Dorset. Manufacturer schedule, warranty safe, price agreed before we start.',
+    keyword: 'mobile car servicing Bridport' },
+  { slug: 'car-diagnostics-and-repairs.html',
+    title: 'Car Diagnostics & Repairs',
+    crumb: 'Diagnostics & repairs',
+    desc: 'Engine fault codes read and explained, plus brakes, clutches, timing belts and mobile welding for MOT repairs, carried out at your home or work in West Dorset.',
+    keyword: 'car diagnostics Bridport' },
+  { slug: 'areas-we-cover.html',
+    title: 'Areas We Cover in West Dorset',
+    crumb: 'Areas we cover',
+    desc: 'Where we work: Bridport, Dorchester, Weymouth, Portland, Lyme Regis, Beaminster, Charmouth, Axminster and Crewkerne. The same call-out charge across the area.',
+    keyword: 'mobile mechanic West Dorset' },
+  { slug: 'faq.html',
+    title: 'Common Questions',
+    crumb: 'FAQ',
+    desc: 'Call-out charges, the areas we cover, finding your tyre size, payment, warranties and how to book — the questions customers actually ask before they call us.',
+    keyword: 'mobile mechanic questions' },
+];
+
+/*
+ * Which service each content page is about, for Service schema.
+ * Only pages that describe a service get one; /areas-we-cover and /faq do not.
+ */
+// Footer labels — the full page titles are too long for a footer column.
+const SHORT_LABEL = {
+  'mobile-tyre-fitting.html': 'Mobile tyre fitting',
+  '24-hour-breakdown-recovery.html': '24hr breakdown &amp; recovery',
+  'mobile-car-servicing.html': 'Mobile servicing',
+  'car-diagnostics-and-repairs.html': 'Diagnostics &amp; repairs',
+  'areas-we-cover.html': 'Areas we cover',
+  'faq.html': 'FAQ',
+};
+
+const SERVICE_SCHEMA = {
+  'mobile-tyre-fitting.html': ['Mobile tyre fitting', 'New tyres supplied and fitted at the customer\u2019s home, workplace or the roadside, including balancing, a new valve and disposal of the old tyre.'],
+  '24-hour-breakdown-recovery.html': ['24 hour breakdown and recovery', 'Round-the-clock roadside assistance and vehicle recovery across West Dorset.'],
+  'mobile-car-servicing.html': ['Mobile car servicing', 'Interim and full vehicle servicing carried out at the customer\u2019s home or workplace to the manufacturer schedule.'],
+  'car-diagnostics-and-repairs.html': ['Car diagnostics and mobile repairs', 'Engine fault-code diagnostics, brakes, clutches, timing belts and mobile welding carried out at the customer\u2019s address.'],
+};
 
 /*
  * The address a page is actually reachable at.
@@ -49,11 +135,40 @@ const LEGAL = [
  */
 const canonicalPath = slug => slug.replace(/\.html$/, '');
 
-function legalLayout(slug, title, desc, body) {
+function pageLayout(slug, title, desc, body, opts = {}) {
   const nav = (href, label) => `<a href="${href}" style="color:#d9d2cc;font-weight:600;font-size:14.5px;text-decoration:none">${label}</a>`;
   const foot = (href, label) => `<a href="${href}" style="color:#9a918a;font-size:14px;text-decoration:none">${label}</a>`;
   const legalCol = LEGAL.map(([s, t]) => foot(canonicalPath(s), t)).join('\n        ');
   const legalBar = LEGAL.map(([s, t]) => `<a href="${canonicalPath(s)}" style="color:#6f6862;text-decoration:none">${t}</a>`).join('\n      ');
+  const serviceCol = CONTENT.map(c => foot(canonicalPath(c.slug), SHORT_LABEL[c.slug] || c.crumb)).join('\n        ');
+
+  /*
+   * Breadcrumbs, visible and marked up.
+   *
+   * The visible trail is what stops a visitor arriving from a search result on
+   * /mobile-tyre-fitting with no idea what site they are on. The BreadcrumbList
+   * is what lets Google print "cousinsmechanicalservices.co.uk > Mobile tyre
+   * fitting" instead of a raw URL under the result.
+   */
+  const crumb = opts.crumb
+    ? `<nav aria-label="Breadcrumb" style="margin:0 0 18px;font-size:14px;color:#8a817b">
+  <a href="/" style="color:#c25e0c;font-weight:600;text-decoration:none">Home</a>
+  <span aria-hidden="true" style="margin:0 7px">&rsaquo;</span>
+  <span>${opts.crumb}</span>
+</nav>`
+    : '';
+  const crumbLd = opts.crumb ? [{
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE}/` },
+      { '@type': 'ListItem', position: 2, name: opts.crumb, item: `${SITE}/${canonicalPath(slug)}` },
+    ],
+  }] : [];
+
+  const ld = [...crumbLd, ...(opts.schema || [])]
+    .map(o => `<script type="application/ld+json">\n${JSON.stringify(o, null, 2)}\n</script>`)
+    .join('\n');
+
   return `<!doctype html>
 <html lang="en-GB">
 <head>
@@ -63,6 +178,24 @@ function legalLayout(slug, title, desc, body) {
 <meta name="description" content="${desc}">
 <meta name="theme-color" content="#14100e">
 <link rel="canonical" href="${SITE}/${canonicalPath(slug)}">
+<!--
+  Open Graph. Absent, a link to any of these pages pasted into WhatsApp or
+  Facebook rendered as a bare URL with no title, no description and no picture
+  — on a site whose customers arrange jobs over WhatsApp.
+-->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${BUSINESS.name}">
+<meta property="og:title" content="${title} | ${BUSINESS.name}">
+<meta property="og:description" content="${desc}">
+<meta property="og:url" content="${SITE}/${canonicalPath(slug)}">
+<meta property="og:image" content="${SITE}/images/tyre-van.jpg">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${title} | ${BUSINESS.name}">
+<meta name="twitter:description" content="${desc}">
+<meta name="twitter:image" content="${SITE}/images/tyre-van.jpg">
+<meta name="geo.region" content="GB-DOR">
+<meta name="geo.placename" content="Bridport, Dorset">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
@@ -83,14 +216,18 @@ function legalLayout(slug, title, desc, body) {
 <link rel="icon" type="image/png" sizes="96x96" href="/images/icon-96.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/images/icon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+${ld}
 <style>
   *{box-sizing:border-box}
   body{margin:0;background:#f4f2ef;font-family:'Barlow',system-ui,sans-serif;color:#1c1817;-webkit-font-smoothing:antialiased;line-height:1.6}
   .wrap{max-width:1200px;margin:0 auto;padding:0 20px}
   header nav a:hover{color:#f4a04a}
   .legal-main{max-width:820px;margin:0 auto;padding:48px 20px 72px}
-  .legal-main h2{font-family:'Barlow Condensed';font-weight:800;font-size:clamp(32px,5vw,46px);line-height:1.02;margin:0 0 10px;color:#14100e}
-  .legal-main h3{font-family:'Barlow Condensed';font-weight:700;font-size:22px;margin:30px 0 8px;color:#1c1817}
+  /* h1 is the page title, h2 a section, h3 a sub-section. It used to open at
+     h2 with no h1 anywhere on four pages — a heading outline with no top. */
+  .legal-main h1{font-family:'Barlow Condensed';font-weight:800;font-size:clamp(32px,5vw,46px);line-height:1.02;margin:0 0 10px;color:#14100e}
+  .legal-main h2{font-family:'Barlow Condensed';font-weight:700;font-size:26px;margin:34px 0 8px;color:#14100e}
+  .legal-main h3{font-family:'Barlow Condensed';font-weight:700;font-size:20px;margin:26px 0 8px;color:#1c1817}
   .legal-main p,.legal-main li{font-size:16px;color:#3d3833}
   .legal-main p.lead{font-size:18px;color:#5c534d;margin:0 0 20px}
   .legal-main ul{padding-left:20px}
@@ -104,7 +241,8 @@ function legalLayout(slug, title, desc, body) {
   .legal-main th{font-family:'Barlow Condensed';font-weight:700;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:#5c534d;white-space:nowrap}
   .legal-main td{color:#3d3833}
   .legal-main code{background:#eae5df;border-radius:4px;padding:1px 5px;font-size:13px}
-  .foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px}
+  .foot-grid{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr;gap:28px}
+  @media(max-width:1000px){.foot-grid{grid-template-columns:1fr 1fr 1fr}}
   @media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
   @media(max-width:520px){.foot-grid{grid-template-columns:1fr}}
 </style>
@@ -118,8 +256,9 @@ function legalLayout(slug, title, desc, body) {
     <nav style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;justify-content:flex-end">
       ${nav('/', 'Home')}
       ${nav('/#services', 'Services')}
+      ${nav('/areas-we-cover', 'Areas')}
       ${nav('/#reg', 'Tyres &amp; Parts')}
-      ${nav('/#work', 'Recent Work')}
+      ${nav('/faq', 'FAQ')}
       ${nav('/#track', 'Track Job')}
       <a href="/#reg" style="background:#e8791a;color:#14100e;font-weight:700;padding:9px 16px;border-radius:8px;font-size:14.5px;text-decoration:none">Book online</a>
     </nav>
@@ -127,7 +266,7 @@ function legalLayout(slug, title, desc, body) {
 </header>
 
 <main class="legal-main">
-${body}
+${crumb}${body}
 </main>
 
 <footer style="background:#0f0c0b;color:#cfc7c1;padding:56px 0 26px">
@@ -149,6 +288,12 @@ ${body}
         ${foot('/#work', 'Recent Work')}
         ${foot('/#track', 'Track Job')}
         ${foot('/#reg', 'Book online')}
+      </div>
+    </div>
+    <div>
+      <div style="font-family:'Barlow Condensed';font-weight:700;color:#fff;font-size:16px;letter-spacing:.08em;margin-bottom:14px">SERVICES</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${serviceCol}
       </div>
     </div>
     <div>
@@ -231,8 +376,77 @@ for (const [slug, title, desc] of LEGAL) {
   // the company number and address in a privacy notice cannot drift from the
   // ones in the footer.
   const body = fillBusinessTokens(fs.readFileSync(bodyPath, 'utf8'));
-  fs.writeFileSync(path.join(PUBLIC, slug), legalLayout(slug, title, desc, body));
+  fs.writeFileSync(path.join(PUBLIC, slug), pageLayout(slug, title, desc, body));
   console.log(`  legal/${slug}  ->  public/${slug}`);
+}
+
+// ---------------------------------------------------------------------------
+// Content pages — the ones that exist to be found.
+// ---------------------------------------------------------------------------
+/*
+ * The FAQ page is rendered from content/faq-data.js, and so is its FAQPage
+ * JSON-LD. Google requires the marked-up questions and answers to match what a
+ * visitor can read; generating both from one array is the only way that cannot
+ * quietly stop being true.
+ */
+function faqBody() {
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<h1>Frequently Asked Questions</h1>
+<p class="lead">Call-out charges, where we come out to, how to find your tyre size, payment and booking. If your question is not here, call <a href="tel:${BUSINESS.phoneHref}">${BUSINESS.phone}</a> and ask.</p>
+${FAQ.map(({ q, a }) => `
+<h2>${esc(q)}</h2>
+<p>${esc(a)}</p>`).join('\n')}
+
+<h2>Still not answered?</h2>
+<p>Call <a href="tel:${BUSINESS.phoneHref}">${BUSINESS.phone}</a>, or <a href="/#book">book online</a> and put the detail in the notes. For a breakdown, phone — it is always faster than a form.</p>
+`;
+}
+
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ.map(({ q, a }) => ({
+    '@type': 'Question', name: q,
+    acceptedAnswer: { '@type': 'Answer', text: a },
+  })),
+};
+
+for (const { slug, title, desc, crumb } of CONTENT) {
+  const isFaq = slug === 'faq.html';
+  const bodyPath = path.join(__dirname, 'content', slug);
+  if (!isFaq && !fs.existsSync(bodyPath)) {
+    console.error(`  MISSING  content/${slug} — cannot build content page`);
+    process.exitCode = 1;
+    continue;
+  }
+  const body = isFaq ? faqBody() : fillBusinessTokens(fs.readFileSync(bodyPath, 'utf8'));
+
+  const schema = [];
+  if (isFaq) schema.push(faqSchema);
+  const svc = SERVICE_SCHEMA[slug];
+  if (svc) {
+    schema.push({
+      '@context': 'https://schema.org',
+      '@type': 'Service',
+      name: svc[0],
+      description: svc[1],
+      serviceType: svc[0],
+      url: `${SITE}/${canonicalPath(slug)}`,
+      // The business is declared in full on the home page; this points at that
+      // same node rather than describing a second, subtly different company.
+      provider: { '@type': 'AutoRepair', '@id': `${SITE}/#business`, name: BUSINESS.legalName },
+      areaServed: ['Bridport', 'Dorchester', 'Weymouth', 'Lyme Regis', 'Beaminster', 'Charmouth', 'Axminster', 'Crewkerne', 'West Dorset']
+        .map(name => ({ '@type': 'City', name })),
+      availableChannel: {
+        '@type': 'ServiceChannel',
+        serviceUrl: `${SITE}/#book`,
+        servicePhone: { '@type': 'ContactPoint', telephone: BUSINESS.phoneHref, contactType: 'customer service' },
+      },
+    });
+  }
+
+  fs.writeFileSync(path.join(PUBLIC, slug), pageLayout(slug, title, desc, body, { schema, crumb }));
+  console.log(`  content/${slug}  ->  public/${slug}`);
 }
 
 // Branded 404 — same header/footer as every other public page, so a bad link
@@ -243,7 +457,7 @@ for (const [slug, title, desc] of LEGAL) {
   if (fs.existsSync(notFoundBody)) {
     fs.writeFileSync(
       path.join(PUBLIC, '404.html'),
-      legalLayout('404.html', 'Page not found', `That page does not exist. Find tyre prices, our services, or call ${BUSINESS.name} on ${BUSINESS.phone}.`, fillBusinessTokens(fs.readFileSync(notFoundBody, 'utf8')))
+      pageLayout('404.html', 'Page not found', `That page does not exist. Find tyre prices, our services, or call ${BUSINESS.name} on ${BUSINESS.phone}.`, fillBusinessTokens(fs.readFileSync(notFoundBody, 'utf8')))
     );
     console.log('  legal/404.html  ->  public/404.html');
   } else {
@@ -287,6 +501,12 @@ const homeModified = lastmodOf('Cousins Mechanical.dc.html');
 // only made Search Console report more URLs submitted than could ever be indexed.
 const urls = [
   { loc: '/', changefreq: 'weekly', priority: '1.0' },
+  { loc: '/mobile-tyre-fitting', changefreq: 'monthly', priority: '0.9', file: 'content/mobile-tyre-fitting.html' },
+  { loc: '/24-hour-breakdown-recovery', changefreq: 'monthly', priority: '0.9', file: 'content/24-hour-breakdown-recovery.html' },
+  { loc: '/mobile-car-servicing', changefreq: 'monthly', priority: '0.8', file: 'content/mobile-car-servicing.html' },
+  { loc: '/car-diagnostics-and-repairs', changefreq: 'monthly', priority: '0.8', file: 'content/car-diagnostics-and-repairs.html' },
+  { loc: '/areas-we-cover', changefreq: 'monthly', priority: '0.8', file: 'content/areas-we-cover.html' },
+  { loc: '/faq', changefreq: 'monthly', priority: '0.7', file: 'content/faq-data.js' },
   { loc: '/terms', changefreq: 'yearly', priority: '0.3', file: 'legal/terms.html' },
   { loc: '/privacy', changefreq: 'yearly', priority: '0.4', file: 'legal/privacy.html' },
   { loc: '/cookies', changefreq: 'yearly', priority: '0.2', file: 'legal/cookies.html' },

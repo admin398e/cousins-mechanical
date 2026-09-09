@@ -25,9 +25,35 @@
 # There is no blanket "Allow: /". Everything is allowed unless disallowed, so
 # the line only added ambiguity: crawlers that take the FIRST matching rule read
 # it as permission to fetch everything, including /api.
+#
+# AI CRAWLERS: TRAINING AND SEARCH ARE DIFFERENT BOTS, AND THIS FILE MEANS TO
+# TREAT THEM DIFFERENTLY
+#
+# GPTBot and CCBot below are TRAINING crawlers. Blocking them keeps this site
+# out of model training corpora and costs nothing in visibility.
+#
+# The bots that decide whether this business gets CITED in an AI answer are
+# different user agents entirely: OAI-SearchBot for ChatGPT search,
+# PerplexityBot for Perplexity, Google-Extended for Google's AI surfaces. They
+# are named and explicitly allowed below.
+#
+# They would be allowed anyway by the wildcard record, and that is precisely
+# why they are named. The next person told to "block the AI bots" would very
+# reasonably add OAI-SearchBot to the GPTBot list, and would delete this
+# business from ChatGPT's answers with nothing in the file to suggest that was
+# a different decision from blocking a training crawler.
 User-agent: *
 Disallow: /api
 Disallow: /api/
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api
+User-agent: Google-Extended
+Allow: /
+Disallow: /api
 User-agent: GPTBot
 Disallow: /
 User-agent: CCBot
