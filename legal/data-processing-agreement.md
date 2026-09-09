@@ -1,17 +1,24 @@
 # Data Processing Agreement
 
-**Between Cousins Mechanical Services Ltd (the Controller) and the supplier who
-builds and runs its website and booking system (the Processor).**
+**Cousins Mechanical Services Ltd (Controller) and Joshua Stone trading as
+Rockwell Consulting (Processor)**
+
+*Version 1.2 · 9 September 2026*
 
 ---
 
-## Read this first
+<!-- COVERING NOTE: everything above the AGREEMENT BEGINS marker is explanatory
+     and is delivered as a separate covering note, not as part of the signed
+     contract. Keeping both in one file is deliberate — two files drift. -->
 
-**This is a draft for a solicitor to check, not legal advice.** I am not a
-lawyer. What follows is written to cover everything Article 28(3) of the UK GDPR
-requires a controller–processor contract to contain, using the real facts of
-this system rather than boilerplate — but whether it is right for your two
-businesses is a question for someone qualified, and it is cheap to ask.
+## Covering note — not part of the agreement
+
+**This has not been checked by a solicitor.** It was drafted to cover everything
+Article 28(3) of the UK GDPR requires a controller–processor contract to
+contain, using the real facts of this system rather than boilerplate. Whether it
+is right for these two businesses is a question for someone qualified, and it is
+cheap to ask. Both parties should read it before signing; neither should treat
+it as legal advice from the other.
 
 **Why it has to exist at all.** Article 28(3) says a controller may only use a
 processor under a written contract. It is not optional and it is not satisfied
@@ -20,18 +27,28 @@ is looked after, the first thing they will ask for is this document. Without it
 both parties are in breach before anyone has even looked at the security.
 
 **Who is who.** Cousins Mechanical Services Ltd decides what customer data is
-collected and why, so Cousins is the **controller**. The supplier hosts the
-system and acts on Cousins' instructions, so the supplier is the **processor**.
-That split is what makes this the right kind of agreement; if the supplier
-started deciding on its own account what to do with customer data — using it to
-market its own services, say — it would become a controller in its own right and
-this document would no longer describe reality.
+collected and why, so Cousins is the **controller**. Rockwell Consulting hosts
+the system and acts on Cousins' instructions, so it is the **processor**. That
+split is what makes this the right kind of agreement. If the Supplier started
+deciding on its own account what to do with customer data — using it to market
+its own services, say — it would become a controller in its own right and this
+document would no longer describe reality.
 
-**Before signing, fill in every `[SQUARE BRACKET]`.** They are deliberately
-conspicuous. A contract signed with placeholders still in it is worse than no
-contract, because it looks like diligence and is not.
+**What is left blank.** Nothing, apart from the signature and date lines, which
+have to be written by hand. The commercial terms in section 10 — notice period,
+liability cap, insurance — are the Supplier's proposals. Cousins is free to
+change any of them before signing, and should say so rather than sign something
+it is unhappy with.
+
+**What to check before signing.** Section 5 lists the security measures actually
+in place and section 6 lists every sub-processor. Both are written to be
+checkable against the running system rather than to sound reassuring. If either
+stops being accurate, this document becomes a misrepresentation in a signed
+contract, which is a worse problem than an out-of-date file.
 
 ---
+
+<!-- AGREEMENT BEGINS -->
 
 ## 1. Parties
 
@@ -39,12 +56,15 @@ contract, because it looks like diligence and is not.
 England and Wales, company number 16045339, registered office 7 Watton Park,
 Bridport, DT6 5NJ ("Cousins").
 
-**The Processor:** `[FULL LEGAL NAME]` of `[REGISTERED OFFICE OR TRADING
-ADDRESS]`, `[COMPANY NUMBER, IF A LIMITED COMPANY — otherwise state "a sole
-trader"]` ("the Supplier").
+**The Processor:** Joshua Stone, a sole trader trading as **Rockwell
+Consulting**, of Flat 4, Pullman House, Axminster, Devon EX13 5DP ("the
+Supplier").
 
-This agreement starts on `[DATE]` and runs for as long as the Supplier processes
-personal data on Cousins' behalf.
+Contact for notices under this agreement, including breach notification under
+section 4: admin@joshuastone.co.uk, 07404 515651.
+
+This agreement starts on the date of the last signature below and runs for as
+long as the Supplier processes personal data on Cousins' behalf.
 
 ---
 
@@ -80,14 +100,14 @@ staff who hold logins to the system.
 | Marketing preferences | Whether consent was given, and when it was withdrawn |
 | Account credentials | Password hashes and salts for customer, driver and staff logins |
 | Approximate live location | A driver's position while they are sharing it on an active job |
-| Payment records | The fact and amount of a payment, and SumUp's reference for it |
+| Payment records | The fact and amount of a payment, and Stripe's reference for it |
 
 **No special category data and no criminal offence data** is knowingly collected
 by the system. Free-text note fields could in principle contain anything a
 person types, which is a reason to keep notes factual and about the vehicle.
 
 **Card details are never processed by the Supplier.** Card numbers are entered
-on SumUp's own hosted checkout page and never reach the Cousins system, so
+on Stripe's own hosted checkout page and never reach the Cousins system, so
 Cousins is in scope for SAQ-A rather than the far heavier SAQ-D.
 
 ---
@@ -170,9 +190,19 @@ rather than quietly wrong.
   lock Cousins out of its own business. The last remaining owner cannot be
   removed. Wholesale costs and margins are never sent to the public site.
 - **Third-party accounts are connected, not handed over.** Google Calendar and
-  SumUp are linked by Cousins signing in to its own accounts through a consent
-  screen; the resulting tokens are held server-side. No password or API key for
-  a Cousins account is shared with the Supplier or typed into this system.
+  HubSpot are linked by Cousins signing in to its own accounts through a consent
+  screen; the resulting tokens are held server-side, and Cousins can revoke them
+  from its own account at any time without the Supplier's involvement. No
+  password for a Cousins account is shared with the Supplier or typed into this
+  system.
+- **The one API key the system does hold** is Stripe's secret key, because
+  Stripe has no consent-screen equivalent for this. It is stored as an encrypted
+  platform secret, never in source control, never printed in a log, and never
+  sent to a browser. It belongs to Cousins' own Stripe account and Cousins can
+  roll or revoke it from the Stripe dashboard at any moment, which immediately
+  and permanently cuts the system's access to payments. It is named here rather
+  than left inside a general claim about tokens, because a security schedule
+  that quietly overstates itself is worse than one that admits a specific fact.
 - **Rate limiting** on authentication, lookups and bookings, to blunt
   credential-stuffing and scraping.
 - **Session handling.** Admin sessions live in `sessionStorage` and expire; the
@@ -220,19 +250,26 @@ and Cousins can reach and revoke each one without the Supplier's involvement.
 | --- | --- | --- |
 | HubSpot, Inc. | Cousins' | Customer records; site analytics where consent is given |
 | Google Ireland Ltd | Cousins' | The diary jobs are booked into, and the business mailbox |
-| SumUp Limited | Cousins' | Card payments into Cousins' own merchant account |
+| Stripe, Inc. and Stripe Payments UK Ltd | Cousins' | Card payments into Cousins' own Stripe account |
 
 This distinction matters in both directions. It means Cousins — not the
 Supplier — holds the contract, the data and the ability to switch provider for
 everything that carries its customers' records and its takings. It also means
 Cousins is responsible for the terms it has accepted with each of them.
 
-**SumUp is a controller in its own right**, not anybody's processor. As a
-regulated payment institution it has its own legal duties — anti-money-laundering
-checks, transaction monitoring, records it must keep whatever Cousins says — so
-it decides its own purposes for that data. The merchant account is in Cousins'
-name because the law requires the business receiving the money to hold it. The
-Supplier never holds Cousins' takings and never sees a card number.
+**Stripe is a controller in its own right** for the payments it handles, not
+anybody's processor. As a regulated payment institution it has its own legal
+duties — anti-money-laundering checks, transaction monitoring, records it must
+keep whatever Cousins says — so it decides its own purposes for that data. The
+account is in Cousins' name because the law requires the business receiving the
+money to hold it. The Supplier never holds Cousins' takings and never sees a
+card number.
+
+If Cousins moves card processing to another provider, **this section, the
+customer-facing privacy notice and section 5 must all be changed on the same
+day**. An earlier draft of this agreement named a provider the system was not
+in fact using; a signed contract that misnames who handles the money is a
+misrepresentation, not a typo.
 
 **Changes.** The Supplier shall give Cousins at least **30 days' written notice**
 before adding or replacing a sub-processor. Cousins may object on reasonable
@@ -302,23 +339,26 @@ before signing. Amend the numbers to what you actually agree.
 
 **10.1 Term and notice.** This agreement runs from the date of signature for as
 long as the Supplier processes personal data for Cousins. Either party may end
-it on `[30 / 60 / 90]` days' written notice. During the notice period the
+it on **30 days'** written notice. During the notice period the
 Supplier shall keep the site and booking system running normally, and shall not
 withhold service, data or access over a commercial dispute.
 
 **10.2 Liability.** Each party's liability to the other under this agreement is
-capped at `[the total fees paid by Cousins to the Supplier in the 12 months
-before the claim / £____]`. Nothing in this agreement limits liability for death
+capped at **the total fees paid by Cousins to the Supplier in the 12 months
+before the claim**. Nothing in this agreement limits liability for death
 or personal injury caused by negligence, for fraud, or for anything else that
 cannot lawfully be limited. **A cap between the parties does not limit what the
 ICO may fine either party directly** — the ICO is not bound by private contract.
 
-**10.3 Insurance.** The Supplier `[does / does not]` carry professional
-indemnity and cyber insurance at `[£____]`. If it does, it shall maintain that
-cover for the term and provide evidence on request. *Note: if the answer is "does
-not", say so honestly here rather than leaving it blank. Cousins is entitled to
-know, and a false statement in a signed contract is a worse problem than no
-cover.*
+**10.3 Insurance.** The Supplier **does** carry insurance with **Hiscox**:
+professional indemnity, public liability and cyber, each with a limit of
+indemnity of **£1,000,000**. The Supplier shall maintain that cover for the term
+of this agreement and provide evidence of it to Cousins on request.
+
+Note that the cap in 10.2 is a cap on what Cousins can recover from the
+Supplier, and it is likely to be a lower figure than the cover above. That is
+the ordinary arrangement — the insurance sits behind the cap, it does not
+replace it — and Cousins is free to negotiate 10.2 upward before signing.
 
 **10.4 Business continuity — the clause that matters most.** This is a practical
 risk, not a legal one, and it is the likeliest of anything here to actually hurt
@@ -326,9 +366,9 @@ Cousins. The Supplier shall ensure that Cousins is able to regain sole control
 of its own business if the Supplier becomes unavailable for any reason. In
 particular:
 
-- Cousins holds, or can obtain within `[5]` working days, administrative access
-  to the domain `cousinsmechanicalservices.co.uk` and to the hosting account.
-- Cousins' own accounts — Google, SumUp, HubSpot — are registered in Cousins'
+- Cousins holds, or can obtain within **5** working days, administrative access
+  to the domain **cousinsmechanicalservices.co.uk** and to the hosting account.
+- Cousins' own accounts — Google, Stripe, HubSpot — are registered in Cousins'
   name and remain accessible to Cousins independently of the Supplier.
 - At least one Cousins-held login to the dashboard carries the **owner** role at
   all times, and it is not the Supplier's account.
@@ -348,13 +388,31 @@ personal data, this one prevails.
 
 **For Cousins Mechanical Services Ltd (Controller)**
 
-Name: `[  ]`  Position: `[  ]`  Signature: `[  ]`  Date: `[  ]`
+Name: Simon Cousins
 
-**For `[SUPPLIER LEGAL NAME]` (Processor)**
+Position: Director
 
-Name: `[  ]`  Position: `[  ]`  Signature: `[  ]`  Date: `[  ]`
+Signature: ...............................................
+
+Date: ..............................
+
+**For Joshua Stone, trading as Rockwell Consulting (Processor)**
+
+Name: Joshua Stone
+
+Position: Sole trader (proprietor)
+
+Signature: ...............................................
+
+Date: ..............................
 
 ---
 
-*Version 1.1. Review when a sub-processor changes, when the security measures in
-section 5 change, or annually — whichever comes first.*
+*Version 1.2, 9 September 2026. Changed from v1.1: the Supplier's details,
+notice period, liability cap, insurance and signature block are filled in; the
+payment provider is corrected from SumUp to Stripe throughout, because Stripe is
+what the live system actually uses; and section 5 now states plainly that the
+system holds Cousins' Stripe secret key, which the previous wording did not.*
+
+*Review when a sub-processor changes, when the payment provider changes, when
+the security measures in section 5 change, or annually — whichever comes first.*

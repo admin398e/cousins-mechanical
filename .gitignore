@@ -35,3 +35,4 @@ email-preview.html
 # git lock files get moved here instead. Never part of the project.
 _to_delete/
 *.patch
+legal/build/
