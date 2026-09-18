@@ -583,6 +583,12 @@
           <span style="{{ trackBadgeStyle }}">{{ trackBadge }}</span>
         </div>
         <div style="color:#8a817b;font-size:13.5px;margin-bottom:16px">{{ trackRefLabel }}</div>
+        <sc-if value="{{ trackDepositDue }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ payTrackedDeposit }}" style="background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14.5px;margin:-6px 0 16px;width:100%">{{ trackDepositLabel }}</button>
+        </sc-if>
+        <sc-if value="{{ trackDepositPaid }}" hint-placeholder-val="{{ false }}">
+          <div style="color:#39a854;font-weight:700;font-size:13.5px;margin:-6px 0 16px">✓ {{ trackDepositPaidLine }}</div>
+        </sc-if>
 
         <div style="flex:1">
           <div style="display:flex;flex-direction:column;gap:0">
@@ -871,17 +877,25 @@
         <sc-if value="{{ bookDone }}" hint-placeholder-val="{{ false }}">
           <div style="text-align:center;animation:fadeIn .3s ease">
             <dotlottie-wc src="https://lottie.host/f543018a-a76b-4db1-b72f-b9862629861a/w9AH7f1DHX.json" style="width:170px;height:170px;margin:-6px auto -10px" autoplay loop></dotlottie-wc>
-            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:28px;color:#1c1817">YOU'RE BOOKED IN!</div>
-            <div style="color:#5c534d;font-size:15px;margin:6px 0 4px">Booking reference</div>
+            <div style="font-family:'Barlow Condensed';font-weight:800;font-size:28px;color:#1c1817">REQUEST RECEIVED</div>
+            <div style="color:#5c534d;font-size:15px;margin:6px 0 4px">Your reference</div>
             <div style="display:inline-block;background:#14100e;color:#f4a04a;font-family:'Barlow Condensed';font-weight:800;font-size:22px;letter-spacing:.08em;border-radius:10px;padding:8px 18px">{{ lastRef }}</div>
             <div style="background:#faf7f3;border:1px solid #eee3d8;border-radius:12px;padding:16px;margin:20px 0;text-align:left;font-size:14px;color:#5c534d;line-height:1.6">
               <div style="font-weight:700;color:#1c1817">{{ confirmSummary }}</div>
               <div style="margin-bottom:8px">{{ confirmSummary2 }}</div>
-              <div style="color:#39a854;font-weight:700">✓ Confirmation email on its way</div>
-              <div style="color:#39a854;font-weight:700">✓ You'll get live updates on the day</div>
-              <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee3d8;color:#5c534d">
-                <strong style="color:#1c1817">Nothing to pay now.</strong> We take payment on site by card or cash when the work is done, and we'll confirm the price with you before starting.
-              </div>
+              <div style="color:#e8791a;font-weight:700">⏳ Cousins will confirm this shortly by text</div>
+              <div style="color:#39a854;font-weight:700">✓ Confirmation email once he does</div>
+              <div style="color:#39a854;font-weight:700">✓ Live updates on the day</div>
+              <sc-if value="{{ depositDueNow }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee3d8;color:#5c534d">
+                  <strong style="color:#1c1817">{{ depositDueLine }}</strong> We'll text you a link to pay it once Cousins confirms the job. It comes off your final bill; the balance is card or cash on site when the work is done.
+                </div>
+              </sc-if>
+              <sc-if value="{{ nothingDueNow }}" hint-placeholder-val="{{ true }}">
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid #eee3d8;color:#5c534d">
+                  <strong style="color:#1c1817">Nothing to pay now.</strong> We take payment on site by card or cash when the work is done, and we'll confirm the price with you before starting.
+                </div>
+              </sc-if>
             </div>
             <div style="display:flex;flex-direction:column;gap:10px">
               <button onClick="{{ openWaConfirm }}" type="button" style="border:0;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px;background:#25d366;color:#0a2c17;font-weight:700;border-radius:10px;padding:14px;font-size:15px;text-decoration:none"><svg width="20" height="20" viewBox="0 0 24 24" fill="#0a2c17"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.1-.6.2s-.7.9-.9 1.1c-.2.2-.3.2-.6.1a8 8 0 0 1-2.4-1.5 9 9 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5L8.7 6.6c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.3.3-1 .9-1 2.3s1 2.7 1.2 2.9c.1.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.6-.1 1.7-.7 1.9-1.3.3-.7.3-1.2.2-1.3l-.6-.4ZM12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Z"/></svg>Confirm on WhatsApp</button>
@@ -899,7 +913,12 @@
             <div style="color:#1c1817;font-weight:700;margin-bottom:2px">{{ rateLine }}</div>
           </sc-if>
           <div>Tyre prices are shown per tyre and include fitting. For other work we confirm the full price with you before anything starts — you are never committed to a cost by booking.</div>
-          <div style="margin-top:6px"><strong style="color:#1c1817">Nothing to pay now.</strong> We take card or cash on site once the job is done.</div>
+          <sc-if value="{{ depositAsked }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:6px"><strong style="color:#1c1817">{{ depositAskLine }}</strong> It comes off your final bill; the balance is card or cash on site once the job is done.</div>
+          </sc-if>
+          <sc-if value="{{ depositNotAsked }}" hint-placeholder-val="{{ true }}">
+            <div style="margin-top:6px"><strong style="color:#1c1817">Nothing to pay now.</strong> We take card or cash on site once the job is done.</div>
+          </sc-if>
         </div>
       </sc-if>
 
@@ -1080,6 +1099,12 @@
                 </div>
 
                 <!-- edit panel -->
+                <sc-if value="{{ o.callToChange }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin:0 16px 14px;background:#fdf4ec;border:1.5px solid #f3c6ae;border-radius:10px;padding:12px 14px;font-size:13.5px;color:#6b4326;line-height:1.5">
+                    <strong style="color:#1c1817">To change a job, please call us on <a href="tel:+447925340977" style="color:#a5401a">07925 340977</a>.</strong>
+                    We will check the van and the parts and move you to the next slot that works.
+                  </div>
+                </sc-if>
                 <sc-if value="{{ o.isEditing }}" hint-placeholder-val="{{ false }}">
                   <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px;animation:fadeIn .2s ease">
                     <div style="display:flex;gap:10px">
@@ -1096,9 +1121,12 @@
                 <sc-if value="{{ o.showActions }}" hint-placeholder-val="{{ true }}">
                   <div style="padding:0 16px 16px;display:flex;gap:8px;flex-wrap:wrap">
                     <button onClick="{{ o.track }}" style="flex:1;min-width:110px;background:#14100e;color:#fff;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Track live</button>
-                    <button onClick="{{ o.edit }}" style="flex:1;min-width:100px;background:#fff;border:1.5px solid #ddd4cb;color:#1c1817;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Amend</button>
-                    <button onClick="{{ o.cancel }}" style="flex:1;min-width:100px;background:#fdeee7;border:1.5px solid #f3c6ae;color:#a5401a;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Cancel job</button>
+                    <button onClick="{{ o.edit }}" style="flex:1;min-width:100px;background:#fff;border:1.5px solid #ddd4cb;color:#1c1817;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Change job</button>
+                    <button onClick="{{ o.cancel }}" style="flex:1;min-width:100px;background:#fdeee7;border:1.5px solid #f3c6ae;color:#a5401a;font-weight:700;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">{{ o.cancelLabel }}</button>
                   </div>
+                  <sc-if value="{{ o.cancelFailed }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin:-6px 16px 14px;color:#a5401a;font-size:13px;font-weight:600;line-height:1.45">{{ cancelErr }}</div>
+                  </sc-if>
                 </sc-if>
                 <sc-if value="{{ o.isCancelled }}" hint-placeholder-val="{{ false }}">
                   <div style="padding:0 16px 16px"><button onClick="{{ o.rebook }}" style="width:100%;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px">Re-book this job</button></div>
@@ -1267,6 +1295,12 @@ class Component extends DCLogic {
     unlockRef:'', unlockStage:'', unlockErr:'', unlockCode:'', unlockBusy:false, unlockHint:null, unlockSentTo:'',
     // Card payment. payStage: '' | 'loading' | 'ready' | 'paid' | 'error'
     payRef:'', payStage:'', payErr:'', payAmount:0, payLabel:'', payFallbackUrl:'',
+    // Whether a deposit is asked for at booking, from /api/deposit-config.
+    // Read when the form opens so the terms shown before the customer commits
+    // are the terms the server will apply.
+    depositCfg:null,
+    // Cancelling is a server round-trip now, and changing a job is a phone call.
+    cancelBusy:'', cancelErr:'', callToChange:'',
     liveTrack:false, custPos:null, mechPos:null, geoErr:'', driverMode:false, driverRef:'', driverOn:false, driverErr:'', driverAcc:0,
     isSample: true, cfgOpen: false, cfgEndpoint: '', cfgKey: '', cfgProvider: 'vdim',
     confirmVehicle: null, confirmReg: '', notMyCarOpen: false
@@ -1846,6 +1880,7 @@ class Component extends DCLogic {
 
   bookTyre(t, size){
     const label = 'Tyre fitting — ' + t.brand + ' ' + (t.model||'') + ' ' + size + (t.price!=null ? ' £'+t.price : '') + ' [' + t.sku + ']';
+    this.loadServicePricing();
     this.setState(s => ({
       bookOpen:true, bookStep:2, bookDone:false,
       book:{ ...s.book, service:'tyre', svcLabel:label, notes: (s.book.notes||'') },
@@ -1854,6 +1889,7 @@ class Component extends DCLogic {
   // ---------- BOOKING ----------
   loadServicePricing = () => {
     fetch('/api/pricing/service').then(r=>r.json()).then(d=>this.setState({svcPricing:d||{}})).catch(()=>{});
+    fetch('/api/deposit-config').then(r=>r.json()).then(d=>this.setState({depositCfg:d||null})).catch(()=>{});
   };
   openBook = () => (this.loadServicePricing(), this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}})));
   closeBook = () => this.setState({bookOpen:false});
@@ -2029,6 +2065,10 @@ class Component extends DCLogic {
   unlockBack = () => this.setState({unlockStage:'ask', unlockErr:'', unlockCode:''});
   closeUnlock = () => this.setState({unlockRef:'', unlockStage:'', unlockErr:'', unlockCode:'', unlockHint:null});
   goTrack = () => { this.setState({bookOpen:false}); setTimeout(()=>{ const el=document.getElementById('track'); if(el) el.scrollIntoView({behavior:'smooth'}); },80); };
+  // The card form lives in the tracking section, not the modal: close the
+  // modal and open it there for the booking just made.
+  payDeposit = () => { const ref=this.state.lastRef; this.setState({bookOpen:false, trackRef:ref}); setTimeout(()=>this.startPayment(ref), 120); };
+  payTrackedDeposit = () => { const ref=this.state.trackRef; if(ref) this.startPayment(ref); };
 
   // ---------- AUTH (client-side prototype) ----------
   // Prototype auth: accounts + salted-hash passwords in localStorage, session token
@@ -2327,7 +2367,12 @@ class Component extends DCLogic {
   };
   saveProfile = () => { try{ localStorage.setItem('cms_profile', JSON.stringify(this.state.profile)); const a=this.state.auth; if(a){ if(this.hasServer()){ this.apiFetch('/auth/profile',{method:'PATCH',body:JSON.stringify({name:this.state.profile.name,phone:this.state.profile.phone,marketing:this.state.profile.marketing,smsUpdates:this.state.profile.smsUpdates!==false})}).catch(()=>{}); } else { const users=this.loadUsers(); const u=users[a.email]; if(u){ u.name=this.state.profile.name; u.phone=this.state.profile.phone; u.marketing=this.state.profile.marketing; this.saveUsers(users); } } this.setState({auth:{...a,name:this.state.profile.name,phone:this.state.profile.phone}}); } }catch(e){} this.setState({profileSaved:true}); setTimeout(()=>this.setState({profileSaved:false}),1800); };
   useOffer = (code) => { this.setState({portalOpen:false, bookOpen:true, bookStep:1, bookDone:false}); setTimeout(()=>{ try{ this.setState(s=>({book:{...s.book, notes:(s.book.notes?s.book.notes+' ':'')+'Offer code: '+code}})); }catch(e){} },50); };
-  startEdit(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return; this.setState({editing:ref, editDate:o.date||'', editTime:o.time||'', editNotes:o.notes||''}); }
+  // Changing a job is a phone call, not a form. A date moved online has to be
+  // re-checked against the diary, the van and the parts on order, and Cousins
+  // wants to be the one doing that. The server refuses the PATCH too.
+  startEdit(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return;
+    this.setState({ callToChange:ref });
+    setTimeout(()=>this.setState(s=>(s.callToChange===ref?{callToChange:''}:{})), 9000); }
   setEditDate = e => this.setState({editDate:e.target.value});
   setEditTime = e => this.setState({editTime:e.target.value});
   setEditNotes = e => this.setState({editNotes:e.target.value});
@@ -2338,13 +2383,38 @@ class Component extends DCLogic {
     if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings/'+ref,{method:'PATCH',body:JSON.stringify({date:this.state.editDate,time:this.state.editTime,notes:this.state.editNotes})}).catch(()=>{}); }
     const o = orders.find(x=>x.ref===ref); if(o) this.sendAutomation(o);
   }
-  cancelOrder(ref){
+  /*
+   * Cancel. The SERVER decides, and only then does this page change.
+   *
+   * It used to mark its own copy cancelled and call /bookings/:ref — an
+   * endpoint that only serves signed-in accounts. Nearly every customer is a
+   * guest, so for them the call 401'd and was swallowed: their screen said
+   * cancelled, Cousins got a text, and the dashboard, the driver screen and the
+   * diary all went on showing a live job until he cancelled it again by hand.
+   * Guests now go through /track/:ref/cancel with their track token, which is
+   * the same proof the tracker itself runs on.
+   */
+  cancelOrder = async (ref) => {
     if(!confirm('Cancel this job? You can re-book any time.')) return;
-    const orders = this.state.orders.map(o=> o.ref===ref ? { ...o, status:'cancelled',
-      updates:[...(o.updates||[]), { t:Date.now(), s:'Booking cancelled', d:'This job was cancelled.' }] } : o);
-    this.saveOrders(orders);
-    if(this.hasServer() && this.state.auth){ this.apiFetch('/bookings/'+ref,{method:'DELETE'}).catch(()=>{}); }
-    if(this.state.trackRef===ref){ this.stopTracking(); this.setState({trackRef:''}); }
+    this.setState({ cancelBusy:ref, cancelErr:'' });
+    try{
+      const r = this.state.auth
+        ? await this.apiFetch('/bookings/'+ref, { method:'DELETE' })
+        : await this.apiFetch('/track/'+encodeURIComponent(ref)+'/cancel', { method:'POST', body:'{}',
+            headers: this.trackToken(ref) ? { 'x-track-token': this.trackToken(ref) } : {} });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){
+        this.setState({ cancelBusy:'', cancelErr: d.error || ('We could not cancel that here \u2014 please call ' + '07925 340977' + '.') });
+        return;
+      }
+      const orders = this.state.orders.map(o=> o.ref===ref ? { ...o, status:'cancelled',
+        updates:[...(o.updates||[]), { t:Date.now(), s:'Booking cancelled', d:'This job was cancelled.' }] } : o);
+      this.saveOrders(orders);
+      this.setState({ cancelBusy:'', cancelErr:'' });
+      if(this.state.trackRef===ref){ this.stopTracking(); this.setState({trackRef:''}); }
+    }catch(e){
+      this.setState({ cancelBusy:'', cancelErr:'We could not reach the server. Nothing has been cancelled \u2014 please call 07925 340977.' });
+    }
   }
   rebook(ref){ const o=this.state.orders.find(x=>x.ref===ref); if(!o) return;
     this.setState({portalOpen:false, bookOpen:true, bookStep:2, bookDone:false, book:{ ...o, calendar:true }}); }
@@ -2603,6 +2673,16 @@ class Component extends DCLogic {
     // tracking derived
     const active_order = s.orders.find(o=>o.ref===s.trackRef);
     const hasTrack = !!active_order && active_order.status!=='cancelled';
+    const depMoney = p => '£' + (Number(p||0)/100).toFixed(2).replace(/\.00$/, '');
+    const depCfg = s.depositCfg || {};
+    const depositAsked = !!depCfg.enabled && Number(depCfg.pence) > 0;
+    const lastOrder = s.bookDone ? (s.orders.find(o=>o.ref===s.lastRef) || {}) : {};
+    const depositDueNow = Number(lastOrder.depositPence) > 0 && !(Number(lastOrder.paidPence) > 0);
+    // The deposit is asked for when Cousins CONFIRMS, so the button appears
+    // then — not while the job is still a request nobody has said yes to.
+    const trackDepositDue = hasTrack && active_order.status !== 'pending'
+      && Number(active_order.depositPence) > 0 && !(Number(active_order.paidPence) > 0);
+    const trackDepositPaid = hasTrack && Number(active_order.paidPence) > 0;
     // Somebody has pointed the tracker at a booking this browser cannot yet
     // prove is theirs. It takes precedence over the "book a job" panel: they
     // have already booked one — that panel would be telling them to do it again.
@@ -2622,7 +2702,7 @@ class Component extends DCLogic {
       dotStyle:'width:13px;height:13px;border-radius:50%;background:'+(i===0?'#e8791a':'#c9beb4')+';flex:none;'+(i===0?'box-shadow:0 0 0 4px rgba(232,121,26,.18)':'')+';margin-top:3px',
       lineStyle:'width:2px;flex:1;background:#eee3d8;min-height:'+(i===feed.length-1?'0':'14')+'px'
     }));
-    const statusMap = { confirmed:['CONFIRMED','#e8791a'], enroute:['ON THE WAY','#0d5bd4'], arrived:['ARRIVED','#39a854'], cancelled:['CANCELLED','#a5401a'] };
+    const statusMap = { pending:['TO CONFIRM','#8a817b'], confirmed:['CONFIRMED','#e8791a'], enroute:['ON THE WAY','#0d5bd4'], arrived:['ARRIVED','#39a854'], complete:['COMPLETE','#6f6862'], cancelled:['CANCELLED','#a5401a'] };
 
     // step bars
     const bars = [1,2,3].map(n=>({ style:'flex:1;height:5px;border-radius:3px;background:'+((s.bookStep>=n||s.bookDone)?'#e8791a':'#e6ddd4') }));
@@ -2661,6 +2741,9 @@ class Component extends DCLogic {
         sub: this.fmtDate(o.date)+' · '+(o.time||'time TBC'),
         isEditing: s.editing===o.ref,
         isCancelled: o.status==='cancelled',
+        callToChange: s.callToChange===o.ref,
+        cancelLabel: s.cancelBusy===o.ref ? 'Cancelling\u2026' : 'Cancel job',
+        cancelFailed: !!s.cancelErr && s.cancelBusy==='',
         showActions: s.editing!==o.ref && o.status!=='cancelled',
         edit:()=>this.startEdit(o.ref), saveEdit:()=>this.saveEdit(o.ref), cancelEdit:()=>this.setState({editing:''}),
         cancel:()=>this.cancelOrder(o.ref), track:()=>this.trackOrder(o.ref), rebook:()=>this.rebook(o.ref)
@@ -2753,7 +2836,20 @@ class Component extends DCLogic {
       toggleCalendar:this.toggleCalendar, useMyLocation:this.useMyLocation,
       bookBack:this.bookBack, bookNext:this.bookNext, canBack:s.bookStep>1, nextLabel,
       nextBtnStyle:'flex:1;background:#e8791a;color:#14100e;font-weight:700;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:15.5px',
+      cancelErr:s.cancelErr,
       lastRef:s.lastRef, confirmSummary, confirmSummary2, downloadIcs:this.downloadIcs, goTrack:this.goTrack,
+      // Deposit terms. Before commit: what the server currently asks. After
+      // commit: what was written on THIS job, which is what /pay/checkout
+      // will charge — never the live setting, which may have changed since.
+      depositAsked, depositNotAsked: !depositAsked,
+      depositAskLine: depositAsked ? ('A ' + depMoney(depCfg.pence) + ' ' + (depCfg.label||'booking deposit').toLowerCase() + ' is payable by card once Cousins confirms your job.') : '',
+      depositDueNow, nothingDueNow: !depositDueNow,
+      depositDueLine: depositDueNow ? ('A ' + depMoney(lastOrder.depositPence) + ' ' + (lastOrder.depositLabel||'booking deposit').toLowerCase() + ' applies to this job.') : '',
+      payDeposit:this.payDeposit,
+      trackDepositDue, trackDepositPaid,
+      trackDepositLabel: trackDepositDue ? ('Pay your ' + depMoney(active_order.depositPence) + ' deposit by card →') : '',
+      trackDepositPaidLine: trackDepositPaid ? (depMoney(active_order.paidPence) + ' paid — thank you') : '',
+      payTrackedDeposit:this.payTrackedDeposit,
       bookBusy:s.bookBusy, bookErr:s.bookErr, hasBookErr:!!s.bookErr,
       // Labour rates are only shown when the owner has actually set them in
       // admin. Unset means we promise a quote rather than invent a number.

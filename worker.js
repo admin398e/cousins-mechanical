@@ -1189,6 +1189,10 @@ function customerJobView(o) {
     postcode: o.postcode, date: o.date, time: o.time, status: o.status,
     name: o.name, notes: o.notes, createdAt: o.createdAt,
     lat: o.lat ?? null, lng: o.lng ?? null,
+    // What was asked for at booking and what has been received — so the
+    // tracker can offer "pay the deposit" exactly once, and stop offering it.
+    depositPence: Number(o.depositPence) || 0,
+    paidPence: Number(o.paidPence) || 0,
     updates: customerUpdates(o.updates),
   };
 }
@@ -1975,6 +1979,35 @@ async function sumupCall(env, method, path, body) {
 }
 
 /**
+ * Make sure the person paying exists as a Customer in SumUp, and return the id.
+ *
+ * SumUp has no bookings API, so "link the bookings to SumUp" means this: every
+ * card payment is raised against a SumUp Customer (name, email, phone) with the
+ * booking reference as the checkout reference. In the SumUp dashboard that
+ * reads as customer → payments → which job. The id is ours and stable per
+ * person, so a repeat customer is one record, not one per job. 409 means it
+ * already exists, which is the normal case.
+ */
+async function sumupEnsureCustomer(env, job) {
+  const seed = String(job.email || job.phone || "").trim().toLowerCase();
+  if (!seed) return "";
+  const id = "cms-" + (await sha256Hex("sumup-customer:" + seed)).slice(0, 20);
+  const parts = String(job.name || "").trim().split(/\s+/);
+  const res = await sumupCall(env, "POST", "/customers", {
+    customer_id: id,
+    personal_details: {
+      first_name: parts[0] || "",
+      last_name: parts.slice(1).join(" "),
+      ...(validEmail(job.email) ? { email: job.email } : {}),
+      ...(job.phone ? { phone: String(job.phone) } : {}),
+      ...(job.postcode ? { address: { postal_code: String(job.postcode).toUpperCase(), country: "GB" } } : {}),
+    },
+  });
+  if (res.ok || res.status === 409) return id;
+  return "";
+}
+
+/**
  * Ask SumUp what really happened to a checkout.
  *
  * Everything that marks a job paid goes through here. Returns the booking
@@ -2113,6 +2146,78 @@ async function bookingSettings(env) {
 async function slotCounts(env, date) {
   const raw = await env.CMS_KV.get("slots:" + date);
   return raw ? JSON.parse(raw) : {};
+}
+
+/**
+ * The confirmation email. Sent when Cousins confirms a job in the dashboard —
+ * not when the request arrives. Carries the pay link if a deposit is owed.
+ */
+async function sendBookingConfirmedEmail(env, order, emailKey) {
+  if (!order || !validEmail(order.email)) return { skipped: true };
+  const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+  const when = (order.date || "as soon as possible") + " " + (order.time || "");
+  const unsub = await unsubUrl(env, order.email).catch(() => "");
+  const svcPr = await getPricing(env).catch(() => ({}));
+  const calloutSentence = Number(svcPr.calloutFee) ? `A £${Number(svcPr.calloutFee)} call-out charge applies. ` : "";
+  const owed = Number(order.depositPence) > 0 && !(Number(order.paidPence) > 0);
+  const paymentTerms = owed
+    ? `A £${(order.depositPence / 100).toFixed(2)} ${(order.depositLabel || "booking deposit").toLowerCase()} is due now and comes off your final bill — pay it by card here: ${site}/#pay=${encodeURIComponent(order.ref)} . `
+      + calloutSentence + "The balance is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts."
+    : calloutSentence + "Payment is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts.";
+  const subject = `Booking confirmed — ${order.ref} — ${BUSINESS.shortName}`;
+  const html = renderEmail("booking_confirmed", {
+    subject,
+    preheader: `${order.svcLabel || order.service || "Your job"} · ${order.date || "as soon as possible"} · ref ${order.ref}`,
+    firstname: String(order.name || "there").trim().split(/\s+/)[0],
+    booking_ref: order.ref,
+    service: order.svcLabel || order.service || "Mobile job",
+    vehicle_reg: order.reg || "Not given",
+    booking_date: order.date || "As soon as possible",
+    booking_time: order.time || "We'll confirm a time",
+    booking_location: order.postcode || "To be confirmed",
+    manage_booking_url: owed ? `${site}/#pay=${encodeURIComponent(order.ref)}` : `${site}/#track=${encodeURIComponent(order.ref)}`,
+    payment_terms: paymentTerms,
+  }, {
+    footer_note: `You are receiving this because you booked job ${esc(order.ref)} with us. This is a service message about that job, not marketing.`
+      + (unsub ? `<br /><a href="${unsub}" style="color:#6b7280;text-decoration:underline;">Unsubscribe from marketing emails</a>` : ""),
+  });
+  const lines = [
+    "Ref: " + order.ref, "Service: " + (order.svcLabel || order.service || "Mobile job"),
+    "Vehicle: " + (order.reg || "-"), "When: " + when.trim(), "Location: " + (order.postcode || "-"),
+  ].join("\n");
+  return recordJobMail(env, emailKey, order.ref, "customer-confirmed",
+    sendEmailTracked(env, null, order.email, subject,
+      `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\nTrack it: ${site}/#track=${order.ref}\n\n${paymentTerms}\n\n`
+      + `Need to change or cancel it? Call ${BUSINESS.landline} or ${BUSINESS.phone}, or reply to this email.\n\n`
+      + `${BUSINESS.legalName}\nRegistered in England & Wales no. ${BUSINESS.companyNumber}\n${BUSINESS.registeredOffice}`,
+      buildICS(order, env.MAIL_FROM), { html, unsubscribeUrl: unsub }));
+}
+
+/**
+ * The one way a job is cancelled by a customer. Saves the status, hands the
+ * slot back, retitles the diary entry, texts the customer, and tells the owner
+ * — so the dashboard, the driver screen and the calendar all agree at once.
+ */
+async function cancelBooking(env, ctx, kvKey, list, i, by) {
+  const job = list[i];
+  if (job.status === "cancelled") return job;
+  list[i] = { ...job, status: "cancelled", cancelledAt: Date.now(), cancelledBy: by || "customer",
+    updates: [...(job.updates || []), { t: Date.now(), s: "Booking cancelled", d: "This job was cancelled. Re-book any time." }] };
+  await env.CMS_KV.put(kvKey, JSON.stringify(list));
+  await bumpSlot(env, job.date, job.time, -1).catch(() => null);
+  await audit(env, kvKey.replace(/^bookings:/, ""), "booking_cancelled", job.ref + " by " + (by || "customer"));
+  const when = (job.date || "ASAP") + " " + (job.time || "");
+  const tasks = [
+    gcalRetitle(env, list[i]).catch(() => null),
+    notifyCustomer(env, ctx, list[i], null, `${BUSINESS.shortName}: booking ${job.ref} cancelled. Re-book any time at cousinsmechanicalservices.co.uk or call ${BUSINESS.phone}.`, "cancellation"),
+  ];
+  if (env.OWNER_PHONE) tasks.push(sendSMS(env, env.OWNER_PHONE,
+    `CANCELLED ${job.ref} by customer: ${job.svcLabel || job.service || "job"} · ${job.reg || ""} · ${when.trim()} · ${job.name || ""} ${job.phone || ""}`).catch(() => null));
+  const ownerTo = validEmail(env.OWNER_EMAIL) ? env.OWNER_EMAIL : env.MAIL_FROM;
+  if (ownerTo) tasks.push(sendEmailTracked(env, null, ownerTo, `CANCELLED ${job.ref} — ${job.svcLabel || job.service || "Mobile job"} — ${job.reg || ""}`,
+    `The customer cancelled this job from the website.\n\nRef: ${job.ref}\nWhen: ${when.trim()}\nName: ${job.name || ""}\nPhone: ${job.phone || ""}\n\nThe slot has been released and the diary entry retitled.`).catch(() => null));
+  if (ctx && ctx.waitUntil) ctx.waitUntil(Promise.allSettled(tasks)); else await Promise.allSettled(tasks);
+  return list[i];
 }
 
 async function bumpSlot(env, date, time, delta) {
@@ -2482,6 +2587,44 @@ async function googleToken(env) {
     return null;
   }
 }
+/*
+ * JOB STATUSES
+ *
+ *   pending    — request received; NOT yet a booking. Cousins confirms it.
+ *   confirmed  — Cousins has said yes; the customer has been told.
+ *   enroute / arrived / complete / cancelled — the day itself.
+ *
+ * Every website booking starts as "pending". Nothing is auto-confirmed: the
+ * owner is getting used to the system and wants to see each job before a
+ * customer is promised anything. Confirming is one press in the dashboard,
+ * and THAT press sends the confirmation text and email — the booking
+ * messages sent at request time say "we will confirm shortly", nothing more.
+ */
+const PENDING_STATUS = "pending";
+
+/** The calendar title carries the status, so the diary reads right at a glance. */
+function calendarSummaryFor(o) {
+  const base = BUSINESS.shortName + " — " + (o.svcLabel || o.service || "Mobile Service Request");
+  if (o.status === PENDING_STATUS) return "TO CONFIRM — " + base;
+  if (o.status === "cancelled") return "CANCELLED — " + base;
+  return base;
+}
+
+/** Retitle an existing Google Calendar event after a status change. Best effort. */
+async function gcalRetitle(env, o) {
+  if (!o || !o.gcalEventId) return { skipped: true };
+  const tok = await googleToken(env);
+  const calId = await gcalCalendarId(env);
+  if (!tok || !calId) return { skipped: true };
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(o.gcalEventId)}`, {
+    method: "PATCH",
+    headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
+    body: JSON.stringify({ summary: calendarSummaryFor(o) }),
+  }).catch(() => null);
+  if (!r || !r.ok) { console.error("[gcal] retitle failed", o.ref, r && r.status); return { ok: false }; }
+  return { ok: true };
+}
+
 async function addCalendarEvent(env, o, customerEmail) {
   const tok = await googleToken(env);
   const calId = await gcalCalendarId(env);
@@ -2506,7 +2649,7 @@ async function addCalendarEvent(env, o, customerEmail) {
   const endIso = `${dateStr}T${endTime}`;
 
   const event = {
-    summary: BUSINESS.shortName + " — " + (o.svcLabel || o.service || "Mobile Service Request"),
+    summary: calendarSummaryFor(o),
     description: `Service Request Ref: ${o.ref || 'NEW'}\nCustomer: ${o.name || 'N/A'}\nPhone: ${o.phone || 'N/A'}\nVehicle Reg: ${o.reg || 'N/A'}\nService: ${o.svcLabel || o.service || ''}\nLocation/Postcode: ${o.postcode || o.location || 'N/A'}\nNotes: ${o.notes || ''}\nTyre Details: ${o.tyreDetails ? (typeof o.tyreDetails === 'string' ? o.tyreDetails : JSON.stringify(o.tyreDetails)) : 'N/A'}`,
     location: o.postcode || o.location || "Bridport & West Dorset",
     start: { dateTime: startIso, timeZone: "Europe/London" },
@@ -2945,6 +3088,38 @@ const EMAIL_BLOCKS = {
 </div>
 <p style="color: #4a4a4a; margin-bottom: 0; font-size: 14px;">Need to change or cancel? Call <a href="tel:${BUSINESS.phoneHref}" style="color:#ed6b23;">${BUSINESS.phone}</a> or <a href="tel:${BUSINESS.landlineHref}" style="color:#ed6b23;">${BUSINESS.landline}</a>, or just reply to this email.</p>`,
 
+  booking_received: `<h1 style="font-size: 24px; font-weight: 700; color: #2a2a2a; margin-bottom: 20px; margin-top: 0;">We've got your request, {{{firstname}}}</h1>
+<p style="color: #4a4a4a; margin-bottom: 20px;">Thanks for choosing ${BUSINESS.name}. Your request is with us and <strong>Cousins will confirm it shortly by text</strong> — it is not booked in until you hear from us. Once confirmed, we'll text you on the day with a live tracking link.</p>
+<div class="details-box" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin-bottom: 25px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Reference:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_ref}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Service:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{service}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Vehicle:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{vehicle_reg}}}</td>
+    </tr>
+    <tr>
+      <td style="padding-bottom: 10px; font-size: 15px; color: #6b7280; font-weight: bold;">Date &amp; Time:</td>
+      <td style="padding-bottom: 10px; font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_date}}} | {{{booking_time}}}</td>
+    </tr>
+    <tr>
+      <td style="font-size: 15px; color: #6b7280; font-weight: bold;">Location:</td>
+      <td style="font-size: 15px; font-weight: 600; text-align: right; color: #2a2a2a;">{{{booking_location}}}</td>
+    </tr>
+  </table>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 25px;">{{{payment_terms}}}</p>
+<div style="text-align: center; margin-bottom: 25px;">
+  <a href="{{{manage_booking_url}}}" class="btn" style="display: inline-block; background-color: #ed6b23; color: #ffffff; font-weight: 600; font-size: 16px; padding: 14px 28px; border-radius: 4px; text-decoration: none;">Track your request</a>
+</div>
+<p style="color: #4a4a4a; margin-bottom: 0; font-size: 14px;">Need to change or cancel? Call <a href="tel:${BUSINESS.phoneHref}" style="color:#ed6b23;">${BUSINESS.phone}</a> or <a href="tel:${BUSINESS.landlineHref}" style="color:#ed6b23;">${BUSINESS.landline}</a>, or just reply to this email.</p>`,
+
   // Josh's brief pasted the refund markup under both "payment received" and
   // "refund" headings. This is the payment block written properly — a receipt
   // for money taken, not a refund.
@@ -3136,11 +3311,11 @@ async function runAutomations(env, u, o) {
   const jobs = [];
   const when = o.date ? `${o.date} ${o.time || ""}`.trim() : "soon";
   if (u.smsUpdates !== false)
-    jobs.push(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${o.ref} confirmed for ${when}. We'll message you when the van's on the way.`));
+    jobs.push(sendSMS(env, u.phone, `${BUSINESS.shortName}: we have your request ${o.ref} for ${when}. We'll text you shortly to confirm.`));
   jobs.push(addCalendarEvent(env, o, u.email));
   jobs.push(sendEmailTracked(env, null, u.email,
-    `Booking confirmed — ${o.ref}`,
-    `Hi ${u.name},\n\nYour ${o.svcLabel || "mobile job"} is booked for ${when}.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\n${BUSINESS.shortName}`,
+    `Booking request received — ${o.ref}`,
+    `Hi ${u.name},\n\nWe have your request for ${o.svcLabel || "a mobile job"} on ${when}. Cousins will confirm it shortly by text.\nRef: ${o.ref}\nVehicle: ${o.reg || "-"}\nWhere: ${o.postcode || "-"}\n\nManage or cancel any time in your account. A calendar invite is attached.\n\n${BUSINESS.shortName}`,
     buildICS(o, env.MAIL_FROM)));
 
   // Tell the business about the new job — this is what the owner actually needs
@@ -3279,8 +3454,7 @@ async function api(request, env, url, ctx) {
     if (!ref) return bad("Missing booking reference");
     if (!(await paymentsReady(env))) return bad("Card payment is not switched on.", 503);
 
-    const d = await depositSettings(env);
-    if (!d.enabled) return bad("Card payment is not switched on.", 503);
+    const settings = await depositSettings(env);
 
     const email = String(b.email || "").trim().toLowerCase() || (await findBookingOwner(env, ref));
     const key = "bookings:" + (email || "guest");
@@ -3289,9 +3463,26 @@ async function api(request, env, url, ctx) {
     if (!job) return bad("We cannot find that booking.", 404);
     if (job.paidPence > 0) return bad("That booking is already paid.", 409);
 
+    /*
+     * The amount is what was written on the job when it was booked — the
+     * figure the customer was shown and texted. The live setting is only the
+     * fallback for jobs made before deposits were recorded per job. A job
+     * that asked for nothing (deposits were off when it was made) cannot be
+     * charged by switching them on afterwards, and a job that asked for £25
+     * can still be paid after they are switched off.
+     */
+    const d = Number(job.depositPence) > 0
+      ? { pence: Number(job.depositPence), label: job.depositLabel || settings.label }
+      : (settings.enabled ? settings : null);
+    if (!d) return bad("Card payment is not switched on.", 503);
+
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
 
     if ((await paymentProvider(env)) === "sumup") {
+      // The customer record in SumUp, so the payment shows WHO paid in the
+      // SumUp dashboard, not just a reference. Best effort: a failure here
+      // must never stop a payment.
+      const customerId = await sumupEnsureCustomer(env, job).catch(() => "");
       /*
        * checkout_reference is the booking ref, and it is how the webhook finds
        * the job later. That matters: the webhook is unsigned, so the reference
@@ -3305,6 +3496,7 @@ async function api(request, env, url, ctx) {
         currency: "GBP",
         merchant_code: (await sumupAuth(env)).merchant,
         description: d.label + " — " + (job.svcLabel || job.service || "Mobile job") + " (" + ref + ")",
+        ...(customerId ? { customer_id: customerId } : {}),
         redirect_url: site + "/#paid=" + encodeURIComponent(ref),
         return_url: site + "/api/sumup-webhook",
         /*
@@ -3324,6 +3516,10 @@ async function api(request, env, url, ctx) {
       // Remembered so the return page can confirm without a webhook, and so an
       // unknown checkout id arriving at the webhook can be ignored outright.
       job.sumupCheckout = res.data.id;
+      // Kept on the job so the dashboard can say which SumUp customer this
+      // person is — the thread that ties customer, booking and payment
+      // together in a system with no bookings API of its own.
+      if (customerId) job.sumupCustomerId = customerId;
       await env.CMS_KV.put(key, JSON.stringify(arr));
       // `id` mounts the card widget in the page; `url` is the hosted fallback.
       return json({ id: res.data.id, url: res.data.hosted_checkout_url, provider: "sumup", pence: d.pence, label: d.label });
@@ -4469,10 +4665,23 @@ async function processTyreStockForOrder(env, order) {
       calendar: b.calendar !== false,
       marketing: b.marketing === true,
       ref: orderRef,
-      status: "confirmed",
+      status: PENDING_STATUS,
       createdAt: Date.now(),
-      updates: [{ t: Date.now(), s: "Booking confirmed", d: "We have your job — you will get a message when the van is on the way." }],
+      updates: [{ t: Date.now(), s: "Request received", d: "We have your request — Cousins will confirm it shortly by text." }],
     };
+
+    /*
+     * Is a deposit being asked for on this job? Decided HERE, once, and written
+     * on the job — not re-read from settings later. The owner can switch
+     * deposits off tomorrow; a customer told today that £25 is due must still
+     * be able to pay it, and one told nothing was due must never be chased.
+     * Until this existed the setting switched on a checkout endpoint that
+     * nothing ever sent a customer to: the form said "nothing to pay now"
+     * whatever the setting, and no message carried a pay link.
+     */
+    const dep = await depositSettings(env);
+    const depositLive = !!dep.enabled && (await paymentsReady(env));
+    if (depositLive) { order.depositPence = dep.pence; order.depositLabel = dep.label; }
 
     /*
      * The date has to be a real date, in the window we actually work in.
@@ -4555,6 +4764,14 @@ async function processTyreStockForOrder(env, order) {
     });
 
     const gcalResult = (await safe("calendar", () => addCalendarEvent(env, order, order.email))) || { skipped: true };
+    if (gcalResult.eventId) {
+      order.gcalEventId = gcalResult.eventId;
+      await safe("persist-calendar-id", async () => {
+        const arr = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
+        const i = arr.findIndex(o => o.ref === order.ref);
+        if (i >= 0) { arr[i].gcalEventId = gcalResult.eventId; await env.CMS_KV.put(emailKey, JSON.stringify(arr)); }
+      });
+    }
 
     const when = (order.date || "as soon as possible") + " " + (order.time || "");
     const lines = [
@@ -4582,10 +4799,14 @@ async function processTyreStockForOrder(env, order) {
         const calloutSentence = Number(svcPr.calloutFee)
           ? `A £${Number(svcPr.calloutFee)} call-out charge applies. `
           : "";
-        const paymentTerms = calloutSentence
-          + "Payment is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts.";
-        const subject = `Booking confirmed — ${order.ref} — ${BUSINESS.shortName}`;
-        const html = renderEmail("booking_confirmed", {
+        const paymentTerms = order.depositPence
+          ? `Once we confirm, we will text you a link to pay a £${(order.depositPence / 100).toFixed(2)} ${(order.depositLabel || "booking deposit").toLowerCase()} by card — it comes off your final bill. `
+            + calloutSentence
+            + "The balance is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts."
+          : calloutSentence
+            + "Payment is taken on site when the work is done — card or cash. We'll confirm the full price with you before any work starts.";
+        const subject = `Booking request received — ${order.ref} — ${BUSINESS.shortName}`;
+        const html = renderEmail("booking_received", {
           subject,
           // Shown in the inbox list next to the subject. Left blank it gets
           // filled with whatever text comes first, which here is the address.
@@ -4608,7 +4829,7 @@ async function processTyreStockForOrder(env, order) {
 
         ctx.waitUntil(recordJobMail(env, emailKey, order.ref, "customer",
           sendEmailTracked(env, null, order.email, subject,
-          `Hi ${order.name},\n\nYour booking is confirmed.\n\n${lines}\n\n`
+          `Hi ${order.name},\n\nWe have your request — Cousins will confirm it shortly by text.\n\n${lines}\n\n`
           + `Track it: ${site}/#track=${order.ref}\n\n`
           + paymentTerms + `\n\n`
           + `Need to change or cancel it? Call ${BUSINESS.landline} or ${BUSINESS.phone}, or reply to this email.\n\n`
@@ -4635,9 +4856,9 @@ async function processTyreStockForOrder(env, order) {
         await noteMailFailure(env, order.phone, "Studio confirmation " + order.ref, { ...studio, channel: "studio" });
       }
       return notifyCustomer(env, ctx, order, null,
-        `${BUSINESS.shortName}: booking ${order.ref} confirmed for ${when.trim()}. `
+        `${BUSINESS.shortName}: we have your request ${order.ref} for ${when.trim()} — `
         + `${order.svcLabel || order.service || "Mobile job"}${order.reg ? " · " + order.reg : ""}. `
-        + `We'll message you when the van is on the way. Questions? ${BUSINESS.phone}.`,
+        + `We'll text you shortly to confirm. Questions? ${BUSINESS.phone}.`,
         "booking confirmation");
     });
 
@@ -4654,12 +4875,12 @@ async function processTyreStockForOrder(env, order) {
         }
         ctx.waitUntil(recordJobMail(env, emailKey, order.ref, "owner",
           sendEmailTracked(env, null, ownerTo,
-            `NEW JOB ${order.ref} — ${order.svcLabel || order.service || "Mobile job"} — ${order.reg || ""}`,
-            `New booking taken on the website.\n\n${lines}\n\nOpen the dashboard: ${(env.SITE_URL || "")}/admin`)));
+            `NEW REQUEST ${order.ref} — needs confirming — ${order.svcLabel || order.service || "Mobile job"} — ${order.reg || ""}`,
+            `New request from the website. It is NOT confirmed until you press Confirm in the dashboard — the customer has been told to expect a text.\n\n${lines}\n\nConfirm it: ${(env.SITE_URL || "")}/admin`)));
       }
       if (env.OWNER_PHONE) {
         ctx.waitUntil(sendSMS(env, env.OWNER_PHONE,
-          `NEW JOB ${order.ref}: ${order.svcLabel || order.service || "job"} · ${order.reg || ""} · ${when} · ${order.postcode || ""} · ${order.name} ${order.phone}`));
+          `NEW REQUEST ${order.ref} (confirm in Admin): ${order.svcLabel || order.service || "job"} · ${order.reg || ""} · ${when} · ${order.postcode || ""} · ${order.name} ${order.phone}`));
       }
     });
 
@@ -4686,6 +4907,30 @@ async function processTyreStockForOrder(env, order) {
   }
 
   // --- BOOKINGS (per account) ---
+  /*
+   * Cancel a job, from wherever the customer is standing. Until this existed
+   * a customer who had unlocked tracking with a texted code could see "Cancel"
+   * on the page, press it, and the page marked its OWN copy cancelled and
+   * called an endpoint that only serves signed-in accounts — so the dashboard,
+   * the driver screen and the diary all went on showing a live job until the
+   * owner cancelled it by hand. Everything that cancels now goes through one
+   * function: the record, the slot, the calendar title, and the owner's text.
+   */
+  const trackCancel = p.match(/^\/track\/([\w-]+)\/cancel$/);
+  if (trackCancel && request.method === "POST") {
+    const ref = trackCancel[1];
+    const hit = await bookingByRef(env, ref);
+    if (!hit) return bad("We cannot find that booking.", 404);
+    const auth = await trackAuth(request, env, ref);
+    if (!auth.ok) return bad("Check it's you first — unlock tracking with the code we text you, or call " + BUSINESS.phone + ".", 403);
+    const kvKey = "bookings:" + hit.owner;
+    const list = JSON.parse((await env.CMS_KV.get(kvKey)) || "[]");
+    const i = list.findIndex(o => o.ref === ref);
+    if (i < 0) return bad("We cannot find that booking.", 404);
+    const done = await cancelBooking(env, ctx, kvKey, list, i, "customer");
+    return json({ ok: true, job: customerJobView(done) });
+  }
+
   if (p === "/bookings") {
     const u = await sessionUser(request, env);
     if (!u) return bad("Not signed in", 401);
@@ -4711,8 +4956,8 @@ async function processTyreStockForOrder(env, order) {
         postcode: str(b.postcode, 60), date: str(b.date, 30), time: str(b.time, 40),
         notes: str(b.notes, 2000), lat: num(b.lat), lng: num(b.lng),
         calendar: b.calendar !== false,
-        ref: ref(), status: "confirmed", createdAt: Date.now(),
-        updates: [{ t: Date.now(), s: "Booking confirmed", d: "We have your job — you will get a text when the van is on the way." }] };
+        ref: ref(), status: PENDING_STATUS, createdAt: Date.now(),
+        updates: [{ t: Date.now(), s: "Request received", d: "We have your request — Cousins will confirm it shortly by text." }] };
       
       // Auto-check stock & trigger supplier auto-order if required
       await processTyreStockForOrder(env, order);
@@ -4736,26 +4981,14 @@ async function processTyreStockForOrder(env, order) {
     if (i < 0) return bad("Not found", 404);
 
     if (request.method === "PATCH") {
-      const b = await request.json().catch(() => ({}));
-      // Whitelist. This used to spread the whole body over the stored job, so a
-      // customer could PATCH {"paidPence":20000,"payments":[...]} and mark their
-      // own job paid — which the refund ceiling in /admin/jobs/:ref/payment
-      // then trusts, authorising a refund of money never taken.
-      const AMENDABLE = ["date", "time", "postcode", "notes", "phone", "reg", "lat", "lng"];
-      const patch = {};
-      for (const k of AMENDABLE) if (b[k] !== undefined) patch[k] = b[k];
-      list[i] = { ...list[i], ...patch, updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking amended", d: "Your booking was updated." }] };
-      await env.CMS_KV.put(kvKey, JSON.stringify(list));
-      await audit(env, u.email, "booking_amended", list[i].ref);
-      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${list[i].ref} updated to ${list[i].date || ""} ${list[i].time || ""}.`));
-      return json({ booking: list[i] });
+      // Changes are made by phone. A date moved online has to be re-checked
+      // against the diary, the van and the parts on order, and the owner
+      // wants to be the one doing that while he learns the system.
+      return bad(`To change the date, time or job, please call ${BUSINESS.phone} — we will sort it straight away.`, 405);
     }
     if (request.method === "DELETE") {
-      list[i] = { ...list[i], status: "cancelled", updates: [...(list[i].updates || []), { t: Date.now(), s: "Booking cancelled", d: "This job was cancelled." }] };
-      await env.CMS_KV.put(kvKey, JSON.stringify(list));
-      await audit(env, u.email, "booking_cancelled", list[i].ref);
-      if (u.smsUpdates !== false) ctx.waitUntil(sendSMS(env, u.phone, `${BUSINESS.shortName}: booking ${list[i].ref} cancelled. Re-book any time.`));
-      return json({ booking: list[i] });
+      const done = await cancelBooking(env, ctx, kvKey, list, i, "customer");
+      return json({ booking: done });
     }
   }
 
@@ -5001,7 +5234,8 @@ async function processTyreStockForOrder(env, order) {
     const list = await env.CMS_KV.list({ prefix: "bookings:" });
     for (const k of list.keys) {
       const arr = JSON.parse((await env.CMS_KV.get(k.name)) || "[]");
-      for (const o of arr) if (o.status !== "cancelled" && o.status !== "complete")
+      // A request nobody has confirmed is not a job for the van yet.
+      for (const o of arr) if (o.status !== "cancelled" && o.status !== "complete" && o.status !== PENDING_STATUS)
         // lat/lng included: the customer's exact position was captured at
         // booking but never sent to the driver, so the driver app's ETA had
         // nothing to measure against and returned null on every fix — the
@@ -5752,7 +5986,11 @@ async function processTyreStockForOrder(env, order) {
     const jm = p.match(/^\/admin\/jobs\/([\w-]+)$/);
     if (jm && request.method === "PATCH") {
       const b = await request.json().catch(() => ({}));
-      const email = (b.customerEmail || "").toLowerCase();
+      // Fall back to finding the owner from the reference. A guest booking
+      // (no email) lives under "bookings:guest", and a caller that omits the
+      // address used to address "bookings:" — a key holding nothing, so the
+      // status change silently did nothing at all.
+      const email = (b.customerEmail || "").toLowerCase() || (await findBookingOwner(env, jm[1])) || "guest";
       const key = "bookings:" + email;
       const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
       const i = arr.findIndex(o => o.ref === jm[1]);
@@ -5765,17 +6003,33 @@ async function processTyreStockForOrder(env, order) {
         if (wasLive && nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, -1).catch(() => null);
         if (!wasLive && !nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, +1).catch(() => null);
       }
+      const before = arr[i].status;
       if (b.status) arr[i].status = b.status;
+      const justConfirmed = b.status === "confirmed" && before === PENDING_STATUS;
+      if (justConfirmed) { arr[i].confirmedAt = Date.now(); arr[i].confirmedBy = (await whoAmI(env, request)) || "admin"; }
       arr[i].updates = [...(arr[i].updates || []), { t: Date.now(), s: b.label || "Status updated", d: b.note || "" }];
       await env.CMS_KV.put(key, JSON.stringify(arr));
+      // The diary entry carries the status in its title.
+      if (b.status && b.status !== before) ctx.waitUntil(gcalRetitle(env, arr[i]).catch(() => null));
       // Notify the customer. The number comes off the booking, so this works
       // for the guests who make up nearly every job — the old lookup went to
       // "user:" only and silently did nothing for them.
       if (b.sms) {
         const uraw = await env.CMS_KV.get("user:" + email);
         const u = uraw ? JSON.parse(uraw) : null;
-        await notifyCustomer(env, ctx, arr[i], u, b.sms, "status update");
+        let text = String(b.sms);
+        // Confirming is the moment the deposit is asked for: the pay link
+        // rides on the confirmation text, never on the request-received one.
+        const owed = Number(arr[i].depositPence) > 0 && !(Number(arr[i].paidPence) > 0);
+        if (justConfirmed && owed) {
+          const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+          text += ` Pay your £${(arr[i].depositPence / 100).toFixed(2)} deposit here: ${site}/#pay=${arr[i].ref}`;
+        }
+        await notifyCustomer(env, ctx, arr[i], u, text, "status update");
       }
+      // The confirmation EMAIL — the one that used to go out the moment a
+      // booking was made — now goes out here, when Cousins says yes.
+      if (justConfirmed) ctx.waitUntil(sendBookingConfirmedEmail(env, arr[i], key).catch(() => null));
       return json({ job: arr[i] });
     }
 
@@ -7820,6 +8074,8 @@ async function reminderSweepNow(env) {
       if (o.reminderSent) continue;
       if (o.date !== tomorrow) continue;
       if (o.status === "cancelled" || o.status === "complete") continue;
+      // An unconfirmed request gets no "see you tomorrow" — nobody has said yes.
+      if (o.status === PENDING_STATUS) continue;
 
       // The customer's number: on the booking, else on their account record.
       let phone = o.phone;

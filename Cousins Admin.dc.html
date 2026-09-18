@@ -270,7 +270,7 @@
         <div style="background:#1c1714;border:1px solid #2a2320;border-radius:14px;overflow:hidden;animation:fadeIn .2s ease">
           <div style="overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;min-width:820px">
-              <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">Vehicle</th><th class="adm-th">Customer</th><th class="adm-th">When</th><th class="adm-th">Status</th><th class="adm-th">Move to</th><th class="adm-th">Money</th><th class="adm-th">Live GPS</th></tr></thead>
+              <thead><tr><th class="adm-th">Ref</th><th class="adm-th">Service</th><th class="adm-th">Vehicle</th><th class="adm-th">Customer</th><th class="adm-th">When</th><th class="adm-th">Confirm</th><th class="adm-th">Status</th><th class="adm-th">Move to</th><th class="adm-th">Money</th><th class="adm-th">Live GPS</th></tr></thead>
               <tbody>
                 <sc-for list="{{ jobRows }}" as="j" hint-placeholder-count="4">
                   <tr>
@@ -287,10 +287,21 @@
                     <td class="adm-td"><div style="font-weight:600;color:#fff">{{ j.name }}</div><div style="color:#8a817b;font-size:12px">{{ j.phone }}</div><div style="color:#6f6862;font-size:11px">{{ j.postcode }}</div></td>
                     <td class="adm-td">{{ j.when }}</td>
                     <td class="adm-td"><span style="{{ j.badgeStyle }}">{{ j.statusLabel }}</span></td>
-                    <td class="adm-td"><select value="{{ j.status }}" onChange="{{ j.onStatus }}" style="background:#14100e;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:8px;padding:8px 10px;font-size:13px"><option value="confirmed">Confirmed</option><option value="enroute">On the way</option><option value="arrived">Arrived</option><option value="complete">Complete</option><option value="cancelled">Cancelled</option></select></td>
+                    <td class="adm-td">
+                      <sc-if value="{{ j.needsConfirm }}" hint-placeholder-val="{{ false }}">
+                        <button onClick="{{ j.confirmJob }}" style="background:#e8791a;color:#14100e;font-weight:800;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:13px;white-space:nowrap">{{ j.confirmLabel }}</button>
+                      </sc-if>
+                      <sc-if value="{{ j.alreadyConfirmed }}" hint-placeholder-val="{{ true }}">
+                        <span style="color:#6f6862;font-size:12px">{{ j.confirmedNote }}</span>
+                      </sc-if>
+                    </td>
+                    <td class="adm-td"><select value="{{ j.status }}" onChange="{{ j.onStatus }}" style="background:#14100e;border:1.5px solid #3a322d;color:#d9d2cc;border-radius:8px;padding:8px 10px;font-size:13px"><option value="pending">To confirm</option><option value="confirmed">Confirmed</option><option value="enroute">On the way</option><option value="arrived">Arrived</option><option value="complete">Complete</option><option value="cancelled">Cancelled</option></select></td>
                     <td class="adm-td">
                       <div style="display:flex;align-items:center;gap:8px;white-space:nowrap">
-                        <span style="{{ j.paidStyle }}">{{ j.paidLabel }}</span>
+                        <span style="{{ j.paidStyle }}" title="{{ j.paidTitle }}">{{ j.paidLabel }}</span>
+                        <sc-if value="{{ j.depositOwed }}" hint-placeholder-val="{{ false }}">
+                          <button onClick="{{ j.copyPayLink }}" title="Copy the card-payment link to send to the customer" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px" style-hover="border-color:#e8791a;color:#f4a04a">{{ j.copyPayLabel }}</button>
+                        </sc-if>
                         <span style="{{ j.mailStyle }}" title="{{ j.mailTitle }}">{{ j.mailLabel }}</span>
                         <button onClick="{{ j.openPay }}" style="border:1px solid #3a322d;background:#14100e;color:#9a918a;font-weight:700;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12.5px" style-hover="border-color:#e8791a;color:#f4a04a">{{ j.payLabel }}</button>
                       </div>
@@ -1653,6 +1664,7 @@ class Component extends DCLogic {
     // because the modal shows that job's existing payment history.
     catErr:'', tyreCount:0, driverEdits:{}, drvMsg:'', driverDeleteArm:'', jobDeleteArm:'',
     payJob:null, payKind:'payment', payAmount:'', payMethod:'card', payNote:'', payBusy:false, payMsg:'', payErr:'',
+    copiedPayRef:'', confirmingRef:'',
     pName:'', pSku:'', pBrand:'', pSize:'', pCategory:'Budget', pQty:'0', pMinStock:'3', pReorderQty:'10', pCostPrice:'35.00', pPrice:'55.00', pSupplierEmail:'', pSupplierApiUrl:'', pAutoReorder:false,
     users:[], drivers:[], drvName:'', drvReg:'', drvPhone:'',
     catQuery:'', catResults:[], supplierOrders:[], reorderLogs:[], locations:[],
@@ -2022,6 +2034,29 @@ class Component extends DCLogic {
   close2fa = () => this.setState({twofaOpen:false});
   // A compulsory enrolment has no way out but finishing it or signing out.
   maybeClose2fa = () => { if(!this.state.mustEnrol) this.setState({twofaOpen:false}); };
+
+  /*
+   * Confirm a request. This is the only thing that turns a website request
+   * into a booking: it sets the status, texts the customer (with the deposit
+   * link if one is owed), sends the confirmation email and retitles the
+   * diary entry. Nothing on the site does this by itself.
+   */
+  confirmJob = async (j) => {
+    if(this.state.confirmingRef) return;
+    this.setState({ confirmingRef:j.ref });
+    try{
+      await this.changeStatus(j, 'confirmed');
+    } finally {
+      this.setState({ confirmingRef:'' });
+    }
+  };
+
+  copyPayLink = async (j) => {
+    const url = window.location.origin + '/#pay=' + encodeURIComponent(j.ref);
+    try{ await navigator.clipboard.writeText(url); }catch(e){ window.prompt('Copy this link:', url); }
+    this.setState({ copiedPayRef:j.ref });
+    clearTimeout(this._copiedPay); this._copiedPay = setTimeout(()=>this.setState({ copiedPayRef:'' }), 2500);
+  };
 
   // --- Record a payment or refund -------------------------------------------
   openPay(job){
@@ -3321,8 +3356,9 @@ class Component extends DCLogic {
   calPickDay = (key) => this.setState(s => ({ calPick: s.calPick === key ? '' : key }));
 
   changeStatus(job, status){
-    const labels={confirmed:'Booking confirmed',enroute:'On the way',arrived:'Arrived',complete:'Job complete',cancelled:'Booking cancelled'};
+    const labels={pending:'Awaiting confirmation',confirmed:'Booking confirmed',enroute:'On the way',arrived:'Arrived',complete:'Job complete',cancelled:'Booking cancelled'};
     const notes={
+      pending:'We have your request — we will confirm it shortly.',
       confirmed:'We have your job booked in.',
       enroute:'Your mechanic is on the way — follow the van on the map.',
       arrived:'Your mechanic has arrived and is with you.',
@@ -3331,7 +3367,16 @@ class Component extends DCLogic {
     };
     const sms='Cousins Mechanical: '+job.ref+' — '+labels[status]+'. '+notes[status];
     this.setState(s=>({jobs:s.jobs.map(j=>j.ref===job.ref?{...j,status}:j)}));
-    if(!this.state.demoMode){ this.af('/admin/jobs/'+job.ref,{method:'PATCH',body:JSON.stringify({customerEmail:job.customerEmail,status,label:labels[status],note:notes[status],sms})}).catch(()=>{}); }
+    if(this.state.demoMode) return Promise.resolve();
+    // Returned, not fired and forgotten: Confirm waits for it, and the row
+    // takes the server's own copy of the job back (confirmedAt, updates) so
+    // the button does not flip back on the next poll.
+    return this.af('/admin/jobs/'+job.ref,{method:'PATCH',body:JSON.stringify({customerEmail:job.customerEmail,status,label:labels[status],note:notes[status],sms})})
+      .then(async r=>{
+        const d = await r.json().catch(()=>({}));
+        if(d && d.job){ this.setState(s=>({jobs:s.jobs.map(j=>j.ref===job.ref?{...j,...d.job}:j)})); }
+      })
+      .catch(()=>{});
   }
 
   deleteJob(job){
@@ -3435,7 +3480,7 @@ class Component extends DCLogic {
 
   renderVals(){
     const s=this.state;
-    const statusMap={confirmed:['CONFIRMED','#e8791a'],enroute:['ON THE WAY','#0d5bd4'],arrived:['ARRIVED','#39a854'],complete:['COMPLETE','#6f6862'],cancelled:['CANCELLED','#a5401a']};
+    const statusMap={pending:['TO CONFIRM','#c9a227'],confirmed:['CONFIRMED','#e8791a'],enroute:['ON THE WAY','#0d5bd4'],arrived:['ARRIVED','#39a854'],complete:['COMPLETE','#6f6862'],cancelled:['CANCELLED','#a5401a']};
     const badge=(st)=>{ const m=statusMap[st]||['—','#6f6862']; return 'font-family:\'Barlow Condensed\';font-weight:800;font-size:11.5px;letter-spacing:.05em;color:#fff;background:'+m[1]+';border-radius:6px;padding:4px 9px'; };
     const payTab=(on)=>'flex:1;border:1px solid '+(on?'#e8791a':'#3a322d')+';background:'+(on?'rgba(232,121,26,.16)':'#14100e')+';color:'+(on?'#f4a04a':'#9a918a')+';font-weight:700;border-radius:9px;padding:10px;cursor:pointer;font-size:13px';
 
@@ -3446,12 +3491,28 @@ class Component extends DCLogic {
         ? 'color:#f0a884;font-size:12px;line-height:1.45;margin-top:4px;max-width:260px;white-space:normal'
         : 'display:none',
       onStatus:(e)=>this.changeStatus(j, e.target.value),
+      // Nothing is auto-confirmed. Until this press the customer has been told
+      // only that we have their request; this is what sends the confirmation
+      // text and email (and the deposit link, if one is owed).
+      needsConfirm: j.status==='pending',
+      alreadyConfirmed: j.status!=='pending',
+      confirmJob: ()=>this.confirmJob(j),
+      confirmLabel: s.confirmingRef===j.ref ? 'Confirming\u2026' : 'Confirm job',
+      confirmedNote: j.status==='cancelled' ? '\u2014' : (j.confirmedAt ? 'Confirmed' : ''),
       toggleGps:()=>this.toggleGps(j),
       gpsLabel: s.gpsRef===j.ref?'● Sharing':'Share',
       gpsStyle: 'border:1px solid '+(s.gpsRef===j.ref?'#39a854':'#3a322d')+';background:'+(s.gpsRef===j.ref?'rgba(57,168,84,.16)':'#14100e')+';color:'+(s.gpsRef===j.ref?'#4fe06a':'#9a918a')+';font-weight:700;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;white-space:nowrap',
       openPay: ()=>this.openPay(j),
       // paidPence is the net of payments minus refunds, computed server-side.
-      paidLabel: j.paidPence>0 ? this.fmtMoney(j.paidPence) : (Array.isArray(j.payments)&&j.payments.length ? 'Refunded' : 'Unpaid'),
+      paidLabel: j.paidPence>0 ? this.fmtMoney(j.paidPence)
+        : (Array.isArray(j.payments)&&j.payments.length ? 'Refunded'
+        : (j.depositPence>0 ? this.fmtMoney(j.depositPence)+' due' : 'Unpaid')),
+      paidTitle: j.depositPence>0 ? ('A '+this.fmtMoney(j.depositPence)+' deposit was asked for when this job was booked') : '',
+      // A deposit was asked for and has not arrived: the pay link the customer
+      // was texted, one click to copy and send again by WhatsApp or by hand.
+      depositOwed: j.depositPence>0 && !(j.paidPence>0),
+      copyPayLink: ()=>this.copyPayLink(j),
+      copyPayLabel: s.copiedPayRef===j.ref ? 'Link copied' : 'Pay link',
       paidStyle: j.paidPence>0
         ? 'background:rgba(57,168,84,.16);border:1px solid rgba(57,168,84,.45);color:#8ee6a0;border-radius:6px;padding:3px 8px;font-weight:700;font-size:12px'
         : 'color:#6f6862;font-size:12px',

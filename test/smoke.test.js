@@ -496,7 +496,15 @@ try {
     const bk = await postJson('/api/service-requests', {
       name: 'GPS Job', phone: '07900556111', reg: 'GP11SXX', service: 'diagnostics', svcLabel: 'Diagnostics',
     });
-    const gpsRef = (await bk.json()).ref;
+    const gpsBooking = (await bk.json()).booking;
+    const gpsRef = gpsBooking.ref;
+    // Nothing is auto-confirmed any more, and the van is only shown confirmed
+    // work — so confirm it first, exactly as Cousins would.
+    await api('/api/admin/jobs/' + gpsRef, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + adminTok },
+      body: JSON.stringify({ customerEmail: gpsBooking.email || '', status: 'confirmed', label: 'Booking confirmed' }),
+    });
 
     const post = await postJson('/api/driver/location', { ref: gpsRef, lat: 50.7333, lng: -2.7581, eta: 12, token: drvTok });
     assert.equal(post.status, 200, `location post failed: ${await post.text()}`);
@@ -1001,6 +1009,149 @@ try {
     assert.ok(/hasGoogle:!!s\.googleEnabled && !s\.standalone/.test(page), 'Google sign-in is offered inside the home-screen app');
   });
 
+  await check('a website booking is a REQUEST until Cousins confirms it', async () => {
+    /*
+     * Nothing is auto-confirmed while the owner learns the system. A booking
+     * arrives as "pending": the customer is told we have their request, the
+     * owner is told it needs confirming, and no van, reminder or deposit link
+     * exists until he presses Confirm.
+     */
+    const bk = await postJson('/api/service-requests', {
+      name: 'Pending Person', phone: '07900556222', reg: 'PN11DNG',
+      service: 'diagnostics', svcLabel: 'Diagnostics', postcode: 'DT6 5NJ',
+      email: `pending-${Date.now()}@example.com`,
+      date: new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10), time: 'Morning (8-12)',
+    }, { 'cf-connecting-ip': '198.51.100.42' });
+    const made = await bk.json();
+    assert.equal(bk.status, 200, 'booking was refused: ' + JSON.stringify(made));
+    const { ref, booking } = made;
+    assert.equal(booking.status, 'pending', 'a website booking confirmed itself');
+
+    // The customer sees it as pending too, through the tracker's own view.
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const jobs = await (await api('/api/admin/jobs', { headers: h })).json();
+    const row = (jobs.jobs || []).find(j => j.ref === ref);
+    assert.ok(row, 'the request is not in the dashboard');
+    assert.equal(row.status, 'pending', 'the dashboard shows it as already confirmed');
+
+    // Confirming is a status change, and it records who and when.
+    const conf = await api('/api/admin/jobs/' + ref, {
+      method: 'PATCH', headers: h,
+      body: JSON.stringify({ customerEmail: booking.email, status: 'confirmed', label: 'Booking confirmed', note: 'We have your job booked in.' }),
+    });
+    const confBody = await conf.json().catch(() => ({}));
+    assert.equal(conf.status, 200, 'confirming failed: ' + JSON.stringify(confBody));
+    const after = confBody.job;
+    assert.equal(after.status, 'confirmed');
+    assert.ok(after.confirmedAt > 0, 'confirming did not record when');
+  });
+
+  await check('an unconfirmed request reaches neither the van nor the reminder run', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    // The driver's job list.
+    const dj = src.indexOf('for (const o of arr) if (o.status !== "cancelled" && o.status !== "complete"');
+    assert.ok(dj > 0, 'the driver job filter has moved');
+    assert.ok(src.slice(dj, dj + 200).includes('o.status !== PENDING_STATUS'),
+      'the driver screen lists jobs nobody has confirmed');
+    // Tomorrow's reminder.
+    const rm = src.indexOf('if (o.reminderSent) continue;');
+    assert.ok(rm > 0, 'the reminder loop has moved');
+    assert.ok(src.slice(rm, rm + 400).includes('o.status === PENDING_STATUS'),
+      'an unconfirmed request would still be sent a "see you tomorrow" text');
+    // The confirmation email is sent on confirmation, not on request.
+    assert.ok(/if \(justConfirmed\) ctx\.waitUntil\(sendBookingConfirmedEmail/.test(src),
+      'the confirmation email is not tied to the moment Cousins confirms');
+    assert.ok(src.includes('renderEmail("booking_received"'),
+      'a new request no longer gets the "we have your request" email');
+  });
+
+  await check('a guest can cancel their own job, and everything sees it at once', async () => {
+    /*
+     * The bug: the page marked its own copy cancelled and called an endpoint
+     * that only serves signed-in accounts. Guests got a 401 nobody saw, so the
+     * dashboard, the driver screen and the diary went on showing a live job
+     * until the owner cancelled it again by hand.
+     */
+    const phoneTail = '771';
+    const bk = await postJson('/api/service-requests', {
+      name: 'Cancel Guest', phone: '0790055' + phoneTail, reg: 'CX11GST',
+      service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ',
+      email: `cancel-guest-${Date.now()}@example.com`,
+      date: new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10), time: 'Afternoon (12-5)',
+    }, { 'cf-connecting-ip': '198.51.100.44' });
+    const { ref, booking } = await bk.json();
+
+    // Without proof, no cancelling: a reference alone is not authority.
+    const nope = await postJson('/api/track/' + ref + '/cancel', {});
+    assert.equal(nope.status, 403, 'anyone holding a reference could cancel that job');
+
+    // The guest's own proof is the texted code, same as tracking.
+    const sent = await (await postJson('/api/track/' + ref + '/code', {})).json();
+    assert.ok(sent.devCode, 'no code was issued for the guest');
+    const ver = await (await postJson('/api/track/' + ref + '/verify', { code: sent.devCode })).json();
+    assert.ok(ver.token, 'verifying did not hand back a track token');
+
+    const done = await postJson('/api/track/' + ref + '/cancel', {}, { 'x-track-token': ver.token });
+    assert.equal(done.status, 200, 'the guest could not cancel: ' + await done.text());
+
+    // The dashboard agrees, immediately — no second cancellation by hand.
+    const tok = await adminTok();
+    const jobs = await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + tok } })).json();
+    const row = (jobs.jobs || []).find(j => j.ref === ref);
+    assert.ok(row, 'the cancelled job vanished from the dashboard');
+    assert.equal(row.status, 'cancelled', 'the dashboard still shows a live job after the customer cancelled');
+
+    // And the slot went back: the source of truth for that is one function.
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const cb = src.indexOf('async function cancelBooking(');
+    assert.ok(cb > 0, 'the shared cancel path is gone');
+    const body = src.slice(cb, cb + 1600);
+    for (const must of ['bumpSlot(env, job.date, job.time, -1)', 'gcalRetitle(', 'notifyCustomer(', 'OWNER_PHONE']) {
+      assert.ok(body.includes(must), 'cancelling no longer does: ' + must);
+    }
+    assert.ok(booking.status === 'pending', 'sanity: the fixture booking was not pending');
+  });
+
+  await check('changing a job is a phone call, not a form', async () => {
+    const acct = await signupVerified({ name: 'Amend Caller', email: `amend-${Date.now()}@example.com`, phone: '07900556333', password: 'a-properly-long-password' });
+    const mk = await postJson('/api/bookings', {
+      name: 'Amend Caller', phone: '07900556333', reg: 'AM11CLL', service: 'service', svcLabel: 'Service',
+      date: new Date(Date.now() + 6 * 864e5).toISOString().slice(0, 10), time: 'Morning (8-12)',
+    }, { authorization: 'Bearer ' + acct.token });
+    const made = (await mk.json()).booking;
+    assert.equal(made.status, 'pending', 'a signed-in booking confirmed itself');
+
+    const patch = await api('/api/bookings/' + made.ref, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + acct.token },
+      body: JSON.stringify({ date: '2030-01-01', time: 'Afternoon (12-5)' }),
+    });
+    assert.equal(patch.status, 405, 'a customer moved their own job online');
+    assert.match((await patch.json()).error || '', /call/i, 'the refusal does not tell them to call');
+  });
+
+  await check('a card payment is raised against a SumUp customer, so it ties back to a person', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    assert.ok(/async function sumupEnsureCustomer\(/.test(src), 'nothing creates the SumUp customer');
+    const i = src.indexOf('async function sumupEnsureCustomer(');
+    const fn = src.slice(i, i + 1200);
+    assert.ok(fn.includes('"POST", "/customers"'), 'the customer is not created in SumUp');
+    assert.ok(fn.includes('res.status === 409'), 'a repeat customer would be treated as a failure');
+    assert.ok(/const id = "cms-" \+ \(await sha256Hex\(/.test(fn), 'the customer id is not stable per person');
+    // ...and the checkout carries it, plus the booking ref, so SumUp shows
+    // customer -> payment -> which job.
+    const co = src.indexOf('const customerId = await sumupEnsureCustomer(');
+    assert.ok(co > 0, 'the checkout does not look the customer up');
+    const block = src.slice(co, co + 3000);
+    assert.ok(block.includes('...(customerId ? { customer_id: customerId } : {})'), 'the checkout does not carry the customer');
+    assert.ok(block.includes('checkout_reference'), 'the checkout no longer carries the booking reference');
+    assert.ok(block.includes('job.sumupCustomerId = customerId'), 'the job does not remember its SumUp customer');
+  });
+
   await check('the runaway brake must sit above the budget, not below it', async () => {
     // A hard cap under the soft cap would stop every job message the instant
     // the budget was reached — the opposite of what a runaway brake is for.
@@ -1402,7 +1553,9 @@ try {
     assert.notEqual(d.ref, 'CMS-CHOSEN', 'the caller was allowed to choose the booking reference');
     assert.equal(d.booking.paidPence, undefined, 'an anonymous caller injected a paid balance');
     assert.equal(d.booking.payments, undefined, 'an anonymous caller injected payment records');
-    assert.equal(d.booking.status, 'confirmed', 'an anonymous caller set the job status');
+    // "pending" is what the server chooses; the point is that the CALLER's
+    // "complete" was ignored.
+    assert.equal(d.booking.status, 'pending', 'an anonymous caller set the job status');
   });
 
   await check('a customer cannot mark their own booking paid', async () => {
@@ -1418,10 +1571,14 @@ try {
       method: 'PATCH', headers: h,
       body: JSON.stringify({ date: soonISO(5), paidPence: 20000, payments: [{ kind: 'payment', pence: 20000 }], status: 'complete' }),
     });
-    const job = (await patched.json()).booking;
-    assert.equal(job.date, soonISO(5), 'a legitimate amendment was refused');
+    // Amending online is refused outright now — changes are made by phone —
+    // so the injection has nowhere to land at all.
+    assert.equal(patched.status, 405, 'a customer amended their own job online');
+    const mine = await (await api('/api/bookings', { headers: h })).json();
+    const job = (mine.bookings || []).find(o => o.ref === ref) || {};
     assert.equal(job.paidPence, undefined, 'a customer marked their own job paid');
     assert.equal(job.payments, undefined, 'a customer wrote their own payment records');
+    assert.notEqual(job.status, 'complete', 'a customer completed their own job');
     assert.notEqual(job.status, 'complete', 'a customer set their own job status');
   });
 
@@ -2798,7 +2955,7 @@ try {
     const r = await postJson('/api/service-requests', {
       name: 'No CRM', phone: '07900000911', email: `nocrm-${Date.now()}@example.com`,
       service: 'brakes', postcode: 'DT6 5NJ',
-    });
+    }, { 'cf-connecting-ip': '198.51.100.91' });
     assert.equal(r.status, 200);
     assert.deepEqual((await r.json()).warnings, [], 'an unset CRM produced a booking warning');
   });
