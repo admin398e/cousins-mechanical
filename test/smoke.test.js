@@ -917,6 +917,90 @@ try {
     assert.equal(denied.status, 403, 'day-to-day staff changed the spend cap');
   });
 
+  await check('"keep me signed in" is granted only to an account with an authenticator', async () => {
+    /*
+     * The owner's phone keeps the dashboard on its home screen, and iOS kills
+     * that app whenever it likes — so a sign-in may ask to be remembered for
+     * 30 days. The condition is an authenticator on the account: a month-long
+     * session is exactly what 2FA is there to protect. An account without one
+     * asks and is refused; the client then keeps nothing past the tab.
+     */
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    const password = 'remember-me-long-password';
+    await api('/api/admin/staff', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ email: `rem-first-${Date.now()}@cousinsmechanicalservices.co.uk`, password }),
+    });
+    const email = `rem-staff-${Date.now()}@cousinsmechanicalservices.co.uk`;
+    const mk = await api('/api/admin/staff', {
+      method: 'POST', headers: h, body: JSON.stringify({ email, password, role: 'staff' }),
+    });
+    assert.equal(mk.status, 200, 'could not create the staff account');
+
+    // No authenticator yet: asked to remember, must say no.
+    const bare = await (await postJson('/api/admin-login', { email, password, remember: true })).json();
+    assert.ok(bare.token, 'login failed: ' + JSON.stringify(bare));
+    assert.equal(bare.remembered, false, 'remembered an account that has no authenticator');
+
+    // Enrol this account's own authenticator, then ask again.
+    const sh = { 'content-type': 'application/json', authorization: 'Bearer ' + bare.token };
+    const secret = (await (await api('/api/admin-2fa/new', { method: 'POST', headers: sh, body: '{}' })).json()).secret;
+    assert.ok(secret, 'no secret issued for the staff account');
+    const en = await api('/api/admin-2fa/enable', { method: 'POST', headers: sh, body: JSON.stringify({ secret, code: totpNow(secret) }) });
+    assert.equal(en.status, 200, 'enrolment failed: ' + await en.text());
+
+    const notAsked = await (await postJson('/api/admin-login', { email, password, code: totpNow(secret) })).json();
+    assert.equal(notAsked.remembered, false, 'remembered a device that did not ask to be');
+
+    const asked = await (await postJson('/api/admin-login', { email, password, code: totpNow(secret), remember: true })).json();
+    assert.ok(asked.token, 'login failed: ' + JSON.stringify(asked));
+    assert.equal(asked.remembered, true, 'an enrolled account that asked was not remembered');
+    // ...and the session it got is a real one.
+    const ok = await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + asked.token } });
+    assert.equal(ok.status, 200, 'the remembered session is not accepted');
+    // Logging out ends it, remembered or not.
+    await api('/api/admin-logout', { method: 'POST', headers: { authorization: 'Bearer ' + asked.token } });
+    const gone = await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + asked.token } });
+    assert.notEqual(gone.status, 200, 'a remembered session survived logout');
+
+    // The break-glass token can never be remembered — it is not a person.
+    const ov = await (await postJson('/api/admin-login', { token: OVERRIDE_TOKEN, remember: true })).json();
+    assert.equal(ov.remembered, false, 'the owner override was remembered');
+  });
+
+  await check('a remembered session lasts 30 days from last use, and the page keeps it only when the server says so', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    // Issued with the long TTL and a timestamp in metadata...
+    assert.match(src, /expirationTtl: remembered \? ADMIN_DEVICE_TTL : ADMIN_SESSION_TTL/, 'the remembered TTL is not applied at issue');
+    assert.ok(/ADMIN_DEVICE_TTL = 60 \* 60 \* 24 \* 30/.test(src), 'a remembered device is not 30 days');
+    assert.ok(/ADMIN_SESSION_TTL = 60 \* 60 \* 12/.test(src), 'an ordinary session is no longer 12 hours');
+    // ...and slid forward on use, but at most once a day, so a phone used
+    // every day is never signed out and KV is not written on every request.
+    const i = src.indexOf('async function adminSession(');
+    const body = src.slice(i, i + 2500);
+    assert.ok(body.includes('getWithMetadata("asess:"'), 'adminSession no longer reads the session metadata');
+    assert.ok(/metadata\.long && Date\.now\(\) - Number\(metadata\.iat \|\| 0\) > ADMIN_DEVICE_REFRESH_AFTER/.test(body), 'the sliding refresh is gone');
+    assert.ok(/ADMIN_DEVICE_REFRESH_AFTER = 60 \* 60 \* 24 \* 1000/.test(src), 'the refresh window is not one day');
+
+    // The page: a remembered token goes to localStorage under its own key,
+    // an ordinary one stays in sessionStorage, and the choice is the SERVER's
+    // answer — never the checkbox alone.
+    const page = fs.readFileSync(new URL('../Cousins Admin.dc.html', import.meta.url), 'utf8');
+    assert.ok(/const remembered = !!d\.remembered;/.test(page), 'the page decides for itself whether it was remembered');
+    assert.ok(/if\(remembered\)\{ localStorage\.setItem\('cms_admin_device', d\.token\)/.test(page), 'a remembered token is not kept in localStorage');
+    assert.ok(/else \{ sessionStorage\.setItem\('cms_admin_sess', d\.token\); localStorage\.removeItem\('cms_admin_device'\)/.test(page), 'an ordinary sign-in leaves a device token behind');
+    // Idle sign-out stays for a browser tab and is skipped on a remembered device.
+    assert.ok(/if\(this\.state\.loggedIn && !this\.state\.remembered\) this\.logout\(\)/.test(page), 'the idle timer signs a remembered phone out');
+    // Logout and a refused token both clear the device key.
+    assert.equal((page.match(/localStorage\.removeItem\('cms_admin_device'\)/g) || []).length >= 3, true, 'not every sign-out path clears the device token');
+    // Google/Apple carry the wish through their state, and are hidden in the
+    // home-screen app where their redirect cannot come back.
+    assert.ok(/admin-login-google\/start', \{ method: 'POST', body: JSON\.stringify\(\{ remember: !!this\.state\.remember \}\)/.test(page), 'Google sign-in drops the remember flag');
+    assert.ok(/hasGoogle:!!s\.googleEnabled && !s\.standalone/.test(page), 'Google sign-in is offered inside the home-screen app');
+  });
+
   await check('the runaway brake must sit above the budget, not below it', async () => {
     // A hard cap under the soft cap would stop every job message the instant
     // the budget was reached — the opposite of what a runaway brake is for.

@@ -836,11 +836,41 @@ async function revokeAdminSessions(env, email) {
  * Returns the signed-in email, "admin" for the identity-less bootstrap token,
  * or "" for no session at all.
  */
+/*
+ * How long a staff session lives.
+ *
+ * The default is 12 hours: a dashboard signed in on a shared or office machine
+ * should not still be open tomorrow. A REMEMBERED DEVICE is the owner's own
+ * phone with the dashboard on its home screen — there the 12-hour limit means
+ * typing a password and an authenticator code several times a day, in a van,
+ * with oily hands, and the realistic outcome of that is a weaker password.
+ * So a sign-in may ask to be remembered, and then it lasts 30 days from the
+ * last time it was used (the expiry slides, at most one KV write a day).
+ *
+ * Only an account WITH an authenticator can be remembered: a long-lived
+ * session is exactly the thing an authenticator is there to protect, and the
+ * device itself is locked with the phone's own passcode or Face ID. The
+ * bootstrap token and the owner override never get one.
+ */
+const ADMIN_SESSION_TTL = 60 * 60 * 12;
+const ADMIN_DEVICE_TTL = 60 * 60 * 24 * 30;
+const ADMIN_DEVICE_REFRESH_AFTER = 60 * 60 * 24 * 1000; // ms
+
+async function issueAdminSession(env, who, remember) {
+  const t = token();
+  const remembered = !!remember && who.includes("@") && !!(await totpEnrolled(env, who));
+  await env.CMS_KV.put("asess:" + t, who, {
+    expirationTtl: remembered ? ADMIN_DEVICE_TTL : ADMIN_SESSION_TTL,
+    metadata: { long: remembered, iat: Date.now() },
+  });
+  return { token: t, remembered };
+}
+
 async function adminSession(request, env) {
   const t = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!t) return "";
 
-  const who = await env.CMS_KV.get("asess:" + t);
+  const { value: who, metadata } = await env.CMS_KV.getWithMetadata("asess:" + t);
   if (who != null) {
     // Re-read the staff record on every request. A session alone is not proof
     // of current employment — the account may have been disabled or deleted
@@ -851,6 +881,14 @@ async function adminSession(request, env) {
         const acct = JSON.parse(raw);
         if (acct.disabled) { await env.CMS_KV.delete("asess:" + t); return ""; }
       }
+    }
+    // A remembered device slides its own expiry forward on use. Once a day is
+    // enough — the point is "30 days since it was last used", not a write per
+    // request.
+    if (metadata && metadata.long && Date.now() - Number(metadata.iat || 0) > ADMIN_DEVICE_REFRESH_AFTER) {
+      await env.CMS_KV.put("asess:" + t, who, {
+        expirationTtl: ADMIN_DEVICE_TTL, metadata: { long: true, iat: Date.now() },
+      });
     }
     return who || "admin";
   }
@@ -999,18 +1037,17 @@ async function appleVerifyIdToken(env, idToken) {
  * which is the whole of "other staff cannot log in without being approved".
  * Nothing in this path can create an account.
  */
-async function grantStaffSession(env, request, email, backTo, provider) {
+async function grantStaffSession(env, request, email, backTo, provider, remember) {
   const acctRaw = await env.CMS_KV.get("staff:" + email);
   const acct = acctRaw ? JSON.parse(acctRaw) : null;
   if (!acct || acct.disabled) {
     await audit(env, email, "admin_login_" + provider + "_rejected", "not a staff account");
     return null;
   }
-  const t = token();
-  await env.CMS_KV.put("asess:" + t, email, { expirationTtl: 60 * 60 * 12 });
+  const { token: t, remembered } = await issueAdminSession(env, email, remember);
   const grant = crypto.randomUUID();
   await env.CMS_KV.put("glogin_grant:" + grant, JSON.stringify({
-    token: t, email, name: acct.name || "", role: acct.role || "staff",
+    token: t, email, name: acct.name || "", role: acct.role || "staff", remembered,
   }), { expirationTtl: 60 });
   await audit(env, email, "admin_login_" + provider, email + " " + clientIp(request) + " -> " + backTo);
   return grant;
@@ -5173,7 +5210,7 @@ async function processTyreStockForOrder(env, order) {
         await audit(env, email || "unknown", "admin_login_google_rejected", "bad id_token");
         return fail("rejected");
       }
-      const grant = await grantStaffSession(env, request, email, backTo, "google");
+      const grant = await grantStaffSession(env, request, email, backTo, "google", st.remember === true);
       if (!grant) return fail("not-staff");
       return new Response(null, {
         status: 302,
@@ -5242,7 +5279,7 @@ async function processTyreStockForOrder(env, order) {
     const backTo = String(b0.return || "") === "/driver" ? "/driver" : "/admin";
     const nonce = crypto.randomUUID();
     await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({
-      kind: staffFlow ? "apple-login" : "apple-customer", backTo, t: Date.now(),
+      kind: staffFlow ? "apple-login" : "apple-customer", backTo, remember: staffFlow && b0.remember === true, t: Date.now(),
     }), { expirationTtl: 600 });
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
     const u = new URL("https://appleid.apple.com/auth/authorize");
@@ -5318,7 +5355,7 @@ async function processTyreStockForOrder(env, order) {
     } catch (e) { /* not the first authorisation — nothing to take */ }
 
     if (staffFlow) {
-      const grant = await grantStaffSession(env, request, email, backTo, "apple");
+      const grant = await grantStaffSession(env, request, email, backTo, "apple", st.remember === true);
       // "Hide My Email" gives a per-app relay address, which will never match a
       // staff record. Say so, rather than leaving the owner to guess why his
       // own portal does not know him.
@@ -5441,7 +5478,7 @@ async function processTyreStockForOrder(env, order) {
     const b0 = await request.json().catch(() => ({}));
     const backTo = String(b0.return || "") === "/driver" ? "/driver" : "/admin";
     const nonce = crypto.randomUUID();
-    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "login", backTo, t: Date.now() }), { expirationTtl: 600 });
+    await env.CMS_KV.put("gcal_state:" + nonce, JSON.stringify({ kind: "login", backTo, remember: b0.remember === true, t: Date.now() }), { expirationTtl: 600 });
     const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
     const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     u.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
@@ -5470,7 +5507,7 @@ async function processTyreStockForOrder(env, order) {
     // never enrolled was told he had. Per account, like everywhere else.
     const enrolled = await totpEnrolled(env, g.email);
     return json({
-      token: g.token, who: g.email, name: g.name || "", enrolled,
+      token: g.token, who: g.email, name: g.name || "", enrolled, remembered: !!g.remembered,
       mustEnrol: !enrolled,
       role: g.role || (await actorRole(env, g.email)),
     });
@@ -5488,13 +5525,12 @@ async function processTyreStockForOrder(env, order) {
     }
     if (!env.ADMIN_TOKEN) return bad("Admin login is not configured — set the ADMIN_TOKEN secret", 503);
 
-    const issue = async (who, extra) => {
+    const issue = async (who, extra, remember) => {
       await clearFailures(env, rlKey);
-      const t = token();
-      await env.CMS_KV.put("asess:" + t, who, { expirationTtl: 60 * 60 * 12 });
+      const { token: t, remembered } = await issueAdminSession(env, who, remember);
       const enrolled = await totpEnrolled(env, who);
       return json({
-        token: t, who, enrolled,
+        token: t, who, enrolled, remembered,
         // The session exists but can do nothing until an authenticator is on
         // the account. The dashboard shows the enrolment card and nothing else.
         mustEnrol: who.includes("@") && !enrolled,
@@ -5550,8 +5586,8 @@ async function processTyreStockForOrder(env, order) {
         return bad("Enter the 6-digit code from your authenticator app.", 401);
       }
       await clearFailures(env, "staffacct:" + em);
-      await audit(env, em, "admin_login", em + " " + clientIp(request));
-      return issue(em, { name: acct.name || "" });
+      await audit(env, em, "admin_login" + (b.remember ? "_remembered" : ""), em + " " + clientIp(request));
+      return issue(em, { name: acct.name || "" }, b.remember === true);
     }
 
     // --- Bootstrap only: the shared ADMIN_TOKEN ---

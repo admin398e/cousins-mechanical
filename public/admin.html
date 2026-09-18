@@ -12,7 +12,16 @@
 <title>Admin Dashboard | Cousins Mechanical Services</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/png" href="images/logo.png">
-<link rel="apple-touch-icon" href="images/logo.png">
+<!-- Added to an iPhone home screen, this opens as its own full-screen app.
+     The session survives that (see componentDidMount): a home-screen app is
+     killed and relaunched constantly, and sessionStorage dies with it. -->
+<link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
+<link rel="manifest" href="/admin.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cousins Admin">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#14100e">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -40,7 +49,16 @@
             </div>
             <div style="font-family:'Barlow Condensed';font-weight:800;font-size:26px;color:#fff;margin:14px 0 4px">ADMIN & STAFF PORTAL</div>
             <div style="color:#9a918a;font-size:13.5px;margin-bottom:20px">{{ loginSubtitle }}</div>
-            
+
+            <label style="display:flex;align-items:center;gap:9px;margin-bottom:14px;background:#14100e;border:1px solid #3a322d;border-radius:9px;padding:11px 13px;cursor:pointer">
+              <input type="checkbox" checked="{{ remember }}" onChange="{{ toggleRemember }}" style="width:17px;height:17px;accent-color:#e8791a"/>
+              <span style="color:#d9d2cc;font-size:12.5px;line-height:1.4"><strong>Keep me signed in on this device</strong> — for your own phone, not a shared computer. Stays signed in for 30 days after you last use it.</span>
+            </label>
+
+            <sc-if value="{{ standaloneNote }}" hint-placeholder-val="{{ false }}">
+              <div style="background:rgba(232,121,26,.12);border:1px solid rgba(232,121,26,.4);color:#f4a04a;border-radius:9px;padding:10px 13px;font-size:12.5px;margin-bottom:12px;line-height:1.5">You are in the home-screen app. Sign in with your email and password here — Google and Apple sign-in open in a separate browser and cannot hand the session back to this app.</div>
+            </sc-if>
+
             <sc-if value="{{ hasGoogle }}" hint-placeholder-val="{{ true }}">
             <button onClick="{{ googleSignIn }}" style="width:100%;background:#fff;color:#1f1f1f;font-weight:700;border:1px solid #dadce0;border-radius:10px;padding:13px 14px;cursor:pointer;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.12)">
               <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/></svg>
@@ -1608,6 +1626,9 @@ class Component extends DCLogic {
     // still works, it is just behind "Trouble signing in?" — an owner-operator
     // must never be locked out of his own business by a provider outage.
     pwdOpen:false, appleEnabled:false,
+    // "Keep me signed in on this device". Defaults on inside a home-screen
+    // app, because that IS the person's own phone; off in a browser tab.
+    remember:false, remembered:false, standalone:false,
     // Set when the account has no authenticator yet. The session it came with
     // can do exactly one thing until this clears.
     mustEnrol:false,
@@ -1734,14 +1755,25 @@ class Component extends DCLogic {
     //
     // sessionStorage keeps a refresh or a tab navigation from throwing the work
     // away, but closing the browser requires the password again.
+    //
+    // The one exception is a REMEMBERED DEVICE: the owner's own phone with the
+    // dashboard on its home screen. iOS kills a home-screen app whenever it
+    // likes and sessionStorage dies with it, so without this he was typing a
+    // password and an authenticator code several times a day. A sign-in that
+    // ticked "keep me signed in" is kept in localStorage under its own key,
+    // and the server only grants that to an account with an authenticator.
+    const standalone = !!(window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+    this.setState({ standalone, remember: standalone, pwdOpen: this.state.pwdOpen || standalone });
     try{
       // Clear the old persistent copy so anyone carrying one stops being
       // auto-signed-in from here on.
       localStorage.removeItem('cms_admin_sess');
       const sess=sessionStorage.getItem('cms_admin_sess');
+      const device=localStorage.getItem('cms_admin_device');
       // A base saved by an older build would now be dead weight; drop it.
       localStorage.removeItem('cms_admin_api');
       if(sess){ this.setState({token:sess, apiBase:''}, ()=>this.enter()); }
+      else if(device){ this.setState({token:device, apiBase:'', remembered:true}, ()=>this.enter()); }
     }catch(e){}
     this.armIdleTimer();
   }
@@ -1751,7 +1783,10 @@ class Component extends DCLogic {
   armIdleTimer(){
     const reset = () => {
       clearTimeout(this._idle);
-      this._idle = setTimeout(()=>{ if(this.state.loggedIn) this.logout(); }, 30*60*1000);
+      // A remembered device is the owner's locked phone: the phone's own lock
+      // is the idle timeout there, and signing him out every half hour would
+      // defeat the point of remembering it.
+      this._idle = setTimeout(()=>{ if(this.state.loggedIn && !this.state.remembered) this.logout(); }, 30*60*1000);
     };
     ['click','keydown','touchstart','mousemove'].forEach(ev =>
       window.addEventListener(ev, reset, { passive:true }));
@@ -1761,7 +1796,7 @@ class Component extends DCLogic {
   appleSignIn = async () => {
     try{
       this.setState({ busy:true, loginErr:'' });
-      const r = await this.raw('/admin-login-apple/start', { method:'POST', body:'{}' });
+      const r = await this.raw('/admin-login-apple/start', { method:'POST', body: JSON.stringify({ remember: !!this.state.remember }) });
       const d = await r.json().catch(()=>({}));
       if(d.url){ window.location.href = d.url; return; }
       this.setState({ busy:false, loginErr: d.error || 'Apple sign-in could not start.' });
@@ -1781,7 +1816,7 @@ class Component extends DCLogic {
      */
     try {
       this.setState({ busy: true, loginErr: '' });
-      const r = await this.raw('/admin-login-google/start', { method: 'POST', body: '{}' });
+      const r = await this.raw('/admin-login-google/start', { method: 'POST', body: JSON.stringify({ remember: !!this.state.remember }) });
       const d = await r.json().catch(() => ({}));
       if (d.url) { window.location.href = d.url; return; }
       this.setState({ busy: false, loginErr: d.error || 'Google sign-in could not start.' });
@@ -1807,6 +1842,7 @@ class Component extends DCLogic {
 
   setToken = e => this.setState({tokenInput:e.target.value});
   setEmail = e => this.setState({emailInput:e.target.value});
+  toggleRemember = e => this.setState({remember:!!e.target.checked});
   setPassword = e => this.setState({passwordInput:e.target.value});
   // Ask the server whether any staff account exists yet, so the screen shows
   // email+password normally and the one-time token setup on a fresh install.
@@ -1895,7 +1931,7 @@ class Component extends DCLogic {
     if(!(a || this.sameOrigin())){ this.setState({busy:false, loginErr:'This is a design preview, not the live site. Open the admin panel on cousinsmechanicalservices.co.uk/admin to sign in.'}); return; }
     try{
       const payload = useStaff
-        ? { email:em, password:pw, code:this.state.codeInput }
+        ? { email:em, password:pw, code:this.state.codeInput, remember:!!this.state.remember }
         : { token:tok, code:this.state.codeInput, reset2fa:this.state.reset2fa };
       // The owner-override box always sends the token, so lockout recovery works
       // even once staff accounts exist.
@@ -1927,9 +1963,16 @@ class Component extends DCLogic {
    *   3. Otherwise straight into the dashboard.
    */
   afterSignIn(d){
-    try{ sessionStorage.setItem('cms_admin_sess', d.token); }catch(e){}
+    // The server says whether it actually remembered us (it refuses to for an
+    // account with no authenticator), so the client never keeps a token for
+    // longer than the server will honour it.
+    const remembered = !!d.remembered;
+    try{
+      if(remembered){ localStorage.setItem('cms_admin_device', d.token); sessionStorage.removeItem('cms_admin_sess'); }
+      else { sessionStorage.setItem('cms_admin_sess', d.token); localStorage.removeItem('cms_admin_device'); }
+    }catch(e){}
     this.setState({
-      token:d.token, apiBase:this.apiBaseUrl(), busy:false, demoMode:false,
+      token:d.token, apiBase:this.apiBaseUrl(), busy:false, demoMode:false, remembered,
       who:d.who||'', enrolled:!!d.enrolled, needCode:false, codeInput:'', passwordInput:'',
       chooseRole:d.role||'', mustCreateAccount:!!d.mustCreateAccount,
       tab:d.mustCreateAccount?'staff':this.state.tab,
@@ -1958,8 +2001,8 @@ class Component extends DCLogic {
     // it running: it only stopped transmitting because the token was dead.
     if(this._watch!=null && navigator.geolocation){ navigator.geolocation.clearWatch(this._watch); this._watch=null; }
     this.setState({gpsRef:''});
-    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
-    this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false,
+    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_device'); }catch(e){}
+    this.setState({loggedIn:false, token:'', tokenInput:'', codeInput:'', needCode:false, remembered:false,
                    mustEnrol:false, twofaOpen:false, choosePortal:false}); };
   copySecret = async () => {
     const key = String(this.state.twofaSecret||'');
@@ -2456,9 +2499,9 @@ class Component extends DCLogic {
     // This previously set loggedIn:true, so a stale or expired token in
     // localStorage produced a full dashboard shell with no password — it looked
     // signed in even though every API call was being refused with 403.
-    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); }catch(e){}
+    try{ sessionStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_sess'); localStorage.removeItem('cms_admin_device'); }catch(e){}
     this.setState({
-      loggedIn:false, busy:false, token:'', tokenInput:'', passwordInput:'',
+      loggedIn:false, busy:false, token:'', tokenInput:'', passwordInput:'', remembered:false,
       ...this.emptyState(),
       loginErr:'Your session has ended — please sign in again.'
     });
@@ -3912,7 +3955,11 @@ class Component extends DCLogic {
       emailInput:s.emailInput, passwordInput:s.passwordInput,
       setEmail:this.setEmail, setPassword:this.setPassword,
       staffMode:s.staffConfigured, setupMode:!s.staffConfigured,
-      hasGoogle:!!s.googleEnabled, hasApple:!!s.appleEnabled,
+      // Inside the home-screen app the OAuth doors open in a separate browser
+      // that cannot hand the session back, so they are hidden there.
+      hasGoogle:!!s.googleEnabled && !s.standalone, hasApple:!!s.appleEnabled && !s.standalone,
+      standaloneNote: s.standalone && !!(s.googleEnabled || s.appleEnabled),
+      remember:!!s.remember, toggleRemember:this.toggleRemember,
       loginSubtitle: s.staffConfigured ? 'Authorised staff only. Sign in with the account the owner added for you.' : 'First-time setup — sign in with your admin token to create the first staff login.',
       loginDividerLabel: s.staffConfigured ? 'OR SIGN IN WITH EMAIL' : 'FIRST-TIME SETUP',
       loginFootnote: s.staffConfigured ? 'Every staff account needs an authenticator app. You will be asked to set one up the first time you sign in.' : 'This is your Worker\'s ADMIN_TOKEN. It stops working as a login once the first staff account exists.',

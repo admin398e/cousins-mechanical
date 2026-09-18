@@ -54,7 +54,7 @@ function requiredSecret(name) {
  * rate-limit counters — without it, dev logins never expire and the rate
  * limiter would lock you out permanently.
  */
-const kvMap = new Map(); // key -> { value, expiresAt|null }
+const kvMap = new Map(); // key -> { value, expiresAt|null, metadata|null }
 const CMS_KV = {
   get: async (key) => {
     const rec = kvMap.get(key);
@@ -62,9 +62,16 @@ const CMS_KV = {
     if (rec.expiresAt && Date.now() > rec.expiresAt) { kvMap.delete(key); return null; }
     return rec.value;
   },
+  // Same shape Cloudflare returns: { value, metadata }, both null when absent.
+  // Remembered-device sessions keep their issue time in metadata.
+  getWithMetadata: async (key) => {
+    const value = await CMS_KV.get(key);
+    const rec = kvMap.get(key);
+    return { value, metadata: value == null ? null : (rec?.metadata ?? null) };
+  },
   put: async (key, val, options) => {
     const ttl = options?.expirationTtl;
-    kvMap.set(key, { value: String(val), expiresAt: ttl ? Date.now() + ttl * 1000 : null });
+    kvMap.set(key, { value: String(val), expiresAt: ttl ? Date.now() + ttl * 1000 : null, metadata: options?.metadata ?? null });
   },
   delete: async (key) => { kvMap.delete(key); },
   list: async (opts) => {
