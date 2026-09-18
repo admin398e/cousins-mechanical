@@ -2264,7 +2264,7 @@ async function cancelBooking(env, ctx, kvKey, list, i, by) {
   list[i] = { ...job, status: "cancelled", cancelledAt: Date.now(), cancelledBy: by || "customer",
     updates: [...(job.updates || []), { t: Date.now(), s: "Booking cancelled", d: "This job was cancelled. Re-book any time." }] };
   await env.CMS_KV.put(kvKey, JSON.stringify(list));
-  await bumpSlot(env, job.date, job.time, -1).catch(() => null);
+  await bumpSlot(env, job.date, job.time, -1, job).catch(() => null);
   await audit(env, kvKey.replace(/^bookings:/, ""), "booking_cancelled", job.ref + " by " + (by || "customer"));
   const when = (job.date || "ASAP") + " " + (job.time || "");
   const tasks = [
@@ -2280,11 +2280,152 @@ async function cancelBooking(env, ctx, kvKey, list, i, by) {
   return list[i];
 }
 
-async function bumpSlot(env, date, time, delta) {
+async function bumpSlot(env, date, time, delta, job) {
   if (!date || !time || time === ASAP_SLOT) return;
   const counts = await slotCounts(env, date);
   counts[time] = Math.max(0, (Number(counts[time]) || 0) + delta);
   await env.CMS_KV.put("slots:" + date, JSON.stringify(counts));
+  await bumpDayStops(env, date, time, delta, job);
+}
+
+/* =========================================================================
+ * TRAVEL TIME — a day is driving as much as it is spannering
+ *
+ * A window used to be "full" purely by a count: two jobs and the morning was
+ * gone, wherever they were. That is wrong in both directions. Two jobs in
+ * Bridport are an easy morning; one in Bridport and one in Lyme Regis is the
+ * same count and half an hour of van time between them, and a third job
+ * anywhere is how a customer ends up waiting two hours past their slot.
+ *
+ * So the day is modelled as what it is: depot → job → job → … → depot, with
+ * the driving counted. A window is offered when the work ALREADY in it, plus
+ * this job, plus the driving between all of it, still fits inside the window.
+ *
+ * Where a location is not known — no postcode yet, a postcode that will not
+ * geocode, a what3words address — the allowance is a flat 30 minutes each
+ * way rather than a guess. That is the number Cousins uses in his head.
+ *
+ * The estimate is distance-based, not a routing API: 2.4 minutes a mile on
+ * these roads, the same figure the tracker's arrival estimate has always
+ * used. It is deliberately a little pessimistic; a slot that turns out
+ * roomier than we said costs nobody anything.
+ * ====================================================================== */
+
+const DEFAULT_TRAVEL = {
+  enabled: true,
+  minutesPerMile: 2.4,        // local Dorset roads, same as the tracker's ETA
+  minTravelMinutes: 10,       // nothing is a zero-minute drive, not even next door
+  defaultTravelMinutes: 30,   // "half an hour each way" — used when we cannot place them
+  jobMinutes: 60,             // how long an average job is on site
+  depotLat: 50.7332,          // Bridport
+  depotLng: -2.7594,
+};
+
+async function travelSettings(env) {
+  const raw = await env.CMS_KV.get("travel_settings");
+  return { ...DEFAULT_TRAVEL, ...(raw ? JSON.parse(raw) : {}) };
+}
+
+/** Straight-line miles. Good enough to separate "next street" from "other side of the patch". */
+function milesBetween(a, b) {
+  const R = 3958.8, toR = x => x * Math.PI / 180;
+  const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Minutes between two stops. Either side unknown → the flat allowance, which
+ * is the honest answer rather than a number invented from half a location.
+ */
+function driveMinutes(set, a, b) {
+  if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(b.lat)) return set.defaultTravelMinutes;
+  const miles = milesBetween(a, b);
+  if (!(miles >= 0) || miles > 80) return set.defaultTravelMinutes;   // not in the patch; do not pretend
+  return Math.max(set.minTravelMinutes, Math.round(miles * set.minutesPerMile));
+}
+
+/**
+ * Turn a postcode into a point, cached forever — postcodes do not move.
+ * postcodes.io is the same free service the booking form already uses.
+ */
+async function geocodePostcode(env, postcode) {
+  const pc = String(postcode || "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (!/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(pc)) return null;   // not a full postcode
+  const key = "geo:" + pc.replace(/\s/g, "");
+  const hit = await env.CMS_KV.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch { /* fall through and re-look-up */ } }
+  const r = await fetch("https://api.postcodes.io/postcodes/" + encodeURIComponent(pc)).catch(() => null);
+  if (!r || !r.ok) return null;
+  const d = await r.json().catch(() => null);
+  const res = d && d.result;
+  if (!res || !Number.isFinite(res.latitude)) return null;
+  const point = { lat: res.latitude, lng: res.longitude };
+  await env.CMS_KV.put(key, JSON.stringify(point));
+  return point;
+}
+
+/** Where is this job? Its own coordinates first, then its postcode. */
+async function placeOf(env, o) {
+  if (!o) return null;
+  if (Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng))) {
+    return { lat: Number(o.lat), lng: Number(o.lng) };
+  }
+  return await geocodePostcode(env, o.postcode);
+}
+
+/**
+ * The day's stops, per window, so availability can be worked out without
+ * walking every customer's booking list. Written wherever a slot is counted.
+ */
+async function dayStops(env, date) {
+  const raw = await env.CMS_KV.get("day:" + date);
+  return raw ? JSON.parse(raw) : {};
+}
+
+async function bumpDayStops(env, date, time, delta, job) {
+  const stops = await dayStops(env, date);
+  const list = Array.isArray(stops[time]) ? stops[time] : [];
+  if (delta > 0 && job && job.ref) {
+    if (!list.some(x => x.ref === job.ref)) {
+      list.push({ ref: job.ref, postcode: job.postcode || "", lat: job.lat ?? null, lng: job.lng ?? null });
+    }
+  } else if (delta < 0 && job && job.ref) {
+    const i = list.findIndex(x => x.ref === job.ref);
+    if (i >= 0) list.splice(i, 1);
+  }
+  stops[time] = list;
+  await env.CMS_KV.put("day:" + date, JSON.stringify(stops));
+}
+
+/**
+ * How much of a window is already spent, and what adding one more job at
+ * `where` would cost.
+ *
+ * The chain is depot → stop → … → stop → depot. Adding a job puts it at the
+ * end of the chain, which is what actually happens when somebody books the
+ * last slot of a morning.
+ */
+async function windowLoad(env, set, stops, where) {
+  const depot = { lat: set.depotLat, lng: set.depotLng };
+  const places = [];
+  for (const st of stops) places.push((await placeOf(env, st)) || null);
+
+  let used = 0, prev = depot;
+  for (const pl of places) {
+    used += driveMinutes(set, prev, pl) + set.jobMinutes;
+    prev = pl;
+  }
+  used += driveMinutes(set, prev, depot);          // and home again
+
+  // What one more would cost: the drive out to them, the job, and the drive
+  // home — less the drive home we were already counting from the last stop.
+  const outbound = driveMinutes(set, prev, where || null);
+  const back = driveMinutes(set, where || null, depot);
+  const homeFromPrev = driveMinutes(set, prev, depot);
+  const extra = outbound + set.jobMinutes + back - homeFromPrev;
+
+  return { used, extra, outbound, from: stops.length ? stops[stops.length - 1] : null };
 }
 
 /** Google free/busy for one day. Returns [] when the calendar is not set up. */
@@ -2327,36 +2468,70 @@ function busyCovers(busy, date, startHour, endHour) {
   return false;
 }
 
-async function availabilityFor(env, date) {
+async function availabilityFor(env, date, where) {
   const set = await bookingSettings(env);
+  const tset = await travelSettings(env);
   const counts = await slotCounts(env, date);
+  const stopsByWindow = await dayStops(env, date);
   const gb = await googleBusy(env, date);
   const day = new Date(date + "T12:00:00Z");
   const closed = set.closedDays.includes(day.getUTCDay());
   const now = Date.now();
 
-  const slots = SLOTS.map(s => {
+  // Where the customer is, if they have told us yet. Unknown is fine — the
+  // flat thirty-minute allowance is used instead of a guess.
+  const here = where ? await placeOf(env, where) : null;
+
+  const slots = [];
+  for (const s of SLOTS) {
     const booked = Number(counts[s.key]) || 0;
     const tooLate = new Date(date + "T" + String(s.end).padStart(2, "0") + ":00:00Z").getTime()
       < now + set.leadTimeHours * 3600 * 1000;
     const calendarBusy = busyCovers(gb.busy, date, s.start, s.end);
+
+    const windowMinutes = (s.end - s.start) * 60;
+    const stops = Array.isArray(stopsByWindow[s.key]) ? stopsByWindow[s.key] : [];
+    const load = tset.enabled
+      ? await windowLoad(env, tset, stops, here)
+      : { used: 0, extra: 0, outbound: 0, from: null };
+    const noRoom = tset.enabled && (load.used + load.extra) > windowMinutes;
+
     let reason = null;
     if (closed) reason = "closed";
     else if (tooLate) reason = "too soon";
     else if (booked >= set.slotCapacity) reason = "fully booked";
     else if (calendarBusy) reason = "unavailable";
-    return { key: s.key, label: s.key, available: !reason, reason, booked };
-  });
+    else if (noRoom) reason = "no travel time";
+
+    slots.push({
+      key: s.key, label: s.key, available: !reason, reason, booked,
+      // Shown to the customer as "about 25 min from the job before", and to
+      // Cousins as the reason a window closed early.
+      travelMinutes: tset.enabled ? load.outbound : null,
+      travelFrom: load.from ? (load.from.postcode || "the job before") : null,
+      travelEstimated: tset.enabled && !here,
+      minutesUsed: tset.enabled ? load.used : null,
+      minutesInWindow: windowMinutes,
+    });
+  }
 
   // The emergency option is always offered. Somebody at the roadside is not
-  // helped by being told the morning is full.
-  slots.push({ key: ASAP_SLOT, label: ASAP_SLOT, available: true, reason: null, booked: 0 });
+  // helped by being told the morning is full — but a form is slower than a
+  // phone, and they should be told that too.
+  slots.push({
+    key: ASAP_SLOT, label: ASAP_SLOT, available: true, reason: null, booked: 0,
+    callForFaster: true, travelMinutes: null, travelFrom: null,
+  });
 
   return {
     date,
     slots,
     calendarChecked: gb.configured,
     capacity: set.slotCapacity,
+    travelAware: !!tset.enabled,
+    locationKnown: !!here,
+    defaultTravelMinutes: tset.defaultTravelMinutes,
+    emergencyPhone: BUSINESS.phone,
     anyAvailable: slots.some(s => s.available && s.key !== ASAP_SLOT),
   };
 }
@@ -3504,7 +3679,18 @@ async function api(request, env, url, ctx) {
     if (await edgeLimited(env, "RL_LOOKUP", "avail:" + clientIp(request))) {
       return bad("Too many requests — try again shortly.", 429);
     }
-    return json(await availabilityFor(env, date));
+    // Where the job is, so the driving can be counted. Optional: without it
+    // every window is costed at the flat allowance instead.
+    // Number(null) is 0, not NaN — so a request with no coordinates at all
+    // read as latitude 0, longitude 0, which is in the Atlantic. Test for the
+    // parameter's presence, not just the number it becomes.
+    const rawLat = url.searchParams.get("lat"), rawLng = url.searchParams.get("lng");
+    const lat = rawLat === null ? NaN : Number(rawLat);
+    const lng = rawLng === null ? NaN : Number(rawLng);
+    const where = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
+      ? { lat, lng }
+      : { postcode: String(url.searchParams.get("postcode") || "").slice(0, 12) };
+    return json(await availabilityFor(env, date, where));
   }
 
   /*
@@ -4729,10 +4915,20 @@ async function processTyreStockForOrder(env, order) {
     // people filling in the same window at the same time is exactly how a
     // double-booking happens, and the front-end check cannot catch it.
     if (b.date && b.time && b.time !== ASAP_SLOT && /^\d{4}-\d{2}-\d{2}$/.test(String(b.date))) {
-      const av = await availabilityFor(env, String(b.date));
+      const av = await availabilityFor(env, String(b.date), {
+        lat: Number(b.lat), lng: Number(b.lng), postcode: b.postcode,
+      });
       const slot = av.slots.find(s => s.key === b.time);
       if (slot && !slot.available) {
-        return bad("Sorry — " + b.time.toLowerCase() + " on " + b.date + " has just gone. Pick another time, or call " + BUSINESS.phone + " and we will fit you in.", 409);
+        // Say which of the two it is. "Fully booked" and "there is not enough
+        // road time left to get to you" are different problems, and the second
+        // one is usually solved by picking a different day rather than a
+        // different hour.
+        const why = slot.reason === "no travel time"
+          ? "there is not enough time left in that window to get to you and back"
+          : "it has just gone";
+        return bad("Sorry — " + b.time.toLowerCase() + " on " + b.date + ": " + why
+          + ". Pick another time, or call " + BUSINESS.phone + " and we will fit you in.", 409);
       }
     }
 
@@ -4826,7 +5022,7 @@ async function processTyreStockForOrder(env, order) {
     // Hold the slot immediately, before any of the optional work below. A
     // booking that is saved but not counted is a double-booking waiting to
     // happen on the next request.
-    await bumpSlot(env, order.date, order.time, +1).catch(() => null);
+    await bumpSlot(env, order.date, order.time, +1, order).catch(() => null);
 
     // From here on, nothing may throw out of the handler.
     const warnings = [];
@@ -6133,8 +6329,8 @@ async function processTyreStockForOrder(env, order) {
       if (b.status && b.status !== arr[i].status) {
         const wasLive = arr[i].status !== "cancelled";
         const nowCancelled = b.status === "cancelled";
-        if (wasLive && nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, -1).catch(() => null);
-        if (!wasLive && !nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, +1).catch(() => null);
+        if (wasLive && nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, -1, arr[i]).catch(() => null);
+        if (!wasLive && !nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, +1, arr[i]).catch(() => null);
       }
       const before = arr[i].status;
 
@@ -6179,7 +6375,7 @@ async function processTyreStockForOrder(env, order) {
       const job = arr.find(o => o.ref === ref);
       if (!job) return bad("Job not found", 404);
       // Deleting a live job hands its window back, same as cancelling one.
-      if (job.status !== "cancelled") await bumpSlot(env, job.date, job.time, -1).catch(() => null);
+      if (job.status !== "cancelled") await bumpSlot(env, job.date, job.time, -1, job).catch(() => null);
 
       // Refuse to erase a job that has money against it. Deleting the record
       // would destroy the only trace of a payment or refund, and that is an
@@ -6448,6 +6644,38 @@ async function processTyreStockForOrder(env, order) {
         };
         await env.CMS_KV.put("booking_settings", JSON.stringify(next));
         await audit(env, actor, "booking_settings_updated", JSON.stringify(next));
+        return json({ settings: next });
+      }
+    }
+
+    /*
+     * Travel-time settings. The one place the driving model can be tuned —
+     * how long a job takes on site, how far a minute goes, and the flat
+     * allowance used when a customer cannot be placed. `enabled: false` turns
+     * the whole thing off and availability goes back to counting heads, which
+     * is the escape hatch if the estimates ever read wrong on a real week.
+     */
+    if (p === "/admin/travel-settings") {
+      if (request.method === "GET") return json({ settings: await travelSettings(env), defaults: DEFAULT_TRAVEL });
+      if (request.method === "POST") {
+        const noTravel = needs("owner"); if (noTravel) return noTravel;
+        const b = await request.json().catch(() => ({}));
+        const cur = await travelSettings(env);
+        const numOr = (v, f, lo, hi) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : f;
+        };
+        const next = {
+          enabled: b.enabled === undefined ? cur.enabled : b.enabled !== false,
+          minutesPerMile: numOr(b.minutesPerMile, cur.minutesPerMile, 0.5, 10),
+          minTravelMinutes: numOr(b.minTravelMinutes, cur.minTravelMinutes, 0, 120),
+          defaultTravelMinutes: numOr(b.defaultTravelMinutes, cur.defaultTravelMinutes, 0, 240),
+          jobMinutes: numOr(b.jobMinutes, cur.jobMinutes, 15, 480),
+          depotLat: numOr(b.depotLat, cur.depotLat, -90, 90),
+          depotLng: numOr(b.depotLng, cur.depotLng, -180, 180),
+        };
+        await env.CMS_KV.put("travel_settings", JSON.stringify(next));
+        await audit(env, actor, "travel_settings_updated", JSON.stringify(next));
         return json({ settings: next });
       }
     }

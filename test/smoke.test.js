@@ -1177,7 +1177,7 @@ try {
     const cb = src.indexOf('async function cancelBooking(');
     assert.ok(cb > 0, 'the shared cancel path is gone');
     const body = src.slice(cb, cb + 1600);
-    for (const must of ['bumpSlot(env, job.date, job.time, -1)', 'gcalRetitle(', 'notifyCustomer(', 'OWNER_PHONE']) {
+    for (const must of ['bumpSlot(env, job.date, job.time, -1, job)', 'gcalRetitle(', 'notifyCustomer(', 'OWNER_PHONE']) {
       assert.ok(body.includes(must), 'cancelling no longer does: ' + must);
     }
     assert.ok(booking.status === 'pending', 'sanity: the fixture booking was not pending');
@@ -3190,6 +3190,115 @@ try {
     const third = await book(3);
     assert.equal(third.status, 409, 'a third booking got into a full window');
     assert.match((await third.json()).error, /has just gone/i);
+  });
+
+  await check('a window closes when there is no road time left, not just when the count is full', async () => {
+    /*
+     * A day is driving as much as it is spannering. Two jobs in Bridport are
+     * an easy morning; the same count spread across the patch is not. The
+     * window is offered when the work already in it, plus this job, plus the
+     * driving between all of it, still fits.
+     *
+     * The numbers below are chosen so the arithmetic is checkable by hand
+     * rather than by rerunning the code: a 4-hour morning is 240 minutes,
+     * a job is 60, and the van does 2.4 minutes a mile.
+     */
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    await api('/api/admin/booking-settings', { method: 'POST', headers: h, body: JSON.stringify({ slotCapacity: 9 }) });
+    const setTravel = (body) => api('/api/admin/travel-settings', { method: 'POST', headers: h, body: JSON.stringify(body) });
+    const saved = await (await setTravel({
+      enabled: true, minutesPerMile: 2.4, minTravelMinutes: 10, defaultTravelMinutes: 30,
+      jobMinutes: 60, depotLat: 50.7332, depotLng: -2.7594,
+    })).json();
+    assert.equal(saved.settings.jobMinutes, 60, 'travel settings did not save');
+
+    const DAY = openDayFrom(44);
+    const DEPOT = { lat: 50.7332, lng: -2.7594 };
+    const FAR = { lat: 51.3132, lng: -2.7594 };            // ~40 miles north
+
+    const ask = async (where) => {
+      const q = new URLSearchParams({ date: DAY, lat: String(where.lat), lng: String(where.lng) });
+      const d = await (await api('/api/availability?' + q)).json();
+      return d.slots.find(x => x.key === MORNING);
+    };
+
+    assert.equal((await ask(DEPOT)).available, true, `${DAY} was not bookable before the test started`);
+
+    // Two jobs on the doorstep: 10 out + 60 + 10 + 60 + 10 home = 150 of 240.
+    for (const n of [1, 2]) {
+      const r = await bookAs({
+        name: 'Near ' + n, phone: '0790000' + (3100 + n), email: `near${n}-${Date.now()}@example.com`,
+        service: 'tyre', postcode: 'DT6 5NJ', lat: DEPOT.lat, lng: DEPOT.lng, date: DAY, time: MORNING,
+      });
+      assert.equal(r.status, 200, 'a nearby booking was refused: ' + await r.text());
+    }
+
+    // A third one next door still fits: 10 + 60 + 10 - 10 = 70, so 220 of 240.
+    const near = await ask(DEPOT);
+    assert.equal(near.available, true, 'a third job on the doorstep was refused with 90 minutes to spare');
+    assert.ok(near.travelMinutes >= 0 && near.travelMinutes <= 15, 'the drive next door is not being reported as short: ' + near.travelMinutes);
+
+    // Forty miles away is not: 96 out + 60 + 96 back - 10 = 242, well past the
+    // 90 minutes that are left. Same count, same day, different answer.
+    const far = await ask(FAR);
+    assert.equal(far.available, false, 'a 40-mile job was squeezed into a morning that had 90 minutes left');
+    assert.equal(far.reason, 'no travel time', 'the window closed for the wrong reason: ' + far.reason);
+    assert.ok(far.travelMinutes > 60, 'the long drive is not being costed: ' + far.travelMinutes);
+
+    // And the server refuses it at submit time too, with that reason — the
+    // form is a courtesy, the server is the rule.
+    const pushed = await bookAs({
+      name: 'Far Away', phone: '07900003199', email: `far-${Date.now()}@example.com`,
+      service: 'tyre', postcode: 'BS40 5AA', lat: FAR.lat, lng: FAR.lng, date: DAY, time: MORNING,
+    });
+    assert.equal(pushed.status, 409, 'the server took a booking it had said there was no time for');
+    assert.match((await pushed.json()).error || '', /not enough time/i, 'the refusal does not explain itself');
+
+    // Turning the model off puts the day back to counting heads.
+    await setTravel({ enabled: false });
+    assert.equal((await ask(FAR)).available, true, 'the travel model cannot be switched off');
+    await setTravel({ enabled: true });
+  });
+
+  await check('a customer we cannot place is allowed half an hour each way', async () => {
+    /*
+     * No postcode yet, a postcode that will not geocode, a what3words
+     * address: the allowance is flat and stated, not a guess made from half
+     * a location. Thirty minutes each way is the number Cousins uses.
+     */
+    const tok = await adminTok();
+    const h = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    await api('/api/admin/travel-settings', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ enabled: true, defaultTravelMinutes: 30, jobMinutes: 60, minTravelMinutes: 10 }),
+    });
+    const DAY = openDayFrom(46);
+    const blind = await (await api('/api/availability?date=' + DAY)).json();
+    assert.equal(blind.locationKnown, false, 'the server claimed to know where a customer is with nothing to go on');
+    assert.equal(blind.defaultTravelMinutes, 30, 'the flat allowance is not being reported');
+    const morning = blind.slots.find(x => x.key === MORNING);
+    assert.equal(morning.travelMinutes, 30, 'an unplaceable customer was not given the flat allowance');
+    assert.equal(morning.travelEstimated, true, 'the estimate is not flagged as an allowance rather than a measurement');
+    assert.equal(morning.available, true, 'an empty day was refused to somebody we cannot place');
+
+    // Every window says how long it is, so "no road time left" can be read
+    // rather than taken on trust.
+    assert.equal(morning.minutesInWindow, 240, 'the morning is not being measured as four hours');
+  });
+
+  await check('an emergency is taken whatever the day looks like, and says to ring', async () => {
+    const DAY = openDayFrom(48);
+    const d = await (await api('/api/availability?date=' + DAY)).json();
+    const asap = d.slots.find(x => x.key === 'ASAP / Emergency');
+    assert.ok(asap, 'the emergency option is gone');
+    assert.equal(asap.available, true, 'an emergency was refused');
+    assert.equal(asap.callForFaster, true, 'the emergency slot does not tell them a call is faster');
+    assert.equal(d.emergencyPhone, '07925 340977', 'no number to ring is offered with it');
+
+    // ...and it is never costed or counted like a normal window.
+    assert.equal(asap.travelMinutes, null, 'the emergency slot is being costed for travel');
+    assert.equal(asap.booked, 0, 'the emergency slot is counting against capacity');
   });
 
   await check('an emergency is always accepted, however full the day is', async () => {

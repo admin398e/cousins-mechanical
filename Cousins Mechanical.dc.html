@@ -832,6 +832,15 @@
                   </button>
                 </sc-for>
               </div>
+              <sc-if value="{{ emergencyChosen }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#fdf2ec;border:1px solid #f0c9b0;color:#8a4a22;border-radius:10px;padding:11px 13px;font-size:13px;margin-top:8px;line-height:1.5">
+                  <strong style="color:#1c1817">We will take this now and come to you as soon as we can.</strong>
+                  If you are stranded or it is unsafe, <a href="tel:+447925340977" style="color:#a5401a;font-weight:700">call 07925 340977</a> — a phone call gets a faster answer than a form.
+                </div>
+              </sc-if>
+              <sc-if value="{{ showTravelNote }}" hint-placeholder-val="{{ false }}">
+                <div style="color:#8a817b;font-size:12.5px;margin-top:8px;line-height:1.5">{{ travelNote }}</div>
+              </sc-if>
               <sc-if value="{{ dayFull }}" hint-placeholder-val="{{ false }}">
                 <div style="background:#fdf2ec;border:1px solid #f0c9b0;color:#8a4a22;border-radius:10px;padding:10px 13px;font-size:13px;margin-top:8px;line-height:1.5">That day is fully booked. Try another date, or choose <strong>ASAP / Emergency</strong> and we will call you back — we keep room for breakdowns.</div>
               </sc-if>
@@ -1279,6 +1288,9 @@ class Component extends DCLogic {
     bookOpen: false, bookStep: 1, bookDone: false, lastRef: '', bookBusy: false, bookErr: '', svcPricing: {},
     // Availability for the chosen date
     slots: [], slotsLoading: false, slotCalendar: false,
+    // Travel-aware availability: whether the server could place this customer,
+    // and the flat allowance it used when it could not.
+    slotLocationKnown: false, slotTravelAware: false, slotDefaultTravel: 30,
     cookieBanner: false,
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
     otherNoteErr:'',
@@ -1951,7 +1963,7 @@ class Component extends DCLogic {
   // Clear lat/lng when the postcode is typed by hand. applyOrderLocation
   // prefers coordinates over the postcode, so pressing "use my location" and
   // then correcting the address sent the van to the abandoned GPS fix.
-  setBookPostcode = e => { const v=e.target.value; this.setState(s=>({book:{...s.book,postcode:v,lat:null,lng:null}})); };
+  setBookPostcode = e => { const v=e.target.value; this.setState(s=>({book:{...s.book,postcode:v,lat:null,lng:null}}), ()=>this.refreshSlotsForLocation()); };
   setBookDate = e => {
     const date = e.target.value;
     // Clear the chosen time whenever the date moves. Keeping it would let
@@ -1959,18 +1971,45 @@ class Component extends DCLogic {
     this.setState(s=>({book:{...s.book,date,time:''}, slots:[], slotsLoading:!!date}), ()=>this.loadSlots(date));
   };
 
+  /*
+   * What is free on this date, FOR THIS ADDRESS.
+   *
+   * A window is not just a count any more: the server works out the driving
+   * between the jobs already in it and this one, so two jobs in Bridport and
+   * two at opposite ends of the patch are not the same morning. Sending the
+   * postcode is what makes that possible; without it the server falls back to
+   * a flat half-hour each way, which is what Cousins assumes in his head.
+   */
   async loadSlots(date){
     if(!date || !this.hasServer()){ this.setState({slotsLoading:false}); return; }
     try{
-      const r = await fetch(this.apiBase()+'/api/availability?date='+encodeURIComponent(date));
+      const b = this.state.book || {};
+      const q = new URLSearchParams({ date });
+      if(Number.isFinite(Number(b.lat)) && Number.isFinite(Number(b.lng))){ q.set('lat', b.lat); q.set('lng', b.lng); }
+      else if(b.postcode){ q.set('postcode', b.postcode); }
+      const r = await fetch(this.apiBase()+'/api/availability?'+q.toString());
       if(!r.ok) throw new Error('unavailable');
       const d = await r.json();
-      this.setState({slots:d.slots||[], slotsLoading:false, slotCalendar:!!d.calendarChecked});
+      this.setState({slots:d.slots||[], slotsLoading:false, slotCalendar:!!d.calendarChecked,
+        slotLocationKnown: !!d.locationKnown, slotTravelAware: !!d.travelAware,
+        slotDefaultTravel: Number(d.defaultTravelMinutes)||30});
     }catch(e){
       // Never block a booking because the check failed — offer everything and
       // let the server have the final say when the form is submitted.
       this.setState({slots:[], slotsLoading:false});
     }
+  }
+
+  /*
+   * The postcode changes what is free, so a date already chosen has to be
+   * re-asked. Debounced: somebody typing "DT6 3NA" would otherwise fire six
+   * lookups and land on the answer for "DT6 3N".
+   */
+  refreshSlotsForLocation(){
+    clearTimeout(this._slotGeo);
+    const date = this.state.book && this.state.book.date;
+    if(!date) return;
+    this._slotGeo = setTimeout(()=>{ this.setState({slotsLoading:true}); this.loadSlots(date); }, 600);
   }
 
   pickSlot(key){ this.setState(s=>({book:{...s.book,time:key}})); }
@@ -2007,7 +2046,7 @@ class Component extends DCLogic {
           locHint: pc
             ? 'Location captured — ' + pc + '. The van is routed to your exact position.'
             : 'Location captured — we have your exact position for the van.'
-        }));
+        }), ()=>this.refreshSlotsForLocation());
       },
       err=>{ const m = err.code===1 ? 'Location permission denied — allow location for this site in your browser, or type your postcode.' : err.code===2 ? 'Location unavailable right now — please type your postcode.' : 'Location timed out — please type your postcode.'; this.setState({locHint:m}); },
       { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
@@ -2857,11 +2896,25 @@ class Component extends DCLogic {
       // counted — it is always offered, so it must not make the day look free.
       dayFull: !!(s.book.date && !s.slotsLoading && s.slots.length
                   && !s.slots.some(x => x.available && x.key !== 'ASAP / Emergency')),
+      emergencyChosen: s.book.time === 'ASAP / Emergency',
+      // Only worth saying once there is something to say it about.
+      showTravelNote: !!s.slotTravelAware && (s.slots || []).length > 0,
+      travelNote: s.slotLocationKnown
+        ? 'Times allow for the drive between jobs, worked out from where you are and the job before yours.'
+        : 'Add your postcode above and we will work the drive time out properly. Until then each job allows '
+          + (s.slotDefaultTravel || 30) + ' minutes each way.',
       slotRows: (s.slots || []).map(sl => {
         const chosen = s.book.time === sl.key;
+        // The driving is the thing the customer cannot see and Cousins pays
+        // for, so say it plainly: "available · ~25 min drive to you".
+        const drive = Number(sl.travelMinutes);
+        const driveNote = sl.available && sl.key !== 'ASAP / Emergency' && Number.isFinite(drive) && drive > 0
+          ? ' \u00b7 ~' + drive + ' min drive' + (sl.travelEstimated ? ' allowed' : ' to you')
+          : '';
         const note = sl.available
-          ? (sl.key === 'ASAP / Emergency' ? 'we will call you' : 'available')
-          : ({ 'fully booked':'fully booked', 'closed':'closed', 'too soon':'too soon to book', 'unavailable':'not available' }[sl.reason] || 'not available');
+          ? (sl.key === 'ASAP / Emergency' ? 'call us for a faster answer' : 'available' + driveNote)
+          : ({ 'fully booked':'fully booked', 'closed':'closed', 'too soon':'too soon to book',
+               'no travel time':'no road time left that day', 'unavailable':'not available' }[sl.reason] || 'not available');
         return {
           label: sl.label,
           note,
