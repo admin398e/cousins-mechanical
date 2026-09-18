@@ -2148,6 +2148,66 @@ async function slotCounts(env, date) {
   return raw ? JSON.parse(raw) : {};
 }
 
+/*
+ * ONE-TAP CONFIRM FROM THE DIARY
+ *
+ * Simon lives in Google Calendar on his phone, not in the dashboard. Every
+ * unconfirmed job's calendar entry therefore carries a link that confirms it.
+ *
+ * The link is the reference plus an HMAC of it, so it cannot be guessed and
+ * there is no token store to expire. Two things make it safe to put in a
+ * calendar entry that syncs to several devices:
+ *
+ *   1. GET only ever SHOWS a page with a button. Mail scanners, link
+ *      previewers and Google's own fetchers follow links; none of them post
+ *      forms, so none of them can confirm a job by looking at it.
+ *   2. The action is idempotent and one-way — confirm a job that is already
+ *      confirmed and nothing happens twice.
+ */
+async function confirmSig(env, ref) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(env.SESSION_PEPPER || "cms-confirm"),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("confirm:" + ref));
+  return [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+async function confirmUrl(env, ref) {
+  const base = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+  return base + "/confirm/" + encodeURIComponent(ref) + "?t=" + (await confirmSig(env, ref));
+}
+
+/**
+ * Confirm a job. The ONE path — the dashboard button and the calendar link
+ * both come through here, so they can never drift apart.
+ *
+ * Sets the status, tells the customer (text + email, with the deposit link if
+ * one is owed) and retitles the diary entry.
+ */
+async function confirmJob(env, ctx, key, arr, i, by) {
+  const job = arr[i];
+  if (job.status !== PENDING_STATUS) return { already: true, job };
+  arr[i] = { ...job, status: "confirmed", confirmedAt: Date.now(), confirmedBy: by || "admin",
+    updates: [...(job.updates || []), { t: Date.now(), s: "Booking confirmed", d: "We have your job booked in." }] };
+  await env.CMS_KV.put(key, JSON.stringify(arr));
+  await audit(env, key.replace(/^bookings:/, ""), "booking_confirmed", job.ref + " by " + (by || "admin"));
+
+  const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
+  const owed = Number(job.depositPence) > 0 && !(Number(job.paidPence) > 0);
+  const when = ((job.date || "as soon as possible") + " " + (job.time || "")).trim();
+  let text = `${BUSINESS.shortName}: booking ${job.ref} is confirmed for ${when}.`;
+  if (owed) text += ` Pay your £${(job.depositPence / 100).toFixed(2)} deposit here: ${site}/#pay=${job.ref}`;
+  text += ` We'll message you when the van is on the way.`;
+
+  const tasks = [
+    notifyCustomer(env, ctx, arr[i], null, text, "confirmation"),
+    sendBookingConfirmedEmail(env, arr[i], key).catch(() => null),
+    gcalRetitle(env, arr[i]).catch(() => null),
+  ];
+  if (ctx && ctx.waitUntil) ctx.waitUntil(Promise.allSettled(tasks)); else await Promise.allSettled(tasks);
+  return { ok: true, job: arr[i] };
+}
+
 /**
  * The confirmation email. Sent when Cousins confirms a job in the dashboard —
  * not when the request arrives. Carries the pay link if a deposit is owed.
@@ -2616,10 +2676,20 @@ async function gcalRetitle(env, o) {
   const tok = await googleToken(env);
   const calId = await gcalCalendarId(env);
   if (!tok || !calId) return { skipped: true };
+  // Confirming or cancelling also retires the confirm link in the entry: a
+  // live link on a job that is already dealt with is a trap for whoever taps
+  // it next week.
+  const body = { summary: calendarSummaryFor(o) };
+  if (o.status !== PENDING_STATUS) {
+    body.description = (o.status === "cancelled" ? "CANCELLED by the customer.\n\n" : "Confirmed.\n\n")
+      + `Service Request Ref: ${o.ref}\nCustomer: ${o.name || "N/A"}\nPhone: ${o.phone || "N/A"}\n`
+      + `Vehicle Reg: ${o.reg || "N/A"}\nService: ${o.svcLabel || o.service || ""}\n`
+      + `Location/Postcode: ${o.postcode || "N/A"}\nNotes: ${o.notes || ""}`;
+  }
   const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events/${encodeURIComponent(o.gcalEventId)}`, {
     method: "PATCH",
     headers: { authorization: "Bearer " + tok, "content-type": "application/json" },
-    body: JSON.stringify({ summary: calendarSummaryFor(o) }),
+    body: JSON.stringify(body),
   }).catch(() => null);
   if (!r || !r.ok) { console.error("[gcal] retitle failed", o.ref, r && r.status); return { ok: false }; }
   return { ok: true };
@@ -2648,9 +2718,15 @@ async function addCalendarEvent(env, o, customerEmail) {
   const startIso = `${dateStr}T${startTime}`;
   const endIso = `${dateStr}T${endTime}`;
 
+  // The one-tap confirm link, first line of the entry so it is the first
+  // thing under the title on a phone. Only for a job still waiting.
+  const confirmLine = o.status === PENDING_STATUS && o.ref
+    ? `➡️ CONFIRM THIS JOB: ${await confirmUrl(env, o.ref)}\n\n`
+    : "";
+
   const event = {
     summary: calendarSummaryFor(o),
-    description: `Service Request Ref: ${o.ref || 'NEW'}\nCustomer: ${o.name || 'N/A'}\nPhone: ${o.phone || 'N/A'}\nVehicle Reg: ${o.reg || 'N/A'}\nService: ${o.svcLabel || o.service || ''}\nLocation/Postcode: ${o.postcode || o.location || 'N/A'}\nNotes: ${o.notes || ''}\nTyre Details: ${o.tyreDetails ? (typeof o.tyreDetails === 'string' ? o.tyreDetails : JSON.stringify(o.tyreDetails)) : 'N/A'}`,
+    description: confirmLine + `Service Request Ref: ${o.ref || 'NEW'}\nCustomer: ${o.name || 'N/A'}\nPhone: ${o.phone || 'N/A'}\nVehicle Reg: ${o.reg || 'N/A'}\nService: ${o.svcLabel || o.service || ''}\nLocation/Postcode: ${o.postcode || o.location || 'N/A'}\nNotes: ${o.notes || ''}\nTyre Details: ${o.tyreDetails ? (typeof o.tyreDetails === 'string' ? o.tyreDetails : JSON.stringify(o.tyreDetails)) : 'N/A'}`,
     location: o.postcode || o.location || "Bridport & West Dorset",
     start: { dateTime: startIso, timeZone: "Europe/London" },
     end: { dateTime: endIso, timeZone: "Europe/London" },
@@ -3482,7 +3558,9 @@ async function api(request, env, url, ctx) {
       // The customer record in SumUp, so the payment shows WHO paid in the
       // SumUp dashboard, not just a reference. Best effort: a failure here
       // must never stop a payment.
-      const customerId = await sumupEnsureCustomer(env, job).catch(() => "");
+      // Already made when they booked; only fall back to creating it for a
+      // job taken before that existed.
+      const customerId = job.sumupCustomerId || (await sumupEnsureCustomer(env, job).catch(() => ""));
       /*
        * checkout_reference is the booking ref, and it is how the webhook finds
        * the job later. That matters: the webhook is unsigned, so the reference
@@ -4614,6 +4692,25 @@ async function processTyreStockForOrder(env, order) {
   if (p === "/service-requests" && request.method === "POST") {
     const b = await request.json().catch(() => ({}));
 
+    /*
+     * AN ACCOUNT IS REQUIRED TO BOOK.
+     *
+     * Every customer, job and payment has to hang off one identity: the
+     * account is what ties a person to their jobs, their tracking, their
+     * receipts and their SumUp customer record. A guest booking could be
+     * matched only by whatever email was typed that day, so the same person
+     * booking twice with two spellings was two people to the system and two
+     * customers in SumUp.
+     *
+     * The address is taken from the SESSION, never from the body — a signed-in
+     * caller could otherwise file a booking under somebody else's address and
+     * read it back through the tracker.
+     */
+    const bookingUser = await sessionUser(request, env);
+    if (!bookingUser) {
+      return bad("Please sign in or create an account to book — it takes a moment and keeps your jobs, tracking and receipts in one place.", 401);
+    }
+
     // NO CAPTCHA on the booking form, deliberately.
     //
     // The brief was a CAPTCHA on sign-in. Putting one on the booking form as
@@ -4657,7 +4754,11 @@ async function processTyreStockForOrder(env, order) {
     const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : undefined; };
     const orderRef = "CMS-" + Date.now().toString(36).toUpperCase().slice(-5);
     const order = {
-      name: str(b.name, 100), phone: str(b.phone, 30), email: str(b.email, 200),
+      // Name and phone may be corrected per job (a different number on the
+      // day is normal); the ADDRESS is the account's, always.
+      name: str(b.name, 100) || bookingUser.name,
+      phone: str(b.phone, 30) || bookingUser.phone,
+      email: bookingUser.email,
       reg: str(b.reg, 15), service: str(b.service, 60), svcLabel: str(b.svcLabel, 200),
       postcode: str(b.postcode, 60), date: str(b.date, 30), time: str(b.time, 40),
       notes: str(b.notes, 2000),
@@ -4715,7 +4816,9 @@ async function processTyreStockForOrder(env, order) {
     // call BEFORE the KV write, so any failure in either lost the job while
     // still showing the customer a confirmation.
     // ---------------------------------------------------------------------
-    const emailKey = order.email ? ("bookings:" + order.email.toLowerCase()) : "bookings:guest";
+    // Always a real account now — see the sign-in gate at the top of this
+    // handler. The "guest" bucket remains only for jobs taken before it.
+    const emailKey = "bookings:" + order.email.toLowerCase();
     const existing = JSON.parse((await env.CMS_KV.get(emailKey)) || "[]");
     if (!existing.some(o => o.ref === order.ref)) existing.unshift(order); // idempotent on retry
     await env.CMS_KV.put(emailKey, JSON.stringify(existing));
@@ -4739,6 +4842,27 @@ async function processTyreStockForOrder(env, order) {
     // customer list was built only from "user:" records, so anyone who booked
     // without signing up was invisible to the admin.
     const contactRes = (await safe("contact", () => upsertContact(env, order))) || {};
+
+    /*
+     * The SumUp customer record, made HERE rather than at the first payment.
+     * Every person who books exists in SumUp from the moment they book, with
+     * one id for life, so customer → bookings → payments is one thread even
+     * for someone who has never paid by card.
+     */
+    await safe("sumup-customer", async () => {
+      const sumupId = await sumupEnsureCustomer(env, order);
+      if (!sumupId) return null;
+      order.sumupCustomerId = sumupId;
+      const uraw = await env.CMS_KV.get("user:" + order.email);
+      if (uraw) {
+        const u = JSON.parse(uraw);
+        if (u.sumupCustomerId !== sumupId) {
+          u.sumupCustomerId = sumupId;
+          await env.CMS_KV.put("user:" + order.email, JSON.stringify(u));
+        }
+      }
+      return sumupId;
+    });
 
     // The address book gets everyone who books, tick or no tick. It is a record
     // of people we are doing work for, not a mailing list.
@@ -4961,6 +5085,15 @@ async function processTyreStockForOrder(env, order) {
       
       // Auto-check stock & trigger supplier auto-order if required
       await processTyreStockForOrder(env, order);
+      // Same thread as the website form: one SumUp customer per person.
+      const sumupId = await sumupEnsureCustomer(env, order).catch(() => "");
+      if (sumupId) {
+        order.sumupCustomerId = sumupId;
+        if (u.sumupCustomerId !== sumupId) {
+          u.sumupCustomerId = sumupId;
+          await env.CMS_KV.put("user:" + u.email, JSON.stringify(u));
+        }
+      }
 
       list.unshift(order);
       await env.CMS_KV.put(kvKey, JSON.stringify(list));
@@ -6004,9 +6137,15 @@ async function processTyreStockForOrder(env, order) {
         if (!wasLive && !nowCancelled) await bumpSlot(env, arr[i].date, arr[i].time, +1).catch(() => null);
       }
       const before = arr[i].status;
+
+      // Confirming goes through the shared path, so the dashboard button and
+      // the link in the diary entry do exactly the same thing.
+      if (b.status === "confirmed" && before === PENDING_STATUS) {
+        const res = await confirmJob(env, ctx, key, arr, i, (await whoAmI(env, request)) || "admin");
+        return json({ job: res.job });
+      }
+
       if (b.status) arr[i].status = b.status;
-      const justConfirmed = b.status === "confirmed" && before === PENDING_STATUS;
-      if (justConfirmed) { arr[i].confirmedAt = Date.now(); arr[i].confirmedBy = (await whoAmI(env, request)) || "admin"; }
       arr[i].updates = [...(arr[i].updates || []), { t: Date.now(), s: b.label || "Status updated", d: b.note || "" }];
       await env.CMS_KV.put(key, JSON.stringify(arr));
       // The diary entry carries the status in its title.
@@ -6017,19 +6156,8 @@ async function processTyreStockForOrder(env, order) {
       if (b.sms) {
         const uraw = await env.CMS_KV.get("user:" + email);
         const u = uraw ? JSON.parse(uraw) : null;
-        let text = String(b.sms);
-        // Confirming is the moment the deposit is asked for: the pay link
-        // rides on the confirmation text, never on the request-received one.
-        const owed = Number(arr[i].depositPence) > 0 && !(Number(arr[i].paidPence) > 0);
-        if (justConfirmed && owed) {
-          const site = env.SITE_URL || "https://cousinsmechanicalservices.co.uk";
-          text += ` Pay your £${(arr[i].depositPence / 100).toFixed(2)} deposit here: ${site}/#pay=${arr[i].ref}`;
-        }
-        await notifyCustomer(env, ctx, arr[i], u, text, "status update");
+        await notifyCustomer(env, ctx, arr[i], u, String(b.sms), "status update");
       }
-      // The confirmation EMAIL — the one that used to go out the moment a
-      // booking was made — now goes out here, when Cousins says yes.
-      if (justConfirmed) ctx.waitUntil(sendBookingConfirmedEmail(env, arr[i], key).catch(() => null));
       return json({ job: arr[i] });
     }
 
@@ -8371,6 +8499,66 @@ export default {
         status: 301,
         headers: { location: to.toString(), "cache-control": "public, max-age=3600" },
       });
+    }
+
+    /*
+     * /confirm/<ref>?t=<hmac> — the link inside the calendar entry.
+     *
+     * GET shows a page with a button; POST is what actually confirms. That
+     * split is the whole safety story: a link in a calendar entry gets
+     * fetched by preview bots and sync clients, and none of them post forms.
+     */
+    const confirmPath = url.pathname.match(/^\/confirm\/([\w-]+)$/);
+    if (confirmPath && (request.method === "GET" || request.method === "POST")) {
+      const ref = confirmPath[1];
+      const page = (title, body, tone) => new Response(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8">`
+        + `<meta name="viewport" content="width=device-width,initial-scale=1">`
+        + `<meta name="robots" content="noindex,nofollow">`
+        + `<title>${esc(title)} — ${esc(BUSINESS.shortName)}</title>`
+        + `<style>body{margin:0;background:#14100e;color:#e9e4df;font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}`
+        + `.c{width:100%;max-width:440px;background:#1c1714;border:1px solid #2a2320;border-radius:18px;padding:28px}`
+        + `h1{font-size:23px;margin:0 0 14px;color:${tone === "bad" ? "#f0a884" : tone === "done" ? "#4fe06a" : "#fff"}}`
+        + `dl{margin:0 0 20px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:15px}`
+        + `dt{color:#9a918a}dd{margin:0;font-weight:600}`
+        + `button{width:100%;background:#e8791a;color:#14100e;font-weight:800;font-size:17px;border:0;border-radius:11px;padding:16px;cursor:pointer}`
+        + `a{color:#f4a04a}p{color:#c3b9b1}</style></head><body><div class="c">${body}</div></body></html>`,
+        { status: 200, headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+
+      const good = safeEqual(url.searchParams.get("t") || "", await confirmSig(env, ref));
+      if (!good) return page("Link not recognised", `<h1>That link is not one of ours</h1><p>Confirm the job in the dashboard instead: <a href="/admin">cousinsmechanicalservices.co.uk/admin</a></p>`, "bad");
+
+      const hit = await bookingByRef(env, ref);
+      if (!hit) return page("Job not found", `<h1>That job is not here any more</h1><p>It may have been deleted. Check the <a href="/admin">dashboard</a>.</p>`, "bad");
+
+      const key = "bookings:" + hit.owner;
+      const arr = JSON.parse((await env.CMS_KV.get(key)) || "[]");
+      const i = arr.findIndex(o => o.ref === ref);
+      if (i < 0) return page("Job not found", `<h1>That job is not here any more</h1><p>Check the <a href="/admin">dashboard</a>.</p>`, "bad");
+      const job = arr[i];
+      const when = ((job.date || "as soon as possible") + " " + (job.time || "")).trim();
+      const facts = `<dl>`
+        + `<dt>Ref</dt><dd>${esc(job.ref)}</dd>`
+        + `<dt>Job</dt><dd>${esc(job.svcLabel || job.service || "Mobile job")}</dd>`
+        + `<dt>When</dt><dd>${esc(when)}</dd>`
+        + `<dt>Customer</dt><dd>${esc(job.name || "")}</dd>`
+        + `<dt>Phone</dt><dd><a href="tel:${esc(job.phone || "")}">${esc(job.phone || "")}</a></dd>`
+        + `<dt>Where</dt><dd>${esc(job.postcode || "")}</dd>`
+        + `<dt>Vehicle</dt><dd>${esc(job.reg || "-")}</dd></dl>`;
+
+      if (job.status === "cancelled") return page("Cancelled", `<h1>That job was cancelled</h1>${facts}<p>Nothing to confirm.</p>`, "bad");
+      if (job.status !== PENDING_STATUS) return page("Already confirmed", `<h1>Already confirmed</h1>${facts}<p>The customer has been told. <a href="/admin">Open the dashboard</a></p>`, "done");
+
+      if (request.method === "GET") {
+        return page("Confirm this job", `<h1>Confirm this job?</h1>${facts}`
+          + `<p>Confirming texts and emails ${esc(String(job.name || "the customer").split(" ")[0])}`
+          + (Number(job.depositPence) > 0 && !(Number(job.paidPence) > 0) ? ` with the £${(job.depositPence / 100).toFixed(2)} deposit link` : "")
+          + `.</p><form method="POST"><button type="submit">Confirm job ${esc(job.ref)}</button></form>`, "");
+      }
+
+      const res = await confirmJob(env, ctx, key, arr, i, "calendar link");
+      return page("Confirmed", `<h1>Confirmed${res.already ? " already" : ""}</h1>${facts}`
+        + `<p>${res.already ? "It was already confirmed — nothing was sent twice." : "The customer has been texted and emailed."} <a href="/admin">Open the dashboard</a></p>`, "done");
     }
 
     if (url.pathname.startsWith("/api/")) {

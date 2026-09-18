@@ -972,6 +972,12 @@
           <!-- One tap, no password to invent or forget. The email-and-password
                forms below still exist and still work — they are simply not the
                front door any more. -->
+          <sc-if value="{{ bookingNeedsAccount }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fdf4ec;border:1.5px solid #f3c6ae;border-radius:11px;padding:13px 15px;margin-bottom:16px;font-size:13.5px;color:#6b4326;line-height:1.5">
+              <strong style="color:#1c1817">One step before you book.</strong> An account keeps your job, your live tracking and your receipts in one place — and means you never type your details twice. It takes about twenty seconds.
+            </div>
+          </sc-if>
+
           <sc-if value="{{ pwdShut }}" hint-placeholder-val="{{ true }}">
             <div style="display:flex;flex-direction:column;gap:10px;animation:fadeIn .2s ease">
               <div style="font-weight:700;color:#1c1817;font-size:16px">Sign in or create your account</div>
@@ -1277,6 +1283,8 @@ class Component extends DCLogic {
     book: { reg:'', service:'', svcLabel:'', postcode:'', date:'', time:'', name:'', phone:'', email:'', notes:'', calendar:true, marketing:false },
     otherNoteErr:'',
     locHint: 'We use this to route the van straight to you.',
+    // What they were trying to do when we asked them to sign in.
+    authNext:'',
     portalOpen: false, portalTab:'bookings', orders: [], editing: '', editDate:'', editTime:'', editNotes:'',
     messages: [], msgInput:'', msgBusy:false,
     profile: { name:'', phone:'', email:'', marketing:true }, profileSaved:false,
@@ -1880,6 +1888,10 @@ class Component extends DCLogic {
 
   bookTyre(t, size){
     const label = 'Tyre fitting — ' + t.brand + ' ' + (t.model||'') + ' ' + size + (t.price!=null ? ' £'+t.price : '') + ' [' + t.sku + ']';
+    // Remember the tyre across the sign-in detour, so they come back to the
+    // one they picked rather than to an empty form.
+    this.setState(s => ({ book:{ ...s.book, service:'tyre', svcLabel:label } }));
+    if(!this.requireAccount('book')) return;
     this.loadServicePricing();
     this.setState(s => ({
       bookOpen:true, bookStep:2, bookDone:false,
@@ -1891,7 +1903,27 @@ class Component extends DCLogic {
     fetch('/api/pricing/service').then(r=>r.json()).then(d=>this.setState({svcPricing:d||{}})).catch(()=>{});
     fetch('/api/deposit-config').then(r=>r.json()).then(d=>this.setState({depositCfg:d||null})).catch(()=>{});
   };
-  openBook = () => (this.loadServicePricing(), this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}})));
+  /*
+   * Booking needs an account.
+   *
+   * Every job, every payment and every tracking link hangs off one identity.
+   * A guest booking could only ever be matched by whatever address was typed
+   * that day, so the same person booking twice with two spellings was two
+   * customers — in our own list and in SumUp. The server refuses a booking
+   * without a session; this is the same gate, said politely and early, rather
+   * than after three screens of typing.
+   */
+  requireAccount(why){
+    if(this.state.auth) return true;
+    this.setState({ bookOpen:false, authNext: why || 'book', authErr:'' });
+    this.openPortal();
+    return false;
+  }
+  openBook = () => {
+    if(!this.requireAccount('book')) return;
+    this.loadServicePricing();
+    this.setState(s=>({bookOpen:true, bookStep:1, bookDone:false, book:{...s.book, name:s.book.name||(s.auth&&s.profile.name)||'', phone:s.book.phone||(s.auth&&s.profile.phone)||'', email:s.book.email||(s.auth&&s.profile.email)||''}}));
+  };
   closeBook = () => this.setState({bookOpen:false});
   stop = (e) => e.stopPropagation();
   /*
@@ -2005,6 +2037,7 @@ class Component extends DCLogic {
 
   submitBooking(){
     if(this.state.bookBusy) return;                 // no double-submit
+    if(!this.requireAccount('book')) return;        // belt and braces; server refuses too
     const b = this.state.book;
     this.setState({ bookBusy:true, bookErr:'' });
 
@@ -2012,13 +2045,15 @@ class Component extends DCLogic {
     // generate a ref locally, fire the POST without awaiting it, and show
     // "YOU'RE BOOKED IN!" regardless — so any failure gave the customer a
     // confirmation for a job that was never recorded.
-    fetch('/api/service-requests', {
+    this.apiFetch('/service-requests', {
       method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ ...b, status:'confirmed' })
+      body: JSON.stringify({ ...b })
     })
     .then(async r => {
       const d = await r.json().catch(()=>({}));
+      // The session went stale mid-form. Say so and put them back at the
+      // sign-in card rather than showing "we could not save your booking".
+      if(r.status === 401){ this.setState({ bookBusy:false, bookErr:'' }); this.requireAccount('book'); throw new Error('__signin__'); }
       if(!r.ok || !d.ok || !d.ref) throw new Error(d.error || 'Booking was not accepted');
       return d;
     })
@@ -2031,6 +2066,7 @@ class Component extends DCLogic {
       this.startTracking(d.ref);
     })
     .catch(err => {
+      if(String(err && err.message) === '__signin__') return;
       console.error('Booking failed:', err);
       this.setState({ bookBusy:false, bookDone:false,
         bookErr:'We could not save your booking just then. Nothing has been booked — please call 07925 340977 or message us on WhatsApp and we will sort it straight away.' });
@@ -2142,6 +2178,7 @@ class Component extends DCLogic {
         this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false},
           authBusy:false, authView:'login', verifyCode:'', verifyMsg:'', portalTab:'bookings'});
         this.pullBookings();
+        this.resumeAfterAuth();
       })
       .catch(e=>this.setState({authBusy:false, authErr:e.message}));
   };
@@ -2255,6 +2292,7 @@ class Component extends DCLogic {
           this.setState({ auth: d.user, profile: { name:d.user.name, phone:d.user.phone, email:d.user.email, marketing:d.user.marketing !== false },
             authBusy:false, portalOpen:true, portalTab:'bookings' });
           this.pullBookings();
+          this.resumeAfterAuth();
         })
         .catch(e => this.setState({ portalOpen:true, authBusy:false, authErr: e.message }));
     }catch(e){}
@@ -2283,6 +2321,7 @@ class Component extends DCLogic {
           try{ localStorage.setItem('cms_token', d.token); }catch(e){}
           this.setState({auth:d.user, profile:{name:d.user.name,phone:d.user.phone,email:d.user.email,marketing:d.user.marketing!==false}, authBusy:false, authPass:'', portalTab:'bookings'});
           this.pullBookings();
+          this.resumeAfterAuth();
         }).catch(e=>this.setState({authBusy:false, authErr:e.message}))
         .finally(()=>this.turnstileReset());
       return;
@@ -2298,6 +2337,12 @@ class Component extends DCLogic {
   logout = () => { if(this.hasServer()){ this.apiFetch('/auth/logout',{method:'POST'}).catch(()=>{}); } try{ localStorage.removeItem('cms_session'); localStorage.removeItem('cms_token'); }catch(e){} this.setState({auth:null, authView:'login', authPass:'', authPass2:'', portalOpen:false}); };
 
   // ---------- PORTAL / ACCOUNT ----------
+  // Signed in at last. If they were on their way to book, take them there.
+  resumeAfterAuth(){
+    if(this.state.authNext !== 'book') return;
+    this.setState({ authNext:'' });
+    setTimeout(()=>this.openBook(), 120);
+  }
   openPortal = () => {
     this.loadOrders(); this.loadProfile(); this.loadMessages();
     this.setState({portalOpen:true, portalTab:'bookings', authErr:''});
@@ -2875,6 +2920,7 @@ class Component extends DCLogic {
       openWaConfirm: () => window.open(waConfirmUrl, '_blank', 'noopener'),
       waConfirm: waConfirmUrl,
       // portal / account
+      bookingNeedsAccount: !s.auth && s.authNext === 'book',
       portalOpen:s.portalOpen, openPortal:this.openPortal, closePortal:this.closePortal, portalToBook:this.portalToBook,
       acctBtnLabel: s.auth ? ((s.profile.name||s.auth.name||'Account').split(/\s+/)[0]) : 'Log in',
       // auth

@@ -200,10 +200,9 @@ async function checkCalendar() {
  * that only reads HTML.
  */
 async function checkOtherBooking() {
-  const page = await browser.newPage();
+  const { page } = await signedInPage();
   const problems = [];
   page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
-  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
   await page.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 45000 });
   await page.waitForTimeout(1200);
 
@@ -265,15 +264,30 @@ async function checkOtherBooking() {
  * Driven end to end here — real booking, real challenge, real code — because
  * every part of this is behaviour, and none of it is visible in the HTML.
  */
+/*
+ * Tracking without a session is still the common case, and it still has to
+ * work: the booking is made in an account, and then the tracking link is
+ * opened on a phone that is not signed in — a different device, a lapsed
+ * session, a link forwarded to whoever is actually with the car. The booking
+ * below therefore goes through a real account; the BROWSER stays signed out.
+ */
 async function checkGuestTracking() {
   const problems = [];
   const phoneTail = '390';
+  const seeded = await signedInPage();
+  await seeded.page.close();
+  const token = await (async () => {
+    const li = await fetch(BASE + '/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: seeded.email, password: 'render-password-123' }),
+    });
+    return (await li.json()).token;
+  })();
   const r = await fetch(BASE + '/api/service-requests', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.7' },
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.7', authorization: 'Bearer ' + token },
     body: JSON.stringify({
       name: 'Guest Tracker', phone: '0790000' + phoneTail,
-      email: `guest-track-${Date.now()}@example.com`,
       service: 'tyre', svcLabel: 'Tyre fitting', postcode: 'DT6 5NJ',
       date: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10), time: 'Morning (8-12)',
     }),
@@ -350,15 +364,54 @@ async function checkGuestTracking() {
  * already decided to book landed at the top of a marketing page to go and find
  * the button.
  */
+/*
+ * Booking needs an account now, so a check that wants the booking FORM has to
+ * arrive the way a customer with an account does: with a session in the page.
+ * Made through the real signup + verify endpoints — nothing is faked but the
+ * fact that the browser already holds the token.
+ */
+let seededAccounts = 0;
+async function signedInPage() {
+  const em = `render-${Date.now()}-${++seededAccounts}@example.com`;
+  const su = await fetch(BASE + '/api/auth/signup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ consent: true, name: 'Render Customer', email: em, phone: '07900556999', password: 'render-password-123' }),
+  });
+  const d = await su.json();
+  let token = d.token;
+  if (!token && d.devCode) {
+    const v = await fetch(BASE + '/api/auth/verify', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: em, code: d.devCode }),
+    });
+    token = (await v.json()).token;
+  }
+  if (!token) throw new Error('could not make a test account: ' + JSON.stringify(d));
+  const page = await browser.newPage();
+  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await page.addInitScript(t => { try { localStorage.setItem('cms_token', t); } catch (e) {} }, token);
+  return { page, email: em };
+}
+
 async function checkBookDeepLink() {
   const problems = [];
-  const page = await browser.newPage();
+  const { page } = await signedInPage();
   page.on('pageerror', e => problems.push('uncaught: ' + String(e.message).slice(0, 200)));
-  await page.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
   await page.goto(BASE + '/#book', { waitUntil: 'networkidle', timeout: 45000 });
-  await page.waitForTimeout(1800);
+  await page.waitForTimeout(2200);
   const t = await page.evaluate(() => document.body.innerText || '');
-  if (!/What do you need/.test(t)) problems.push('#book did not open the booking form');
+  if (!/What do you need/.test(t)) problems.push('#book did not open the booking form for a signed-in customer');
+
+  // Signed OUT, the same link must ask them to sign in — and must not leave
+  // them staring at a booking form they cannot submit.
+  const out = await browser.newPage();
+  await out.route('**://unpkg.com/**', serveLocallyOrLetItThrough);
+  await out.goto(BASE + '/#book', { waitUntil: 'networkidle', timeout: 45000 });
+  await out.waitForTimeout(2000);
+  const ot = await out.evaluate(() => document.body.innerText || '');
+  if (/What do you need/.test(ot)) problems.push('a signed-out visitor was given a booking form they cannot submit');
+  if (!/One step before you book/i.test(ot)) problems.push('a signed-out visitor was not told why they are being asked to sign in');
+  await out.close();
 
   // And the plain homepage must NOT open it — a form in the face of somebody
   // who came to read about the business is worse than the missing link was.

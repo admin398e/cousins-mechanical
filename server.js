@@ -229,6 +229,14 @@ app.use(['/api', '/v1', '/ukvd'], express.raw({ type: '*/*', limit: '1mb' }), ha
 app.use(['/.well-known/apple-developer-domain-association.txt',
          '/apple-developer-domain-association.txt'], handleWorkerRequest);
 
+/*
+ * The one-tap confirm page from the calendar entry. Same reason as the Apple
+ * file above: in production every request reaches the Worker first, but this
+ * dev server only forwards the prefixes listed here, so without this line the
+ * page 404s locally and works live.
+ */
+app.use('/confirm', express.raw({ type: '*/*', limit: '1mb' }), handleWorkerRequest);
+
 // ---------------------------------------------------------------------------
 // Static site
 // ---------------------------------------------------------------------------

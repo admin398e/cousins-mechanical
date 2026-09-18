@@ -66,8 +66,59 @@ async function check(name, fn) {
 }
 
 const api = (path, init) => fetch(BASE + path, init);
-const postJson = (path, body, headers = {}) =>
+
+/*
+ * BOOKING NEEDS AN ACCOUNT.
+ *
+ * Every customer, job and payment hangs off one identity, so /service-requests
+ * refuses a caller with no session. Rather than rewrite thirty call sites, the
+ * harness makes the account the booking implies: one verified account per
+ * email address in the body (cached, so a test that books twice as the same
+ * person really is the same person), and a generated one when the body carries
+ * no address. Nothing here weakens the check — the server still demands a real
+ * session; the harness just supplies what a real customer would have.
+ */
+const bookingSessions = new Map();
+let bookingIp = 0;
+async function bookingSession(body) {
+  const em = String(body.email || '').trim().toLowerCase()
+    || `harness-${Date.now()}-${bookingSessions.size}@example.com`;
+  if (bookingSessions.has(em)) return { token: bookingSessions.get(em), email: em };
+  const ip = '203.0.113.' + (100 + (++bookingIp % 150));
+  const su = await api('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip },
+    body: JSON.stringify({
+      consent: true, name: body.name || 'Test Customer', email: em,
+      phone: body.phone || '07900000000', password: 'harness-password-123',
+      marketing: body.marketing === true, smsUpdates: body.smsUpdates !== false,
+    }),
+  });
+  const d = await su.json().catch(() => ({}));
+  let token = d.token;
+  if (!token && d.devCode) {
+    const v = await postJsonRaw('/api/auth/verify', { email: em, code: d.devCode });
+    token = (await v.json().catch(() => ({}))).token;
+  }
+  if (!token) {                                   // already exists from an earlier test
+    const li = await postJsonRaw('/api/auth/login', { email: em, password: 'harness-password-123' });
+    token = (await li.json().catch(() => ({}))).token;
+  }
+  assert.ok(token, 'the harness could not make an account for ' + em);
+  bookingSessions.set(em, token);
+  return { token, email: em };
+}
+
+const postJsonRaw = (path, body, headers = {}) =>
   api(path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+
+const postJson = async (path, body, headers = {}) => {
+  if (path === '/api/service-requests' && !headers.authorization) {
+    const { token } = await bookingSession(body || {});
+    headers = { ...headers, authorization: 'Bearer ' + token };
+  }
+  return postJsonRaw(path, body, headers);
+};
 
 // --- boot -------------------------------------------------------------------
 // Held in a const rather than inlined below: the unsubscribe test has to derive
@@ -716,28 +767,39 @@ try {
     assert.ok(jobs.some(j => j.ref === d.ref), `booking ${d.ref} confirmed to the customer but missing from the dashboard`);
   });
 
-  await check('a guest booking creates a CRM contact without creating a login account', async () => {
-    const em = `guest-${Date.now()}@example.com`;
-    const r = await postJson('/api/service-requests', {
-      name: 'Guest Booker', phone: '07900555333', email: em,
+  await check('booking needs an account, and the account is what the CRM records', async () => {
+    /*
+     * Booking used to be open to anyone with an email box. One person booking
+     * twice with two spellings was two customers here and two customers in
+     * SumUp, and nothing tied a payment to a job to a person. An account is
+     * now the thread, so the check is: no session, no booking — and the
+     * booking that does happen lands under the SESSION's address, whatever
+     * the body claims.
+     */
+    const anon = await postJsonRaw('/api/service-requests', {
+      name: 'No Account', phone: '07900555333', email: `anon-${Date.now()}@example.com`,
       reg: 'GU11EST', service: 'diagnostics', svcLabel: 'Diagnostics',
     });
-    assert.ok((await r.json()).ok, 'guest booking was not accepted');
+    assert.equal(anon.status, 401, 'a booking was taken with no account at all');
+    assert.match((await anon.json()).error || '', /sign in|account/i, 'the refusal does not say why');
+
+    const em = `member-${Date.now()}@example.com`;
+    const sess = await bookingSession({ email: em, name: 'Member Booker', phone: '07900555333' });
+    const r = await postJsonRaw('/api/service-requests', {
+      name: 'Member Booker', phone: '07900555333',
+      email: `someone-else-${Date.now()}@example.com`,   // ignored — see below
+      reg: 'GU11EST', service: 'diagnostics', svcLabel: 'Diagnostics',
+    }, { authorization: 'Bearer ' + sess.token });
+    const made = await r.json();
+    assert.ok(made.ok, 'a signed-in booking was refused: ' + JSON.stringify(made));
+    assert.equal(made.booking.email, em, 'the booking was filed under an address from the request body');
 
     const tok = await adminTok();
     const list = (await (await api('/api/admin/customers', { headers: { authorization: 'Bearer ' + tok } })).json()).customers;
     const row = list.find(c => c.email === em);
-    assert.ok(row, 'a guest who booked without an account is missing from the CRM');
-    assert.equal(row.hasAccount, false, 'a booking must not silently create a login account');
-    assert.equal(row.jobCount, 1);
-
-    // The booking must not have made them signup-blocked: /auth/signup answers
-    // 409 "already exists" off the presence of a user: record, so a contact
-    // record must be a different key entirely.
-    const su = await postJson('/api/auth/signup', {
-      name: 'Guest Booker', email: em, phone: '07900555333', password: 'aVeryLongPassword1', consent: true,
-    });
-    assert.equal(su.status, 200, 'booking as a guest locked that email out of ever signing up');
+    assert.ok(row, 'the person who booked is missing from the CRM');
+    assert.equal(row.hasAccount, true, 'the CRM does not know they have an account');
+    assert.ok(row.jobCount >= 1);
   });
 
   await check('booking without ticking the optional box records no marketing consent', async () => {
@@ -764,7 +826,7 @@ try {
     assert.equal(list.find(c => c.email === em).marketing, true, 'an explicit opt-in was not recorded');
   });
 
-  await check('CRM notes work on a guest contact, not just account holders', async () => {
+  await check('CRM notes work on any customer, account or not', async () => {
     const em = `gnote-${Date.now()}@example.com`;
     await postJson('/api/service-requests', {
       name: 'Note Me', phone: '07900555666', email: em, reg: 'NO11TES', service: 'diagnostics', svcLabel: 'Diagnostics',
@@ -774,11 +836,10 @@ try {
     const n = await api(`/api/admin/customers/${encodeURIComponent(em)}/notes`, {
       method: 'POST', headers: h, body: JSON.stringify({ text: 'Paid cash, wants a callback about tyres.' }),
     });
-    assert.equal(n.status, 200, 'could not add a note to a guest customer');
+    assert.equal(n.status, 200, 'could not add a note to a customer');
     const rec = await (await api(`/api/admin/customers/${encodeURIComponent(em)}`, { headers: h })).json();
-    assert.equal(rec.customer.hasAccount, false);
     assert.equal(rec.notes.length, 1);
-    assert.equal(rec.bookings.length, 1, 'guest detail view did not show their job');
+    assert.equal(rec.bookings.length, 1, 'the customer detail view did not show their job');
   });
 
   /*
@@ -1060,9 +1121,16 @@ try {
     assert.ok(rm > 0, 'the reminder loop has moved');
     assert.ok(src.slice(rm, rm + 400).includes('o.status === PENDING_STATUS'),
       'an unconfirmed request would still be sent a "see you tomorrow" text');
-    // The confirmation email is sent on confirmation, not on request.
-    assert.ok(/if \(justConfirmed\) ctx\.waitUntil\(sendBookingConfirmedEmail/.test(src),
-      'the confirmation email is not tied to the moment Cousins confirms');
+    // The confirmation email is sent on confirmation, not on request — and
+    // from the ONE shared path, so the dashboard button and the link in the
+    // diary entry can never drift apart.
+    const cj = src.indexOf('async function confirmJob(');
+    assert.ok(cj > 0, 'the shared confirm path is gone');
+    const cjBody = src.slice(cj, cj + 1800);
+    assert.ok(cjBody.includes('sendBookingConfirmedEmail('), 'confirming no longer sends the confirmation email');
+    assert.ok(cjBody.includes('notifyCustomer('), 'confirming no longer texts the customer');
+    assert.ok(cjBody.includes('gcalRetitle('), 'confirming no longer retitles the diary entry');
+    assert.ok(cjBody.includes('job.status !== PENDING_STATUS'), 'confirming twice would send twice');
     assert.ok(src.includes('renderEmail("booking_received"'),
       'a new request no longer gets the "we have your request" email');
   });
@@ -1144,12 +1212,86 @@ try {
     assert.ok(/const id = "cms-" \+ \(await sha256Hex\(/.test(fn), 'the customer id is not stable per person');
     // ...and the checkout carries it, plus the booking ref, so SumUp shows
     // customer -> payment -> which job.
-    const co = src.indexOf('const customerId = await sumupEnsureCustomer(');
+    const co = src.indexOf('const customerId = job.sumupCustomerId || (await sumupEnsureCustomer(');
     assert.ok(co > 0, 'the checkout does not look the customer up');
+    // ...and the record exists from the moment they BOOK, not from their
+    // first card payment, so someone who always pays cash is still one
+    // customer in SumUp with their jobs against them.
+    assert.ok(src.includes('await safe("sumup-customer"'), 'booking no longer creates the SumUp customer');
+    assert.ok(/u\.sumupCustomerId = sumupId/.test(src), 'the account does not remember its SumUp customer');
     const block = src.slice(co, co + 3000);
     assert.ok(block.includes('...(customerId ? { customer_id: customerId } : {})'), 'the checkout does not carry the customer');
     assert.ok(block.includes('checkout_reference'), 'the checkout no longer carries the booking reference');
     assert.ok(block.includes('job.sumupCustomerId = customerId'), 'the job does not remember its SumUp customer');
+  });
+
+  await check('Cousins can confirm a job from the diary entry, and nothing else can', async () => {
+    /*
+     * Simon lives in Google Calendar on his phone. Every unconfirmed job's
+     * entry carries a link that confirms it. Two things have to hold: the
+     * link cannot be guessed, and merely FETCHING it cannot confirm anything
+     * — a calendar entry syncs to several devices and gets prefetched by
+     * preview bots, none of which post forms.
+     */
+    const em = `caldiary-${Date.now()}@example.com`;
+    const sess = await bookingSession({ email: em, name: 'Diary Confirm', phone: '07900556444' });
+    const mk = await postJsonRaw('/api/service-requests', {
+      name: 'Diary Confirm', phone: '07900556444', reg: 'DY11ARY',
+      service: 'diagnostics', svcLabel: 'Diagnostics', postcode: 'DT6 5NJ',
+      date: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10), time: 'Morning (8-12)',
+    }, { authorization: 'Bearer ' + sess.token });
+    const { ref } = await mk.json();
+
+    // The signature is an HMAC of the reference under the session pepper —
+    // the same one the Worker uses, derived here rather than read from it.
+    const sig = crypto.createHmac('sha256', SESSION_PEPPER).update('confirm:' + ref).digest('hex').slice(0, 32);
+
+    // A wrong signature gets a page, never a confirmation.
+    const forged = await api(`/confirm/${ref}?t=${'0'.repeat(32)}`);
+    assert.equal(forged.status, 200, 'a forged confirm link should answer with a page');
+    assert.match(await forged.text(), /not one of ours/i, 'a forged link was treated as valid');
+    const stillPending = await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + await adminTok() } })).json();
+    assert.equal((stillPending.jobs || []).find(j => j.ref === ref).status, 'pending', 'a forged link confirmed a job');
+
+    // The real link, merely FETCHED, must not confirm — it offers a button.
+    const look = await api(`/confirm/${ref}?t=${sig}`);
+    assert.equal(look.status, 200);
+    const page = await look.text();
+    assert.match(page, /Confirm this job/i, 'the confirm page does not ask');
+    assert.match(page, new RegExp(ref), 'the confirm page does not say which job');
+    assert.match(page, /<form method="POST"/i, 'confirming is not behind a form post');
+    const afterLook = await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + await adminTok() } })).json();
+    assert.equal((afterLook.jobs || []).find(j => j.ref === ref).status, 'pending',
+      'simply opening the link confirmed the job — a link preview would book it');
+
+    // Posting it is what confirms.
+    const done = await api(`/confirm/${ref}?t=${sig}`, { method: 'POST' });
+    assert.equal(done.status, 200, 'the confirm form did not work');
+    assert.match(await done.text(), /Confirmed/i, 'the confirm page did not say it worked');
+    const after = await (await api('/api/admin/jobs', { headers: { authorization: 'Bearer ' + await adminTok() } })).json();
+    const row = (after.jobs || []).find(j => j.ref === ref);
+    assert.equal(row.status, 'confirmed', 'the link did not confirm the job');
+    assert.equal(row.confirmedBy, 'calendar link', 'the job does not record how it was confirmed');
+
+    // Twice is not twice: a second post says so and sends nothing again.
+    const again = await api(`/confirm/${ref}?t=${sig}`, { method: 'POST' });
+    assert.match(await again.text(), /already/i, 'confirming twice was not recognised');
+  });
+
+  await check('the diary entry carries the confirm link only while it is needed', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    // In the entry when the job is waiting...
+    assert.ok(/o\.status === PENDING_STATUS && o\.ref[\s\S]{0,120}confirmUrl\(env, o\.ref\)/.test(src),
+      'the calendar entry does not carry a confirm link for a waiting job');
+    // ...and gone from it once the job is dealt with, so nobody taps a live
+    // link on a job that was confirmed or cancelled last week.
+    const rt = src.indexOf('async function gcalRetitle(');
+    const body = src.slice(rt, rt + 1400);
+    assert.ok(body.includes('if (o.status !== PENDING_STATUS)') && body.includes('body.description ='),
+      'confirming or cancelling leaves the confirm link live in the diary');
+    // And the title says where the job stands.
+    assert.ok(/return "TO CONFIRM — " \+ base/.test(src), 'an unconfirmed job is not marked in the diary title');
   });
 
   await check('the runaway brake must sit above the budget, not below it', async () => {
@@ -1274,9 +1416,10 @@ try {
     // minute and is correct production behaviour — five bookings from one
     // address here starved a later test instead of testing anything.
     let ip = 0;
+    const dateSession = await bookingSession({ email: `daterange-${Date.now()}@example.com`, name: 'Date Range', phone: '07900000777' });
     const tryDate = (date) => api('/api/service-requests', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.' + (++ip) },
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.' + (++ip), authorization: 'Bearer ' + dateSession.token },
       body: JSON.stringify({ ...base, date }),
     });
 
@@ -1574,8 +1717,15 @@ try {
     // Amending online is refused outright now — changes are made by phone —
     // so the injection has nowhere to land at all.
     assert.equal(patched.status, 405, 'a customer amended their own job online');
-    const mine = await (await api('/api/bookings', { headers: h })).json();
-    const job = (mine.bookings || []).find(o => o.ref === ref) || {};
+    // GET /bookings is the customer's own list — the only way they see their
+    // jobs in the portal. Nothing asserted it existed until now, so it could
+    // have been deleted outright without a single test noticing.
+    const listed = await api('/api/bookings', { headers: h });
+    assert.equal(listed.status, 200, 'a signed-in customer cannot read their own bookings');
+    const mine = await listed.json();
+    assert.ok(Array.isArray(mine.bookings), 'the booking list is not a list');
+    const job = (mine.bookings || []).find(o => o.ref === ref);
+    assert.ok(job, 'the customer cannot see the job they just booked');
     assert.equal(job.paidPence, undefined, 'a customer marked their own job paid');
     assert.equal(job.payments, undefined, 'a customer wrote their own payment records');
     assert.notEqual(job.status, 'complete', 'a customer completed their own job');
@@ -1757,7 +1907,7 @@ try {
     const { token } = await signupVerified({ name: 'Erase Me', email: em, phone: '07900000003', password: pw });
     const h = { authorization: 'Bearer ' + token, 'content-type': 'application/json' };
     await api('/api/messages', { method: 'POST', headers: h, body: JSON.stringify({ text: 'hello' }) });
-    await postJson('/api/service-requests', { name: 'Erase Me', phone: '07900000003', email: em, service: 'diagnostics', svcLabel: 'Diagnostics' });
+    await postJsonRaw('/api/service-requests', { name: 'Erase Me', phone: '07900000003', service: 'diagnostics', svcLabel: 'Diagnostics' }, h);
 
     const tok = await adminTok();
     const ah = { authorization: 'Bearer ' + tok };
@@ -2985,11 +3135,17 @@ try {
   // production behaviour and the suite has already spent the shared budget by
   // this point; two different customers really are two different addresses.
   let ipSeq = 0;
-  const bookAs = (body) => api('/api/service-requests', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.' + (++ipSeq) },
-    body: JSON.stringify(body),
-  });
+  // One account per booking here too: these tests fill a window with several
+  // different customers, and the whole point of the sign-in rule is that a
+  // customer is an account rather than whatever address was typed.
+  const bookAs = async (body) => {
+    const { token } = await bookingSession(body || {});
+    return api('/api/service-requests', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.' + (++ipSeq), authorization: 'Bearer ' + token },
+      body: JSON.stringify(body),
+    });
+  };
   const MORNING = 'Morning (8\u201312)';
 
   await check('availability is public, validated and shaped', async () => {
