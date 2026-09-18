@@ -4029,6 +4029,82 @@ try {
     }
   });
 
+  // --- CARD WIDGET ------------------------------------------------------------
+
+  await check('the CSP allows the card widget to load AND to draw its fields', async () => {
+    /*
+     * Two separate permissions, and getting one without the other is the
+     * failure that looks like nothing at all: with script-src allowed and
+     * frame-src blocked, the widget mounts successfully and renders an empty
+     * white box. No error, no card fields, no payment.
+     *
+     * frame-src also has to admit the cardholder's bank for 3-D Secure, which
+     * is why it cannot be narrowed to sumup.com alone.
+     */
+    const csp = (await api('/')).headers.get('content-security-policy') || '';
+    const dir = name => (csp.split(';').map(x => x.trim()).find(x => x.startsWith(name + ' ')) || '');
+    assert.ok(/gateway\.sumup\.com/.test(dir('script-src')), 'script-src does not allow the SumUp SDK');
+    assert.ok(/sumup\.com/.test(dir('frame-src')), 'frame-src blocks the widget iframe — it would render an empty box');
+    assert.ok(/sumup\.com/.test(dir('connect-src')), 'connect-src blocks the widget submitting the card');
+  });
+
+  await check('the payment page loads the widget from SumUp, not from us', async () => {
+    // A self-hosted copy of a payment SDK is a copy that goes stale and a card
+    // form served from our own origin — which is exactly what SAQ-A is not.
+    const html = await (await api('/')).text();
+    assert.ok(html.includes('gateway.sumup.com/gateway/ecom/card/v2/sdk.js'),
+      'the page does not reference the SumUp card SDK');
+    assert.ok(!/sumup.*sdk\.js/.test(html.replace(/gateway\.sumup\.com[^'"]*/g, '')),
+      'there appears to be a second, non-SumUp copy of the SDK');
+  });
+
+  await check('a payment cannot be confirmed by asking nicely', async () => {
+    // A reference that names nothing is refused outright. This is the outer
+    // door only — see the source check below for the one that matters.
+    const r = await postJson('/api/pay/confirm', { ref: 'CMS-NOTREAL' });
+    assert.notEqual(r.status, 200, 'an unknown reference was confirmed as paid');
+    const r2 = await postJson('/api/pay/confirm', {});
+    assert.notEqual(r2.status, 200, 'a request with no reference was accepted');
+  });
+
+  await check('/pay/confirm takes the checkout id from our records, never from the caller', async () => {
+    /*
+     * The real guard, and it has to be a source check rather than a request.
+     *
+     * The widget reports success to the BROWSER, so that claim cannot be
+     * trusted: if the caller could also name WHICH checkout to verify, anyone
+     * with a console could point us at somebody else's paid checkout and have
+     * it credited against their own booking. The id must come from our stored
+     * record of the booking and from nowhere else.
+     *
+     * This cannot be driven from the test server, which has no payment
+     * provider and refuses at the door — and a test that passes because it
+     * never reached the code it names is worse than no test. So it reads the
+     * handler instead.
+     */
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
+    const start = src.indexOf('if (p === "/pay/confirm"');
+    assert.ok(start > 0, '/pay/confirm handler not found — did it move?');
+    const handler = src.slice(start, src.indexOf('if (p === "/sumup-webhook"', start));
+
+    assert.ok(/hit\.job\.sumupCheckout/.test(handler),
+      'the handler no longer reads the checkout id from the stored booking');
+    const fromCaller = handler.match(/\bb\.(checkoutId|checkout_id|id|sumupCheckout)\b/);
+    assert.equal(fromCaller, null,
+      `the handler reads ${fromCaller && fromCaller[0]} from the request body — a caller must not choose which checkout gets credited`);
+    assert.ok(/sumupVerify\(/.test(handler), 'the handler does not verify with SumUp at all');
+    assert.ok(/v\.ref && v\.ref !== ref/.test(handler),
+      'the handler does not check that SumUp\'s own reference matches the booking being credited');
+  });
+
+  await check('/pay/confirm refuses to say paid when no provider is configured', async () => {
+    // The test server has no payment provider at all. The endpoint must fail
+    // closed rather than fall through to a default.
+    const r = await postJson('/api/pay/confirm', { ref: 'CMS-ANY' });
+    assert.ok(r.status >= 400, `expected a refusal, got ${r.status}`);
+  });
+
   await check('source files outside public/ are not served', async () => {
     // The old server.js did express.static(__dirname), exposing .env and ctyres.db.
     for (const leak of ['/.env', '/worker.js', '/ctyres.db', '/server.js', '/package.json']) {

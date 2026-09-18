@@ -198,13 +198,20 @@ function corsFor(request, env) {
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://www.googletagmanager.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://cdn.jsdelivr.net",
+  // gateway.sumup.com serves the card widget's sdk.js. The widget then draws
+  // its card fields inside an iframe from the same host, which is why
+  // frame-src below matters as much as this line: with the script allowed and
+  // the frame blocked, the widget mounts and shows an empty box.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://unpkg.com https://www.googletagmanager.com https://challenges.cloudflare.com https://js-eu1.hs-scripts.com https://js-eu1.hs-analytics.net https://js-eu1.hsadspixel.net https://js-eu1.usemessages.com https://lottie.host https://cdn.jsdelivr.net https://gateway.sumup.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com https://*.tile.openstreetmap.org https://unpkg.com https://*.hubspot.com https://*.hsforms.com https://track.hubspot.com",
   // jsdelivr serves the WebAssembly the Lottie player fetches at runtime.
-  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host https://cdn.jsdelivr.net",
-  "frame-src 'self' https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com",
+  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://api.postcodes.io https://*.hubspot.com https://*.hubapi.com https://challenges.cloudflare.com https://lottie.host https://cdn.jsdelivr.net https://gateway.sumup.com https://*.sumup.com",
+  // 3-D Secure sends the cardholder to their bank inside the widget's frame,
+  // so this cannot be narrowed to sumup.com alone without breaking the step
+  // that actually stops fraud.
+  "frame-src 'self' https://challenges.cloudflare.com https://calendar.google.com https://*.hubspot.com https://gateway.sumup.com https://*.sumup.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -3263,6 +3270,14 @@ async function api(request, env, url, ctx) {
         description: d.label + " — " + (job.svcLabel || job.service || "Mobile job") + " (" + ref + ")",
         redirect_url: site + "/#paid=" + encodeURIComponent(ref),
         return_url: site + "/api/sumup-webhook",
+        /*
+         * Hosted checkout stays ON even though the card widget is what the
+         * customer normally sees. The widget is JavaScript from a third-party
+         * host: an ad blocker, a corporate proxy or a CSP mistake can stop it
+         * loading, and a payment page that silently renders nothing is a job
+         * that does not get paid for. The hosted url is the way out of that,
+         * and it costs one flag to keep.
+         */
         hosted_checkout: { enabled: true },
       });
       if (!res.ok || !res.data || !res.data.hosted_checkout_url) {
@@ -3273,7 +3288,8 @@ async function api(request, env, url, ctx) {
       // unknown checkout id arriving at the webhook can be ignored outright.
       job.sumupCheckout = res.data.id;
       await env.CMS_KV.put(key, JSON.stringify(arr));
-      return json({ url: res.data.hosted_checkout_url, id: res.data.id, provider: "sumup" });
+      // `id` mounts the card widget in the page; `url` is the hosted fallback.
+      return json({ id: res.data.id, url: res.data.hosted_checkout_url, provider: "sumup", pence: d.pence, label: d.label });
     }
 
     const res = await stripeCall(env, "/checkout/sessions", {
@@ -3312,6 +3328,52 @@ async function api(request, env, url, ctx) {
    * SumUp retry, and there is nothing to retry when the answer is "that is not
    * one of ours".
    */
+  /*
+   * "The widget said it worked" — now go and ask SumUp.
+   *
+   * The card widget reports the outcome to the BROWSER. That is a claim made
+   * by the customer's own machine, and crediting a job on the strength of it
+   * would mean anyone who can open the console can mark a job paid. So the
+   * browser's only job here is to say "look again"; the amount, the status and
+   * the booking reference all come back from SumUp through sumupVerify.
+   *
+   * Idempotent by way of creditPayment, which ignores a reference it has
+   * already credited — the webhook and this endpoint routinely both fire for
+   * the same payment and exactly one of them must count.
+   */
+  if (p === "/pay/confirm" && request.method === "POST") {
+    if (await edgeLimited(env, "RL_WRITE", "payconf:" + clientIp(request))) {
+      return bad("Too many attempts — try again shortly.", 429);
+    }
+    const b = await request.json().catch(() => ({}));
+    const ref = String(b.ref || "").trim();
+    if (!ref) return bad("Missing booking reference");
+    if ((await paymentProvider(env)) !== "sumup") return bad("Not available for this payment provider.", 400);
+
+    const hit = await bookingByRef(env, ref);
+    if (!hit) return bad("We cannot find that booking.", 404);
+    // The checkout id comes from OUR record of the booking, never from the
+    // request. A caller supplying their own id could point us at somebody
+    // else's paid checkout and have it credited here.
+    const checkoutId = hit.job.sumupCheckout;
+    if (!checkoutId) return json({ paid: false, status: "NO_CHECKOUT" });
+
+    const v = await sumupVerify(env, checkoutId);
+    if (!v.ok) return bad("We could not confirm that payment. Please call " + BUSINESS.phone + ".", 502);
+    // SumUp's own reference must match the booking we are about to credit.
+    if (v.ref && v.ref !== ref) {
+      console.error("[pay/confirm] checkout", checkoutId, "belongs to", v.ref, "not", ref);
+      return bad("That payment does not belong to this booking.", 409);
+    }
+    if (!v.paid) return json({ paid: false, status: v.status || "PENDING" });
+
+    await creditPayment(env, ctx, {
+      ref, email: hit.owner, pence: v.pence, method: "card",
+      providerRef: v.id, auditEvent: "payment_confirmed_widget",
+    });
+    return json({ paid: true, status: "PAID", pence: v.pence });
+  }
+
   if (p === "/sumup-webhook") {
     if (!(await sumupReady(env))) {
       console.error("[sumup-webhook] rejected: SumUp is not configured");
